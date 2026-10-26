@@ -1,0 +1,189 @@
+package app.featherlauncher
+
+import android.content.Context
+
+class WidgetSpec(val id: Int, val heightDp: Int)
+
+/** Everything the user sets up, kept in SharedPreferences with in-memory copies for fast reads. */
+class Prefs(context: Context) {
+    private val sp = context.getSharedPreferences("launcher", Context.MODE_PRIVATE)
+    private val launches = context.getSharedPreferences("launches", Context.MODE_PRIVATE)
+
+    val hasDock: Boolean get() = sp.contains("dock")
+
+    var colorStyle: ColorStyle
+        get() = runCatching { ColorStyle.valueOf(sp.getString("color_style", null)!!) }.getOrDefault(ColorStyle.WALLPAPER)
+        set(value) = sp.edit().putString("color_style", value.name).apply()
+
+    /** A chosen accent color; 0 means follow the wallpaper. */
+    var accentColor: Int
+        get() = sp.getInt("accent_color", 0)
+        set(value) = sp.edit().putInt("accent_color", value).apply()
+
+    var themeMode: ThemeMode
+        get() = runCatching { ThemeMode.valueOf(sp.getString("theme_mode", null)!!) }.getOrDefault(ThemeMode.SYSTEM)
+        set(value) = sp.edit().putString("theme_mode", value.name).apply()
+
+    var iconShape: IconShape
+        get() = runCatching { IconShape.valueOf(sp.getString("icon_shape", null)!!) }.getOrDefault(IconShape.SQUIRCLE)
+        set(value) = sp.edit().putString("icon_shape", value.name).apply()
+
+    var dock: List<String?> = readDock()
+        private set
+
+    var hidden: Set<String> = emptySet()
+        private set
+
+    var widgets: List<WidgetSpec> = readWidgets()
+        private set
+
+    private var shortcuts: Map<Int, String> = emptyMap()
+
+    init {
+        reload()
+    }
+
+    /** Re-reads what another screen (settings) may have changed. */
+    fun reload() {
+        hidden = sp.getStringSet("hidden", emptySet())!!.toSet()
+        shortcuts = (0..9).mapNotNull { d -> sp.getString("shortcut_$d", null)?.let { d to it } }.toMap()
+    }
+
+    val shortcutMap: Map<Int, String> get() = shortcuts
+
+    /** App list as a grid of icons (true) or a list of names. */
+    var drawerGrid: Boolean
+        get() = sp.getBoolean("drawer_grid", true)
+        set(value) = sp.edit().putBoolean("drawer_grid", value).apply()
+
+    /** Swiping down on the home screen opens Smart Search (true) or the notifications. */
+    var swipeDownSearch: Boolean
+        get() = sp.getBoolean("swipe_down_search", true)
+        set(value) = sp.edit().putBoolean("swipe_down_search", value).apply()
+
+    var drawerCategories: Boolean
+        get() = sp.getBoolean("drawer_categories", true)
+        set(value) = sp.edit().putBoolean("drawer_categories", value).apply()
+
+    /** Hash of the PIN that guards hidden apps; null means no PIN. */
+    var hiddenPin: String?
+        get() = sp.getString("hidden_pin", null)
+        set(value) = sp.edit().putString("hidden_pin", value).apply()
+
+    var showLabels: Boolean
+        get() = sp.getBoolean("show_labels", true)
+        set(value) = sp.edit().putBoolean("show_labels", value).apply()
+
+    private fun readDock(): List<String?> {
+        val saved = sp.getString("dock", null)?.split('|')?.map { it.ifEmpty { null } } ?: emptyList()
+        return List(DOCK_SIZE) { saved.getOrNull(it) }
+    }
+
+    fun setDock(slot: Int, key: String?) {
+        dock = dock.toMutableList().also { it[slot] = key }
+        sp.edit().putString("dock", dock.joinToString("|") { it.orEmpty() }).apply()
+    }
+
+    fun setHidden(key: String, hide: Boolean) {
+        hidden = if (hide) hidden + key else hidden - key
+        sp.edit().putStringSet("hidden", hidden).apply()
+    }
+
+    fun shortcut(digit: Int): String? = shortcuts[digit]
+
+    fun shortcutDigitFor(key: String): Int? = shortcuts.entries.firstOrNull { it.value == key }?.key
+
+    fun setShortcut(digit: Int, key: String?) {
+        // One digit per app, so assigning a new digit frees the old one.
+        val updated = shortcuts.filterValues { it != key }.toMutableMap()
+        if (key == null) updated.remove(digit) else updated[digit] = key
+        shortcuts = updated
+        sp.edit().apply {
+            for (d in 0..9) {
+                val k = updated[d]
+                if (k == null) remove("shortcut_$d") else putString("shortcut_$d", k)
+            }
+        }.apply()
+    }
+
+    private fun readWidgets(): List<WidgetSpec> =
+        sp.getString("widgets", "")!!.split(',').mapNotNull { part ->
+            val (id, height) = part.split(':').takeIf { it.size == 2 } ?: return@mapNotNull null
+            WidgetSpec(id.toIntOrNull() ?: return@mapNotNull null, height.toIntOrNull() ?: return@mapNotNull null)
+        }
+
+    fun setWidgets(specs: List<WidgetSpec>) {
+        widgets = specs
+        sp.edit().putString("widgets", specs.joinToString(",") { "${it.id}:${it.heightDp}" }).apply()
+    }
+
+    fun clockOptions(id: Long) = ClockOptions(
+        runCatching { ClockOptions.Size.valueOf(sp.getString("clock_size_$id", null)!!) }.getOrDefault(ClockOptions.Size.LARGE),
+        sp.getBoolean("clock_start_$id", false),
+        sp.getBoolean("clock_date_$id", true),
+    )
+
+    fun setClockOptions(id: Long, options: ClockOptions) {
+        sp.edit()
+            .putString("clock_size_$id", options.size.name)
+            .putBoolean("clock_start_$id", options.alignStart)
+            .putBoolean("clock_date_$id", options.showDate)
+            .apply()
+    }
+
+    /** Icons: Automatic (dark in dark mode), always light, always dark, or tinted. */
+    var iconLook: IconLookSetting
+        get() = runCatching { IconLookSetting.valueOf(sp.getString("icon_look", null)!!) }.getOrDefault(IconLookSetting.AUTO)
+        set(value) = sp.edit().putString("icon_look", value.name).apply()
+
+    /** Darken the wallpaper on the home screen in dark mode. */
+    var dimWallpaper: Boolean
+        get() = sp.getBoolean("dim_wallpaper", true)
+        set(value) = sp.edit().putBoolean("dim_wallpaper", value).apply()
+
+    // The clock's extra lines, and how zmanim are worked out.
+
+    var clockHebrewDate: Boolean
+        get() = sp.getBoolean("clock_hebrew", true)
+        set(value) = sp.edit().putBoolean("clock_hebrew", value).apply()
+
+    var clockZman: Boolean
+        get() = sp.getBoolean("clock_zman", true)
+        set(value) = sp.edit().putBoolean("clock_zman", value).apply()
+
+    var clockEvent: Boolean
+        get() = sp.getBoolean("clock_event", true)
+        set(value) = sp.edit().putBoolean("clock_event", value).apply()
+
+    /** Sof zman Shema and Tefila by the Magen Avraham (true) or the Gra. */
+    var zmanMagenAvraham: Boolean
+        get() = sp.getBoolean("zman_mga", false)
+        set(value) = sp.edit().putBoolean("zman_mga", value).apply()
+
+    var candleMinutes: Int
+        get() = sp.getInt("candle_minutes", 18)
+        set(value) = sp.edit().putInt("candle_minutes", value).apply()
+
+    /** A chosen city for zmanim, or null to use where the phone is. */
+    var zmanCity: String?
+        get() = sp.getString("zman_city", null)
+        set(value) = sp.edit().putString("zman_city", value).apply()
+
+    /** The phone's last known position, kept for when it can't be found. */
+    var lastPlace: Pair<Double, Double>?
+        get() = if (sp.contains("last_lat")) sp.getFloat("last_lat", 0f).toDouble() to sp.getFloat("last_lon", 0f).toDouble() else null
+        set(value) {
+            if (value == null) sp.edit().remove("last_lat").remove("last_lon").apply()
+            else sp.edit().putFloat("last_lat", value.first.toFloat()).putFloat("last_lon", value.second.toFloat()).apply()
+        }
+
+    fun launchCount(key: String): Int = launches.getInt(key, 0)
+
+    fun recordLaunch(key: String) {
+        launches.edit().putInt(key, launchCount(key) + 1).apply()
+    }
+
+    companion object {
+        const val DOCK_SIZE = 4
+    }
+}

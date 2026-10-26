@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- MingCute icon (history.svg), Apache License 2.0. -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="24dp"
+    android:height="24dp"
+    android:viewportWidth="24"
+    android:viewportHeight="24">
+    <path
+        android:pathData="M12 7v5l3 3m5-3.03-1.607-.42a.1.1 0 0 0-.1.162l2.251 2.588c.052.06.15.038.17-.04q.148-.567.22-1.144A9.003 9.003 0 0 0 4.205 7.5 9 9 0 0 0 18.08 18.639"
+        android:strokeColor="#FFFFFFFF"
+        android:strokeWidth="2"
+        android:strokeLineCap="round"
+        android:strokeLineJoin="round" />
+</vector>

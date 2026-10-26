@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- MingCute icon (cellphone-vibration.svg), Apache License 2.0. -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="24dp"
+    android:height="24dp"
+    android:viewportWidth="24"
+    android:viewportHeight="24">
+    <path
+        android:pathData="m9.171 14.828.007.007m-1.42-11.32L3.514 7.756m16.97 8.485-4.242 4.243M3.515 14.828l5.657 5.657a1 1 0 0 0 1.414 0l9.9-9.9a1 1 0 0 0 0-1.414l-5.658-5.657a1 1 0 0 0-1.414 0l-9.9 9.9a1 1 0 0 0 0 1.414Z"
+        android:strokeColor="#FFFFFFFF"
+        android:strokeWidth="2"
+        android:strokeLineCap="round" />
+</vector>

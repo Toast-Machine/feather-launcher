@@ -1,0 +1,116 @@
+package app.featherlauncher
+
+import android.content.Context
+import org.json.JSONArray
+import org.json.JSONObject
+
+/**
+ * One notification filter. For [app] (a package name, or null for every app), notifications
+ * that mention any of [words] are hidden; with [allowOnly], everything except those is hidden.
+ * No words means every notification from the app. [onlyAtNight] limits it to Sleep time.
+ */
+data class NotificationFilter(
+    val id: Long,
+    val app: String?,
+    val words: List<String>,
+    val allowOnly: Boolean = false,
+    val onlyAtNight: Boolean = false,
+    val enabled: Boolean = true,
+) {
+    /** Whether a notification from [pkg] saying [text] should be hidden. */
+    fun hides(pkg: String, text: String, night: Boolean): Boolean {
+        if (!enabled || (app != null && app != pkg) || (onlyAtNight && !night)) return false
+        // No words: everything from the app.
+        if (words.isEmpty()) return true
+        val mentioned = words.any { word ->
+            // A word written /like this/ is a pattern, as in NotiFilter; anything else is plain text.
+            if (word.length > 2 && word.startsWith('/') && word.endsWith('/')) {
+                runCatching { Regex(word.substring(1, word.length - 1), RegexOption.IGNORE_CASE).containsMatchIn(text) }.getOrDefault(false)
+            } else {
+                text.contains(word, ignoreCase = true)
+            }
+        }
+        return if (allowOnly) !mentioned else mentioned
+    }
+
+    fun toJson(): JSONObject = JSONObject()
+        .put("id", id).put("app", app).put("words", JSONArray(words))
+        .put("allowOnly", allowOnly).put("onlyAtNight", onlyAtNight).put("enabled", enabled)
+
+    companion object {
+        fun fromJson(o: JSONObject): NotificationFilter? = runCatching {
+            val words = o.getJSONArray("words")
+            NotificationFilter(
+                o.getLong("id"), o.optString("app").ifEmpty { null },
+                (0 until words.length()).map { words.getString(it) },
+                o.optBoolean("allowOnly"), o.optBoolean("onlyAtNight"), o.optBoolean("enabled", true),
+            )
+        }.getOrNull()
+
+        /** Turns "sale, promo code" into its words, ignoring blanks. */
+        fun parseWords(text: String) = text.split(',').map { it.trim() }.filter { it.isNotEmpty() }
+    }
+}
+
+/** A notification that was hidden, kept so it can still be read. */
+data class HiddenNotification(val app: String, val title: String, val text: String, val time: Long, val why: String) {
+    fun toJson(): JSONObject = JSONObject().put("app", app).put("title", title).put("text", text).put("time", time).put("why", why)
+
+    companion object {
+        fun fromJson(o: JSONObject) = HiddenNotification(
+            o.getString("app"), o.optString("title"), o.optString("text"), o.getLong("time"), o.optString("why"),
+        )
+    }
+}
+
+/** The saved filters and the list of what they hid, shared by settings and the listener. */
+class NotificationFilters private constructor(context: Context) {
+    private val sp = context.getSharedPreferences("notifications", Context.MODE_PRIVATE)
+
+    var filters: List<NotificationFilter> = readFilters()
+        private set
+
+    /** During Sleep time, notifications from locked apps wait until it ends. */
+    var holdDuringSleep: Boolean
+        get() = sp.getBoolean("hold_during_sleep", true)
+        set(value) = sp.edit().putBoolean("hold_during_sleep", value).apply()
+
+    private fun readFilters(): List<NotificationFilter> {
+        val array = runCatching { JSONArray(sp.getString("filters", "[]")) }.getOrDefault(JSONArray())
+        return (0 until array.length()).mapNotNull { NotificationFilter.fromJson(array.getJSONObject(it)) }
+    }
+
+    private fun saveFilters(next: List<NotificationFilter>) {
+        filters = next
+        sp.edit().putString("filters", JSONArray(next.map { it.toJson() }).toString()).apply()
+    }
+
+    fun put(filter: NotificationFilter) =
+        saveFilters(if (filters.any { it.id == filter.id }) filters.map { if (it.id == filter.id) filter else it } else filters + filter)
+
+    fun remove(id: Long) = saveFilters(filters.filter { it.id != id })
+
+    /** Newest first. */
+    val history: List<HiddenNotification>
+        get() {
+            val array = runCatching { JSONArray(sp.getString("history", "[]")) }.getOrDefault(JSONArray())
+            return (0 until array.length()).map { HiddenNotification.fromJson(array.getJSONObject(it)) }
+        }
+
+    fun remember(hidden: HiddenNotification) {
+        val next = (listOf(hidden) + history).take(HISTORY_SIZE)
+        sp.edit().putString("history", JSONArray(next.map { it.toJson() }).toString()).apply()
+    }
+
+    fun clearHistory() = sp.edit().remove("history").apply()
+
+    companion object {
+        private const val HISTORY_SIZE = 100
+
+
+        @Volatile private var instance: NotificationFilters? = null
+
+        fun get(context: Context): NotificationFilters =
+            instance ?: synchronized(this) { instance ?: NotificationFilters(context.applicationContext).also { instance = it } }
+    }
+}

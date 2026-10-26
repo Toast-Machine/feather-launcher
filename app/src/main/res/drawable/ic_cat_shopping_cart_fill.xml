@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- MingCute icon (shopping-cart-1.svg), Apache License 2.0. -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="24dp"
+    android:height="24dp"
+    android:viewportWidth="24"
+    android:viewportHeight="24">
+    <path
+        android:pathData="M7.5 19a1.5 1.5 0 1 1 0 3 1.5 1.5 0 0 1 0-3m10 0a1.5 1.5 0 1 1 0 3 1.5 1.5 0 0 1 0-3M3 2c1.726 0 3.023 1.283 3.146 3h13.656a2 2 0 0 1 1.968 2.357l-1.637 9A2 2 0 0 1 18.165 18H6.931a2 2 0 0 1-1.994-1.857L4.135 4.929C4.09 4.31 3.565 4 3 4a1 1 0 0 1 0-2"
+        android:fillColor="#FFFFFFFF" />
+</vector>

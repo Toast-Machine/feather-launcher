@@ -1,0 +1,18 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- MingCute icon (settings-3.svg), Apache License 2.0. -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="24dp"
+    android:height="24dp"
+    android:viewportWidth="24"
+    android:viewportHeight="24">
+    <path
+        android:pathData="M17.947 5.545a.51.51 0 0 0-.171-.447 9 9 0 0 0-2.684-1.551.51.51 0 0 0-.473.075c-.761.548-1.658.88-2.619.88-.96 0-1.858-.332-2.62-.88a.51.51 0 0 0-.473-.075 9 9 0 0 0-2.683 1.552.51.51 0 0 0-.171.446c.093.933-.068 1.875-.548 2.706-.48.832-1.215 1.443-2.07 1.828a.51.51 0 0 0-.302.373 9 9 0 0 0 0 3.098.51.51 0 0 0 .301.373c.856.386 1.59.997 2.07 1.828s.642 1.773.549 2.706a.51.51 0 0 0 .171.447 9 9 0 0 0 2.683 1.552c.16.058.336.024.474-.075.761-.549 1.659-.88 2.619-.88s1.858.331 2.62.88a.51.51 0 0 0 .473.075 9 9 0 0 0 2.683-1.552.51.51 0 0 0 .171-.447c-.093-.933.068-1.875.548-2.706s1.215-1.442 2.07-1.828a.51.51 0 0 0 .302-.373 9 9 0 0 0 0-3.098.51.51 0 0 0-.301-.373c-.856-.385-1.59-.996-2.07-1.828-.48-.83-.642-1.773-.549-2.706Z"
+        android:strokeColor="#FFFFFFFF"
+        android:strokeWidth="2"
+        android:strokeLineJoin="round" />
+    <path
+        android:pathData="M15 12a3 3 0 1 1-6 0 3 3 0 0 1 6 0Z"
+        android:strokeColor="#FFFFFFFF"
+        android:strokeWidth="2"
+        android:strokeLineJoin="round" />
+</vector>

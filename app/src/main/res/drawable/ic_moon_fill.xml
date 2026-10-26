@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- MingCute icon (moon.svg), Apache License 2.0. -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="24dp"
+    android:height="24dp"
+    android:viewportWidth="24"
+    android:viewportHeight="24">
+    <path
+        android:pathData="M13.574 3.137a1.01 1.01 0 0 0-1.097 1.408 6 6 0 0 1-7.931 7.931c-.747-.335-1.548.307-1.409 1.098A9 9 0 0 0 21 12c0-4.435-3.206-8.118-7.426-8.863"
+        android:fillColor="#FFFFFFFF"
+        android:fillType="evenOdd" />
+</vector>

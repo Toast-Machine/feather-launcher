@@ -1,0 +1,1367 @@
+package app.featherlauncher
+
+import android.annotation.SuppressLint
+import android.app.Activity
+import android.content.ContentUris
+import android.content.Intent
+import android.content.pm.PackageManager
+import android.graphics.Bitmap
+import android.graphics.Canvas
+import android.graphics.Paint
+import android.graphics.Rect
+import android.graphics.RectF
+import android.provider.AlarmClock
+import android.provider.CalendarContract
+import android.provider.MediaStore
+import android.provider.Telephony
+import android.view.Gravity
+import android.view.HapticFeedbackConstants
+import android.view.MotionEvent
+import android.view.View
+import android.view.ViewConfiguration
+import android.view.ViewGroup
+import android.view.animation.DecelerateInterpolator
+import android.widget.FrameLayout
+import android.widget.ImageView
+import android.widget.LinearLayout
+import android.widget.TextView
+import kotlin.math.abs
+import kotlin.math.hypot
+import kotlin.math.roundToInt
+
+/**
+ * The home screen: pages of apps and widgets plus the dock, all on grids,
+ * with long-press-and-drag to rearrange and handles to resize widgets.
+ */
+class HomeScreen(
+    private val activity: Activity,
+    private val root: FrameLayout,
+    val pages: PagedView,
+    private val dots: PageDots,
+    private val dock: CellLayout,
+    private val repo: AppRepository,
+    private val prefs: Prefs,
+    private val widgets: Widgets,
+    private val overlays: Overlays,
+    private val palette: () -> Palette,
+    private val host: Host,
+) {
+    /** What the home screen needs from the activity around it. */
+    interface Host {
+        fun launch(entry: AppEntry, from: View?)
+        fun startSafely(intent: Intent)
+        fun showAppInfo(entry: AppEntry)
+        fun closeDrawer(animate: Boolean)
+        /** An app dragged from the app list is taken back there, still being dragged. */
+        fun returnToDrawer(entry: AppEntry, x: Float, y: Float)
+        /** Cancels the touch gesture currently going to the views, once a drag takes it over. */
+        fun cancelViewTouches()
+    }
+
+    val workspace = Workspace(activity)
+    private val shortcuts = Shortcuts(activity)
+    private val views = HashMap<Long, View>()
+    private val drag = Drag()
+    private var resize: ResizeFrame? = null
+
+    init {
+        dock.cols = Workspace.DOCK_COLS
+        dock.rows = 1
+        pages.onPageChanged = { dots.current = it }
+        if (workspace.isNew) setUpDefaults()
+        bindAll()
+    }
+
+    // region Layout
+
+    private fun setUpDefaults() {
+        workspace.add(0, 0, 0, Workspace.COLS, 2, HomeItem.Type.CLOCK, "")
+        // Carry over the dock and widgets from before the home screen had a grid.
+        prefs.dock.forEachIndexed { slot, key ->
+            if (key != null) workspace.add(Workspace.DOCK, slot, 0, 1, 1, HomeItem.Type.APP, key)
+        }
+        prefs.widgets.forEach { spec ->
+            val (x, y) = workspace.findSpot(0, Workspace.COLS, 2) ?: return@forEach
+            workspace.add(0, x, y, Workspace.COLS, 2, HomeItem.Type.WIDGET, spec.id.toString())
+        }
+        workspace.save()
+    }
+
+    /** On a fresh install the dock starts with phone, messages, email and camera. */
+    private fun fillDefaultDock() {
+        if (workspace.on(Workspace.DOCK).isNotEmpty() || repo.apps.isEmpty()) return
+        val pm = activity.packageManager
+        fun packageFor(intent: Intent) =
+            pm.resolveActivity(intent, PackageManager.MATCH_DEFAULT_ONLY)?.activityInfo?.packageName
+        listOf(
+            packageFor(Intent(Intent.ACTION_DIAL)),
+            Telephony.Sms.getDefaultSmsPackage(activity),
+            packageFor(Intent(Intent.ACTION_MAIN).addCategory(Intent.CATEGORY_APP_EMAIL)),
+            packageFor(Intent(MediaStore.INTENT_ACTION_STILL_IMAGE_CAMERA)),
+        ).forEachIndexed { slot, pkg ->
+            val entry = repo.apps.firstOrNull { it.packageName == pkg } ?: return@forEachIndexed
+            workspace.add(Workspace.DOCK, slot, 0, 1, 1, HomeItem.Type.APP, entry.key)
+        }
+        workspace.save()
+    }
+
+    fun onAppsChanged() {
+        fillDefaultDock()
+        // Drop apps that were uninstalled (only once the app list is known).
+        if (repo.apps.isNotEmpty()) {
+            workspace.items.filter { it.type == HomeItem.Type.FOLDER }.forEach { folder ->
+                folder.apps.filter { repo.find(it) == null }.forEach { removeFromFolder(folder, it) }
+            }
+            val gone = workspace.items.filter { it.type == HomeItem.Type.APP && repo.find(it.ref) == null }
+            if (gone.isNotEmpty()) {
+                workspace.items.removeAll(gone)
+                gone.forEach { views.remove(it.id)?.let { v -> (v.parent as? ViewGroup)?.removeView(v) } }
+                workspace.removeEmptyPages()
+                workspace.save()
+            }
+        }
+        bindAll()
+    }
+
+    /** Puts every item's view in its cell, creating views as needed and reusing the rest. */
+    fun bindAll() {
+        while (pages.pageCount < workspace.pageCount) pages.addView(newPage())
+        while (pages.pageCount > workspace.pageCount) pages.removeViewAt(pages.pageCount - 1)
+        dots.count = workspace.pageCount
+        if (pages.currentPage >= workspace.pageCount) pages.snapTo(workspace.pageCount - 1, animate = false)
+        dots.current = pages.currentPage
+
+        val alive = workspace.items.map { it.id }.toSet()
+        views.keys.filter { it !in alive }.forEach { id -> views.remove(id)?.let { (it.parent as? ViewGroup)?.removeView(it) } }
+
+        val sleep = SleepTime.get(activity)
+        val newApps = NewApps.get(activity)
+        val now = System.currentTimeMillis()
+        for (item in workspace.items) {
+            val view = views[item.id] ?: createView(item)?.also { views[item.id] = it } ?: continue
+            (view as? ClockWidget)?.refresh()
+            if (view is AppIconView) {
+                val showLabel = !item.inDock && prefs.showLabels
+                if (item.type == HomeItem.Type.FOLDER) {
+                    view.bind(folderIcon(item), item.label ?: FOLDER_NAME, showLabel,
+                        iconDp = if (item.inDock) AppIconView.DOCK_ICON else AppIconView.ICON)
+                } else {
+                    val entry = repo.find(item.ref)
+                    view.bind(entry?.let(repo::icon), item.label ?: entry?.label.orEmpty(), showLabel,
+                        asleep = entry != null && sleep.isLocked(entry.packageName, now),
+                        isNew = entry != null && newApps.isNew(entry),
+                        iconDp = if (item.inDock) AppIconView.DOCK_ICON else AppIconView.ICON)
+                }
+            }
+            val target = containerFor(item.page)
+            val lp = view.layoutParams as? CellLayout.LayoutParams
+            if (view.parent !== target || lp == null || lp.x != item.x || lp.y != item.y || lp.w != item.w || lp.h != item.h) {
+                target.place(view, item.x, item.y, item.w, item.h)
+            }
+        }
+        val offset = if (prefs.showLabels) dp(AppIconView.LABEL_HEIGHT) / 2f else 0f
+        for (i in 0 until pages.pageCount) pages.page(i).iconOffset = offset
+        pages.updateFocusability()
+    }
+
+    private fun newPage() = CellLayout(activity).apply {
+        cols = Workspace.COLS
+        rows = Workspace.ROWS
+        setPadding(dp(8), 0, dp(8), 0)
+    }
+
+    private fun containerFor(page: Int): CellLayout = if (page == Workspace.DOCK) dock else pages.page(page)
+
+    private fun createView(item: HomeItem): View? = when (item.type) {
+        HomeItem.Type.APP -> AppIconView(activity, item).apply {
+            setOnClickListener { v -> repo.find(item.ref)?.let { host.launch(it, (v as AppIconView).iconView) } }
+            setOnLongClickListener { onItemLongPress(item, it); true }
+        }
+        HomeItem.Type.FOLDER -> AppIconView(activity, item).apply {
+            setOnClickListener { openFolder(item) }
+            setOnLongClickListener { onItemLongPress(item, it); true }
+        }
+        HomeItem.Type.CLOCK -> ClockWidget(activity, item).apply {
+            apply(prefs.clockOptions(item.id))
+            foreground = Ui.focusRing(activity, Ui.RADIUS_L, 0xFFFFFFFF.toInt())
+            setOnClickListener { host.startSafely(Intent(AlarmClock.ACTION_SHOW_ALARMS)) }
+            dateView.setOnClickListener {
+                val uri = CalendarContract.CONTENT_URI.buildUpon().appendPath("time")
+                ContentUris.appendId(uri, System.currentTimeMillis())
+                host.startSafely(Intent(Intent.ACTION_VIEW, uri.build()))
+            }
+            onZman = { place -> ZmanimSheet.show(activity, palette(), overlays, place) }
+            onEvent = { e ->
+                host.startSafely(Intent(Intent.ACTION_VIEW, ContentUris.withAppendedId(CalendarContract.Events.CONTENT_URI, e.id)))
+            }
+            setOnLongClickListener { onItemLongPress(item, it); true }
+            dateView.setOnLongClickListener { onItemLongPress(item, this); true }
+        }
+        HomeItem.Type.WIDGET -> widgets.createView(item.ref.toInt())?.apply {
+            // Reachable with the keypad like everything else, with the same ring when it is.
+            isFocusable = true
+            foreground = Ui.focusRing(activity, Ui.RADIUS_L, 0xFFFFFFFF.toInt())
+            onLongPress = { onItemLongPress(item, this) }
+        }
+    }
+
+    fun applyTheme() {
+        val p = palette()
+        // Dock corner = highlight corner + the space around it, so the curves run parallel.
+        // Exactly DOCK_GAP from the edges to the icons, left, right, top and bottom.
+        // Icons sit in boxes INSET larger than themselves (room for the keypad highlight).
+        dock.edgeGap = dp(DOCK_GAP)
+        dock.iconSize = dp(AppIconView.DOCK_ICON)
+        dock.boxDp = AppIconView.DOCK_ICON + 2 * AppIconView.INSET
+        val vertical = dp(DOCK_GAP - AppIconView.INSET)
+        dock.setPadding(0, vertical, 0, vertical)
+        // Like Smart Launcher: on the wallpaper the dock is the app list's deep tone; the lighter
+        // tone is for bars that sit on that deep background (the app list's tab bar).
+        dock.background = Ui.rounded(activity, p.drawer, Ui.RADIUS_BAR, p.hairline)
+    }
+
+    /** Size of one page cell in dp, for sizing new widgets. */
+    fun cellSizeDp(): Pair<Float, Float> {
+        val density = activity.resources.displayMetrics.density
+        val page = if (pages.pageCount > 0) pages.page(0) else null
+        if (page == null || page.width == 0) return 100f to 84f
+        return page.cellWidth / density to page.cellHeight / density
+    }
+
+    // endregion
+
+    // region Adding and removing
+
+    /** Puts an app on the first free spot, starting at the visible page, adding a page if all are full. */
+    fun addApp(entry: AppEntry) = addItem(1, 1, HomeItem.Type.APP, entry.key)
+
+    fun addWidget(appWidgetId: Int, spanX: Int, spanY: Int) = addItem(spanX, spanY, HomeItem.Type.WIDGET, appWidgetId.toString())
+
+    fun addClock() = addItem(Workspace.COLS, 2, HomeItem.Type.CLOCK, "")
+
+    private fun addItem(w: Int, h: Int, type: HomeItem.Type, ref: String) {
+        val order = listOf(pages.currentPage) + (0 until workspace.pageCount).filter { it != pages.currentPage }
+        var placed: HomeItem? = null
+        for (page in order) {
+            val spot = workspace.findSpot(page, w, h) ?: continue
+            placed = workspace.add(page, spot.first, spot.second, w, h, type, ref)
+            break
+        }
+        if (placed == null) {
+            val page = workspace.addPage()
+            placed = workspace.add(page, 0, 0, w, h, type, ref)
+        }
+        workspace.save()
+        bindAll()
+        pages.snapTo(placed.page)
+        views[placed.id]?.apply {
+            alpha = 0f
+            scaleX = 0.85f
+            scaleY = 0.85f
+            animate().alpha(1f).scaleX(1f).scaleY(1f).setStartDelay(120).setDuration(260)
+                .setInterpolator(DecelerateInterpolator(2f)).start()
+        }
+    }
+
+    fun remove(item: HomeItem) {
+        workspace.items.remove(item)
+        if (item.type == HomeItem.Type.WIDGET) widgets.delete(item.ref.toInt())
+        views.remove(item.id)?.let { v ->
+            v.animate().alpha(0f).scaleX(0.8f).scaleY(0.8f).setDuration(160).withEndAction {
+                (v.parent as? ViewGroup)?.removeView(v)
+            }.start()
+        }
+        workspace.removeEmptyPages()
+        workspace.save()
+        bindAll()
+    }
+
+    // endregion
+
+    // region Menus
+
+    private fun onItemLongPress(item: HomeItem, view: View) {
+        view.performHapticFeedback(HapticFeedbackConstants.LONG_PRESS)
+        drag.arm(DragSource(item, null, view))
+        // Widgets go straight to resizing (with their actions next to the frame); apps get their menu.
+        if (item.isWidget) startResize(item) else showItemMenu(item, view)
+    }
+
+    /** Opens the item's menu (also used by the keypad Menu key). */
+    fun showItemMenu(item: HomeItem, view: View) {
+        val anchor = rectInRoot(view)
+        when (item.type) {
+            HomeItem.Type.APP -> {
+                val entry = repo.find(item.ref) ?: return
+                overlays.showMenu(
+                    item.label ?: entry.label,
+                    listOf(
+                        shortcuts.menuItems(entry),
+                        listOf(
+                            MenuItem("Rename", R.drawable.ic_edit) { rename(item, entry.label) },
+                            MenuItem("Remove", R.drawable.ic_close, danger = true) { remove(item) },
+                        ),
+                    ),
+                    anchor, repo.icon(entry),
+                ) { host.showAppInfo(entry) }
+            }
+            HomeItem.Type.FOLDER -> overlays.showMenu(item.label ?: FOLDER_NAME, listOf(
+                MenuItem("Rename", R.drawable.ic_edit) { rename(item, FOLDER_NAME) },
+                MenuItem("Remove", R.drawable.ic_close, danger = true) { remove(item) },
+            ), anchor, folderIcon(item))
+            HomeItem.Type.CLOCK -> overlays.showMenu("Clock", listOf(
+                MenuItem("Clock settings", R.drawable.ic_settings) { clockSettings(item) },
+                MenuItem("Resize", R.drawable.ic_height) { startResize(item) },
+                MenuItem("Remove", R.drawable.ic_close, danger = true) { remove(item) },
+            ), anchor)
+            HomeItem.Type.WIDGET -> {
+                val info = widgets.info(item.ref.toInt())
+                val label = info?.loadLabel(activity.packageManager) ?: "Widget"
+                val items = mutableListOf<MenuItem>()
+                if (info != null && info.resizeMode != 0) items += MenuItem("Resize", R.drawable.ic_height) { startResize(item) }
+                items += MenuItem("Remove", R.drawable.ic_close, danger = true) { remove(item) }
+                overlays.showMenu(label, items, anchor, info?.provider?.packageName?.let { pkg ->
+                    repo.apps.firstOrNull { it.packageName == pkg }?.let(repo::icon)
+                })
+            }
+        }
+    }
+
+    /** Finds the home item behind a focused view, for the keypad Menu key. */
+    fun itemFor(view: View?): Pair<HomeItem, View>? {
+        var v = view
+        while (v != null && v !== root) {
+            val entry = views.entries.firstOrNull { it.value === v }
+            if (entry != null) return workspace.items.first { it.id == entry.key } to v
+            v = v.parent as? View
+        }
+        return null
+    }
+
+    /** A sheet with the name in a field; saving an empty name goes back to the app's own. */
+    private fun rename(item: HomeItem, defaultName: String) {
+        val p = palette()
+        val field = android.widget.EditText(activity).apply {
+            setText(item.label ?: defaultName)
+            selectAll()
+            setSingleLine()
+            imeOptions = android.view.inputmethod.EditorInfo.IME_ACTION_DONE
+            style(TextStyle.Body, p.text)
+            setHintTextColor(p.textTertiary)
+            hint = defaultName
+            background = Ui.rounded(activity, p.surfaceHigh, Ui.RADIUS_M)
+            setPadding(dp(Ui.SPACE_L), 0, dp(Ui.SPACE_L), 0)
+        }
+        fun save() {
+            val name = field.text.toString().trim()
+            item.label = name.takeIf { it.isNotEmpty() && it != defaultName }
+            workspace.save()
+            bindAll()
+            overlays.dismiss()
+        }
+        field.setOnEditorActionListener { _, _, _ -> save(); true }
+        val column = LinearLayout(activity).apply {
+            orientation = LinearLayout.VERTICAL
+            setPadding(dp(Ui.SPACE_XL), 0, dp(Ui.SPACE_XL), dp(Ui.SPACE_L))
+            addView(field, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(50)))
+            addView(LinearLayout(activity).apply {
+                orientation = LinearLayout.HORIZONTAL
+                gravity = Gravity.END
+                if (item.type == HomeItem.Type.APP) {
+                    addView(pillButton("Use app's name", p.surfaceHigh, p.text) {
+                        field.setText(defaultName)
+                        save()
+                    }, LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, dp(42)).apply { marginEnd = dp(Ui.SPACE_S) })
+                }
+                addView(pillButton("Save", p.accent, p.onAccent) { save() },
+                    LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, dp(42)))
+            }, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply {
+                topMargin = dp(Ui.SPACE_M)
+            })
+        }
+        overlays.showSheet("Rename", column)
+        field.requestFocus()
+        field.post {
+            activity.getSystemService(android.view.inputmethod.InputMethodManager::class.java)
+                .showSoftInput(field, android.view.inputmethod.InputMethodManager.SHOW_IMPLICIT)
+        }
+    }
+
+    // region Folders
+
+    /** The folder's icon: a tile in the icon shape with up to four of its apps inside. */
+    private fun folderIcon(item: HomeItem): Bitmap {
+        val size = dp(64)
+        val bitmap = Bitmap.createBitmap(size, size, Bitmap.Config.ARGB_8888)
+        val canvas = Canvas(bitmap)
+        canvas.drawPath(prefs.iconShape.path(size.toFloat()), Paint(Paint.ANTI_ALIAS_FLAG).apply { color = palette().folderFill })
+        val pad = size * 0.17f
+        val gap = size * 0.07f
+        val mini = (size - 2 * pad - gap) / 2
+        val paint = Paint(Paint.ANTI_ALIAS_FLAG or Paint.FILTER_BITMAP_FLAG)
+        item.apps.take(4).forEachIndexed { i, key ->
+            val icon = repo.find(key)?.let(repo::icon) ?: return@forEachIndexed
+            val x = pad + (i % 2) * (mini + gap)
+            val y = pad + (i / 2) * (mini + gap)
+            canvas.drawBitmap(icon, null, RectF(x, y, x + mini, y + mini), paint)
+        }
+        return bitmap
+    }
+
+    /** Puts [key] into [target]: into it if it's a folder, or makes a new folder from two apps. */
+    private fun addToFolder(target: HomeItem, key: String): HomeItem {
+        if (target.type == HomeItem.Type.FOLDER) {
+            if (key !in target.apps) target.apps += key
+            return target
+        }
+        workspace.items.remove(target)
+        return workspace.add(target.page, target.x, target.y, 1, 1, HomeItem.Type.FOLDER, "").also {
+            it.apps += listOf(target.ref, key)
+        }
+    }
+
+    /** Takes [key] out; a folder left with one app becomes that app, an empty one disappears. */
+    private fun removeFromFolder(folder: HomeItem, key: String) {
+        folder.apps.remove(key)
+        when (folder.apps.size) {
+            0 -> workspace.items.remove(folder)
+            1 -> {
+                workspace.items.remove(folder)
+                workspace.add(folder.page, folder.x, folder.y, 1, 1, HomeItem.Type.APP, folder.apps.first())
+            }
+        }
+    }
+
+    private fun openFolder(item: HomeItem) {
+        val p = palette()
+        val apps = item.apps.mapNotNull(repo::find)
+        val card = LinearLayout(activity).apply {
+            orientation = LinearLayout.VERTICAL
+            // Same color family as the folder's icon: it belongs to the home screen, not the theme.
+            // Same family as the dock and app list: the wallpaper's color with the light hairline.
+            background = Ui.rounded(activity, p.glass, Ui.RADIUS_BAR, p.hairline)
+            setPadding(dp(Ui.SPACE_S), dp(Ui.SPACE_S), dp(Ui.SPACE_S), dp(Ui.SPACE_M))
+        }
+        // The name, like a category page's title; tap to rename.
+        card.addView(TextView(activity).apply {
+            text = item.label ?: FOLDER_NAME
+            style(TextStyle.Title, p.onWall)
+            setTextSize(android.util.TypedValue.COMPLEX_UNIT_SP, 24f)
+            setPadding(dp(Ui.SPACE_S), dp(Ui.SPACE_S), dp(Ui.SPACE_S), dp(Ui.SPACE_S))
+            background = Ui.pressable(activity, Ui.RADIUS_M)
+            isFocusable = true
+            setOnClickListener { rename(item, FOLDER_NAME) }
+        }, LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply {
+            setMargins(dp(Ui.SPACE_S), 0, 0, dp(Ui.SPACE_XS))
+        })
+        apps.chunked(FOLDER_COLS).forEach { rowApps ->
+            val row = LinearLayout(activity).apply { orientation = LinearLayout.HORIZONTAL }
+            for (i in 0 until FOLDER_COLS) {
+                val entry = rowApps.getOrNull(i)
+                // Space, not View: an empty View stretches to the whole height available.
+                row.addView(if (entry == null) android.widget.Space(activity) else folderTile(item, entry, p),
+                    LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f))
+            }
+            card.addView(row)
+        }
+        overlays.showPanel(card, p.searchScrim)
+    }
+
+    private fun folderTile(folder: HomeItem, entry: AppEntry, p: Palette): View {
+        val icon = ImageView(activity).apply { setImageBitmap(repo.icon(entry)) }
+        return LinearLayout(activity).apply {
+            orientation = LinearLayout.VERTICAL
+            gravity = Gravity.CENTER_HORIZONTAL
+            setPadding(dp(4), dp(Ui.SPACE_S), dp(4), dp(Ui.SPACE_S))
+            background = Ui.pressable(activity, Ui.RADIUS_M)
+            isFocusable = true
+            addView(icon, LinearLayout.LayoutParams(dp(54), dp(54)))
+            addView(TextView(activity).apply {
+                text = entry.label
+                style(TextStyle.Caption, p.onWall)
+                typeface = android.graphics.Typeface.DEFAULT
+                maxLines = 1
+                ellipsize = android.text.TextUtils.TruncateAt.END
+                gravity = Gravity.CENTER
+                setPadding(0, dp(6), 0, 0)
+            }, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT))
+            setOnClickListener {
+                overlays.dismiss()
+                host.launch(entry, icon)
+            }
+            setOnLongClickListener {
+                performHapticFeedback(HapticFeedbackConstants.LONG_PRESS)
+                drag.arm(DragSource(null, entry, icon, folder))
+                overlays.showMenu(entry.label, listOf(
+                    MenuItem("Move out of folder", R.drawable.ic_home) {
+                        removeFromFolder(folder, entry.key)
+                        workspace.save()
+                        addApp(entry)
+                    },
+                ), rectInRoot(icon), repo.icon(entry)) { host.showAppInfo(entry) }
+                true
+            }
+        }
+    }
+
+    // endregion
+
+    private fun pillButton(text: String, fill: Int, color: Int, onClick: () -> Unit) = TextView(activity).apply {
+        this.text = text
+        gravity = Gravity.CENTER
+        style(TextStyle.Label, color)
+        setTextSize(android.util.TypedValue.COMPLEX_UNIT_SP, 14f)
+        setPadding(dp(Ui.SPACE_L + 4), 0, dp(Ui.SPACE_L + 4), 0)
+        background = Ui.rounded(activity, fill, Ui.RADIUS_PILL)
+        foreground = Ui.pressable(activity, Ui.RADIUS_PILL)
+        isFocusable = true
+        setOnClickListener { onClick() }
+    }
+
+    private fun clockSettings(item: HomeItem) {
+        val p = palette()
+        val options = prefs.clockOptions(item.id)
+        val column = LinearLayout(activity).apply {
+            orientation = LinearLayout.VERTICAL
+            setPadding(0, 0, 0, dp(Ui.SPACE_L))
+        }
+        fun update(next: ClockOptions) {
+            prefs.setClockOptions(item.id, next)
+            (views[item.id] as? ClockWidget)?.apply(next)
+            clockSettings(item)
+        }
+        column.addView(sectionLabel("Size", p))
+        column.addView(segmented(p, ClockOptions.Size.entries.map { it.label }, options.size.ordinal) {
+            update(ClockOptions(ClockOptions.Size.entries[it], options.alignStart, options.showDate))
+        })
+        column.addView(sectionLabel("Position", p))
+        column.addView(segmented(p, listOf("Center", "Left"), if (options.alignStart) 1 else 0) {
+            update(ClockOptions(options.size, it == 1, options.showDate))
+        })
+        column.addView(sectionLabel("Date", p))
+        column.addView(segmented(p, listOf("Show", "Hide"), if (options.showDate) 0 else 1) {
+            update(ClockOptions(options.size, options.alignStart, it == 0))
+        })
+        // What the clock shows besides the time is the same for every clock, so it's in Settings.
+        column.addView(android.view.View(activity), LinearLayout.LayoutParams(1, dp(Ui.SPACE_M)))
+        column.addView(Components.row(activity, p, R.drawable.ic_calendar, "Hebrew date, zmanim and events", chevron = true) {
+            overlays.dismiss()
+            activity.startActivity(Intent(activity, SettingsActivity::class.java).putExtra(SettingsActivity.EXTRA_PAGE, SettingsActivity.Page.CLOCK.name))
+        })
+        overlays.showSheet("Clock", column)
+    }
+
+    private fun sectionLabel(text: String, p: Palette) = TextView(activity).apply {
+        this.text = text
+        style(TextStyle.Section, p.textSecondary)
+        setPadding(dp(Ui.SPACE_XL), dp(Ui.SPACE_L), dp(Ui.SPACE_XL), dp(Ui.SPACE_S))
+    }
+
+    // endregion
+
+    // region Drag
+
+    /** Called from the activity for every touch event; returns true when a drag consumed it. */
+    fun dispatchTouch(ev: MotionEvent): Boolean {
+        if (ev.actionMasked == MotionEvent.ACTION_DOWN) {
+            drag.downX = ev.x
+            drag.downY = ev.y
+        }
+        // The gesture that long-pressed an item can still turn into a drag.
+        if (drag.isArmed || drag.active) return drag.handle(ev)
+        resize?.let { return it.handle(ev) }
+        return false
+    }
+
+    /** Lets a long-pressed app in the app list be dragged onto the home screen. */
+    fun armFromDrawer(entry: AppEntry, row: View) = drag.arm(DragSource(null, entry, row))
+
+    /** Takes over a drag that started in the app list; it continues from the finger's next move. */
+    fun continueDragFromDrawer(entry: AppEntry, row: View) {
+        drag.arm(DragSource(null, entry, row))
+        drag.downX = -10_000f
+        drag.downY = -10_000f
+    }
+
+    /** An icon is being (or about to be) dragged, or a widget resized: swipes must leave it alone. */
+    val isBusy get() = drag.active || drag.isArmed || resize != null
+
+    /** What is being dragged: an item already on the home screen, or an app from the app list. */
+    private class DragSource(val item: HomeItem?, val entry: AppEntry?, val view: View, val folder: HomeItem? = null)
+
+    private inner class Drag {
+        var downX = 0f
+        var downY = 0f
+        var active = false
+        private var source: DragSource? = null
+        private var dragView: ImageView? = null
+        private var grabX = 0f
+        private var grabY = 0f
+        private var target: Triple<Int, Int, Int>? = null
+        private var lastX = 0f
+        private var lastY = 0f
+        private val slop = ViewConfiguration.get(activity).scaledTouchSlop * 1.5f
+
+        val isArmed get() = source != null
+
+        fun arm(source: DragSource) {
+            this.source = source
+        }
+
+        fun handle(ev: MotionEvent): Boolean {
+            val src = source ?: return false
+            when (ev.actionMasked) {
+                MotionEvent.ACTION_MOVE -> {
+                    if (!active && hypot(ev.x - downX, ev.y - downY) > slop) start(src, ev)
+                    if (active) move(ev.x, ev.y)
+                }
+                MotionEvent.ACTION_UP -> {
+                    val wasActive = active
+                    if (active) drop()
+                    source = null
+                    return wasActive
+                }
+                MotionEvent.ACTION_CANCEL -> {
+                    if (active) cancel()
+                    source = null
+                }
+            }
+            return active
+        }
+
+        private val w get() = source?.item?.w ?: 1
+        private val h get() = source?.item?.h ?: 1
+
+        private fun start(src: DragSource, ev: MotionEvent) {
+            active = true
+            overlays.dismiss()
+            finishResize()
+            host.cancelViewTouches()
+
+            val bitmap: Bitmap
+            val origin: Rect
+            if (src.item != null) {
+                val shot = (src.view as? AppIconView)?.iconView ?: src.view
+                bitmap = snapshot(shot)
+                origin = rectInRoot(shot)
+                src.view.visibility = View.INVISIBLE
+            } else {
+                bitmap = repo.icon(src.entry!!) ?: return cancel()
+                if (src.folder != null) {
+                    origin = rectInRoot(src.view)
+                } else {
+                    val size = dp(AppIconView.ICON)
+                    origin = Rect(ev.x.toInt() - size / 2, ev.y.toInt() - size / 2, ev.x.toInt() + size / 2, ev.y.toInt() + size / 2)
+                    host.closeDrawer(false)
+                }
+            }
+            // Hold the icon where the finger first pressed it, so it stays under the finger.
+            grabX = (if (src.item != null || src.folder != null) downX else ev.x) - origin.left
+            grabY = (if (src.item != null || src.folder != null) downY else ev.y) - origin.top
+            dragView = ImageView(activity).apply {
+                setImageBitmap(bitmap)
+                elevation = dp(12).toFloat()
+                x = ev.x - grabX
+                y = ev.y - grabY
+                root.addView(this, FrameLayout.LayoutParams(origin.width(), origin.height()))
+                animate().scaleX(1.08f).scaleY(1.08f).alpha(0.95f).setDuration(150).start()
+            }
+            showEdgeZones(fromDrawer = src.item == null && src.folder == null)
+        }
+
+        private fun move(x: Float, y: Float) {
+            lastX = x
+            lastY = y
+            val view = dragView ?: return
+            view.x = x - grabX
+            view.y = y - grabY
+
+            // Edge targets: hold over one to change page or go back to the app list.
+            var onZone = false
+            for ((zone, end) in listOf(leftZone to false, rightZone to true)) {
+                val over = overSide(zone, x, y, end)
+                zone?.hover(over)
+                onZone = onZone || over
+            }
+            bottomZone?.let { zone ->
+                val over = overBottom(y)
+                zone.hover(over)
+                onZone = onZone || over
+            }
+            if (onZone) {
+                clearReorder(commit = false)
+                setFolderTarget(null)
+                setTarget(null)
+                return
+            }
+
+            val dockRect = rectInRoot(dock)
+            val inDock = dockRect.contains(x.toInt(), y.toInt())
+            // The dock lights up with an outline while the item is over it.
+            dockOutline?.animate()?.alpha(if (inDock && w == 1 && h == 1) 1f else 0f)?.setDuration(120)?.start()
+            val page = when {
+                inDock && w == 1 && h == 1 -> Workspace.DOCK
+                inDock -> null
+                else -> pages.currentPage
+            }
+            if (page == null) {
+                clearReorder(commit = false)
+                setTarget(null)
+                return
+            }
+            val cells = containerFor(page)
+            val origin = rectInRoot(cells)
+            val centerX = view.x + view.width / 2f - origin.left - cells.originX
+            val centerY = view.y + view.height / 2f - origin.top - cells.paddingTop
+            val cx = ((centerX - w * cells.cellWidth / 2) / cells.cellWidth).roundToInt()
+            val cy = ((centerY - h * cells.cellHeight / 2) / cells.cellHeight).roundToInt()
+            val col = cx.coerceIn(0, workspace.cols(page) - w)
+            val row = cy.coerceIn(0, workspace.rows(page) - h)
+            val candidate = if (w == 1 && h == 1) folderCandidate(page, col, row, view) else null
+            setFolderTarget(candidate)
+            if (candidate != null) {
+                clearReorder(commit = false)
+                setTarget(null)
+            } else if (w == 1 && h == 1) {
+                // Apps make room: after a short hover, icons in the way slide aside.
+                val cell = Triple(page, col, row)
+                if (cell != hoverCell) {
+                    hoverCell = cell
+                    root.removeCallbacks(reorder)
+                    root.postDelayed(reorder, REORDER_DELAY)
+                }
+            } else {
+                val spot = workspace.nearestSpot(page, col, row, w, h, source?.item)
+                setTarget(spot?.let { Triple(page, it.first, it.second) })
+            }
+        }
+
+        private var leftZone: DropZone? = null
+        private var rightZone: DropZone? = null
+        private var bottomZone: DropZone? = null
+        private var pageOutline: DropZone? = null
+        private var dockOutline: View? = null
+
+        /**
+         * While dragging, outlines appear and nothing else moves: one around the page, slivers of
+         * the pages beside it at the screen edges, and a sliver of the app list below the dock.
+         * The slivers are the targets for changing page or going back to the app list.
+         */
+        private fun showEdgeZones(fromDrawer: Boolean) {
+            val outline = 0xFFFFFFFF.toInt()
+            val box = rectInRoot(pages)
+            val dockBox = rectInRoot(dock)
+            val gap = dp(EDGE_GAP)
+            val top = box.top + gap
+            val height = dockBox.top - gap - top
+            fun zone(lp: FrameLayout.LayoutParams) = DropZone(activity, 0, outline, Ui.RADIUS_BAR).also { root.addView(it, lp) }
+
+            pageOutline = zone(FrameLayout.LayoutParams(root.width - 2 * dp(Ui.BAR_MARGIN), height, Gravity.TOP or Gravity.START).apply {
+                topMargin = top
+                leftMargin = dp(Ui.BAR_MARGIN)
+            })
+            // Slivers: the neighbouring page starts just past the edge of this one.
+            val sliver = dp(Ui.BAR_MARGIN) - gap
+            fun side(gravity: Int) = zone(FrameLayout.LayoutParams(dp(80), height, gravity or Gravity.TOP).apply {
+                topMargin = top
+                if (gravity == Gravity.END) rightMargin = sliver - dp(80) else leftMargin = sliver - dp(80)
+            })
+            val dockBox0 = rectInRoot(dock)
+            dockOutline = View(activity).apply {
+                background = android.graphics.drawable.GradientDrawable().apply {
+                    cornerRadius = dp(Ui.RADIUS_BAR).toFloat()
+                    setStroke(dp(2), 0xB3FFFFFF.toInt())
+                    setColor(0x1AFFFFFF)
+                }
+                alpha = 0f
+                root.addView(this, FrameLayout.LayoutParams(dockBox0.width(), dockBox0.height(), Gravity.TOP or Gravity.START).apply {
+                    leftMargin = dockBox0.left
+                    topMargin = dockBox0.top
+                })
+            }
+            leftZone = side(Gravity.START).apply { onTrigger = { flipPage(-1) } }
+            rightZone = side(Gravity.END).apply { onTrigger = { flipPage(1) } }
+            updateLeftZone()
+            if (fromDrawer) {
+                bottomZone = zone(FrameLayout.LayoutParams(root.width - 2 * dp(Ui.BAR_MARGIN), dp(80), Gravity.TOP or Gravity.START).apply {
+                    topMargin = dockBox.bottom + gap
+                    leftMargin = dp(Ui.BAR_MARGIN)
+                }).apply { onTrigger = ::backToDrawer }
+            }
+        }
+
+        /** Over a side sliver: the strip at that screen edge. Over the app list's: below the dock. */
+        private fun overSide(zone: DropZone?, x: Float, y: Float, end: Boolean): Boolean {
+            if (zone == null || zone.visibility != View.VISIBLE) return false
+            val edge = dp(EDGE_HIT)
+            val box = rectInRoot(pages)
+            return y > box.top && y < rectInRoot(dock).top && if (end) x > root.width - edge else x < edge
+        }
+
+        private fun overBottom(y: Float) = bottomZone != null && y >= rectInRoot(dock).bottom - dp(2)
+
+        /** There's no page to the left of the first. */
+        private fun updateLeftZone() {
+            leftZone?.visibility = if (pages.currentPage > 0) View.VISIBLE else View.INVISIBLE
+        }
+
+        private fun hideEdgeZones() {
+            listOfNotNull(leftZone, rightZone, bottomZone, pageOutline).forEach { it.dismiss() }
+            dockOutline?.let { v -> v.animate().alpha(0f).setDuration(120).withEndAction { root.removeView(v) }.start() }
+            dockOutline = null
+            leftZone = null
+            rightZone = null
+            bottomZone = null
+            pageOutline = null
+        }
+
+        private fun backToDrawer() {
+            val entry = source?.entry ?: return
+            clearReorder(commit = false)
+            setFolderTarget(null)
+            setTarget(null)
+            hideEdgeZones()
+            dragView?.let(root::removeView)
+            dragView = null
+            active = false
+            source = null
+            host.returnToDrawer(entry, lastX, lastY)
+        }
+
+        private var folderTarget: HomeItem? = null
+
+        /**
+         * The app or folder at ([col], [row]) if the dragged icon is over the middle of it,
+         * meaning a drop would make or fill a folder. Folders can't go inside folders.
+         */
+        private fun folderCandidate(page: Int, col: Int, row: Int, view: View): HomeItem? {
+            if (source?.item?.type == HomeItem.Type.FOLDER) return null
+            val occupant = workspace.on(page).firstOrNull {
+                it.x == col && it.y == row && it !== source?.item && it !== source?.folder && it !in shifted.keys &&
+                    (it.type == HomeItem.Type.APP || it.type == HomeItem.Type.FOLDER)
+            } ?: return null
+            val cells = containerFor(page)
+            val origin = rectInRoot(cells)
+            val r = cells.cellRect(Rect(col, row, col + 1, row + 1))
+            val cx = origin.left + r.exactCenterX()
+            val cy = origin.top + r.exactCenterY() - cells.iconOffset
+            val distance = hypot(view.x + view.width / 2f - cx, view.y + view.height / 2f - cy)
+            return occupant.takeIf { distance < dp(AppIconView.ICON) * 0.45f }
+        }
+
+        private fun setFolderTarget(next: HomeItem?) {
+            if (next === folderTarget) return
+            folderTarget?.let { old ->
+                val cells = containerFor(old.page)
+                cells.dropPreviewGrow = false
+                cells.dropPreview = null
+            }
+            folderTarget = next
+            next?.let {
+                val cells = containerFor(it.page)
+                cells.dropPreviewIsIcon = true
+                cells.dropPreviewGrow = true
+                cells.dropPreview = Rect(it.x, it.y, it.x + 1, it.y + 1)
+            }
+        }
+
+        private fun dropIntoFolder(src: DragSource, target: HomeItem) {
+            setFolderTarget(null)
+            clearReorder(commit = false)
+            val key = src.item?.ref ?: src.entry!!.key
+            src.item?.let { moved ->
+                workspace.items.remove(moved)
+                views.remove(moved.id)?.let { (it.parent as? ViewGroup)?.removeView(it) }
+            }
+            src.folder?.let { removeFromFolder(it, key) }
+            val folder = addToFolder(target, key)
+            workspace.removeEmptyPages()
+            workspace.save()
+            bindAll()
+            val icon = (views[folder.id] as? AppIconView)?.iconView
+            val view = dragView ?: return finish()
+            if (icon == null) return fadeOut()
+            val rect = rectInRoot(icon)
+            view.animate().x(rect.left.toFloat()).y(rect.top.toFloat()).scaleX(0.45f).scaleY(0.45f).alpha(0f)
+                .setDuration(200).withEndAction { finish() }.start()
+        }
+
+        /** Items slid aside to make room, with the cell each was moved to. */
+        private var shifted: Map<HomeItem, Pair<Int, Int>> = emptyMap()
+        private var hoverCell: Triple<Int, Int, Int>? = null
+        private val reorder = Runnable { applyReorder() }
+
+        private fun applyReorder() {
+            val (page, x, y) = hoverCell ?: return
+            when (val plan = planReorder(page, x, y)) {
+                null -> {
+                    // No way to make room here (a widget, or a full page): use the closest free cell.
+                    setShifted(emptyMap())
+                    val spot = workspace.nearestSpot(page, x, y, 1, 1, source?.item)
+                    setTarget(spot?.let { Triple(page, it.first, it.second) })
+                }
+                else -> {
+                    setShifted(plan)
+                    setTarget(Triple(page, x, y))
+                }
+            }
+        }
+
+        /**
+         * Which icons move where so a dragged app fits at ([cx], [cy]). The icon in the way
+         * moves to the next cell in reading order, pushing the next one along, until a free
+         * cell is reached; if the page fills up first, the push goes backwards instead.
+         * Cells covered by widgets are skipped. Empty map: the cell is free. Null: no room.
+         */
+        private fun planReorder(page: Int, cx: Int, cy: Int): Map<HomeItem, Pair<Int, Int>>? {
+            val dragged = source?.item
+            val others = workspace.on(page).filter { it !== dragged }
+            fun at(x: Int, y: Int) = others.firstOrNull { x >= it.x && x < it.x + it.w && y >= it.y && y < it.y + it.h }
+            val first = at(cx, cy) ?: return emptyMap()
+            if (first.w != 1 || first.h != 1) return null
+            val cols = workspace.cols(page)
+            val cells = (0 until workspace.rows(page)).flatMap { y -> (0 until cols).map { x -> x to y } }
+            val start = cy * cols + cx
+            for (direction in listOf(1, -1)) {
+                val plan = LinkedHashMap<HomeItem, Pair<Int, Int>>()
+                var moving = first
+                var i = start + direction
+                while (i in cells.indices) {
+                    val (x, y) = cells[i]
+                    val occupant = at(x, y)
+                    if (occupant == null) {
+                        plan[moving] = x to y
+                        return plan
+                    }
+                    if (occupant.w == 1 && occupant.h == 1) {
+                        plan[moving] = x to y
+                        moving = occupant
+                    }
+                    i += direction
+                }
+            }
+            return null
+        }
+
+        /** Slides icons to their temporary cells (and others back home). Nothing is saved until drop. */
+        private fun setShifted(next: Map<HomeItem, Pair<Int, Int>>) {
+            (shifted.keys - next.keys).forEach { item ->
+                views[item.id]?.animate()?.translationX(0f)?.translationY(0f)?.setDuration(180)?.start()
+            }
+            next.forEach { (item, cell) ->
+                val view = views[item.id] ?: return@forEach
+                val cells = containerFor(item.page)
+                val from = cells.cellRect(Rect(item.x, item.y, item.x + 1, item.y + 1))
+                val to = cells.cellRect(Rect(cell.first, cell.second, cell.first + 1, cell.second + 1))
+                view.animate().translationX((to.left - from.left).toFloat()).translationY((to.top - from.top).toFloat())
+                    .setDuration(180).setInterpolator(DecelerateInterpolator(2f)).start()
+            }
+            shifted = next
+        }
+
+        private fun clearReorder(commit: Boolean) {
+            root.removeCallbacks(reorder)
+            hoverCell = null
+            if (commit) {
+                shifted.forEach { (item, cell) ->
+                    item.x = cell.first
+                    item.y = cell.second
+                    views[item.id]?.apply { animate().cancel(); translationX = 0f; translationY = 0f }
+                }
+                shifted = emptyMap()
+            } else {
+                setShifted(emptyMap())
+            }
+        }
+
+        private fun setTarget(next: Triple<Int, Int, Int>?) {
+            if (next == target) return
+            target?.let { containerFor(it.first).dropPreview = null }
+            target = next
+            next?.let {
+                val cells = containerFor(it.first)
+                cells.dropPreviewIsIcon = source?.item?.isWidget != true
+                cells.dropPreview = Rect(it.second, it.third, it.second + w, it.third + h)
+            }
+        }
+
+        private fun flipPage(direction: Int) {
+            leftZone?.restart()
+            rightZone?.restart()
+            val next = pages.currentPage + direction
+            if (next < 0) return
+            if (next >= workspace.pageCount) {
+                // Past the last page: make a new one, unless this page only holds the dragged item.
+                val others = workspace.on(pages.currentPage).filter { it !== source?.item }
+                if (others.isEmpty()) return
+                workspace.addPage()
+                pages.addView(newPage())
+                dots.count = workspace.pageCount
+            }
+            clearReorder(commit = false)
+            setTarget(null)
+            // The page outline goes with the old page: it fades out as the pages slide, then
+            // fades back in around the new one.
+            listOfNotNull(pageOutline, leftZone, rightZone).forEach { z ->
+                z.animate().cancel()
+                z.animate().alpha(0f).setDuration(120).withEndAction {
+                    z.animate().alpha(1f).setStartDelay(160).setDuration(160).start()
+                }.start()
+            }
+            pages.snapTo(next)
+            updateLeftZone()
+            root.postDelayed({ if (active) move(lastX, lastY) }, 300)
+        }
+
+        private fun drop() {
+            hideEdgeZones()
+            // Released before the hover delay ran: work out the spot now.
+            if (hoverCell != null && target?.let { Triple(it.first, it.second, it.third) } != hoverCell) applyReorder()
+            val src = source ?: return finish()
+            val t = target
+            val intoFolder = folderTarget
+            if (intoFolder != null) return dropIntoFolder(src, intoFolder)
+            if (t == null) {
+                clearReorder(commit = false)
+                // No room here: put it back where it was.
+                if (src.item != null) settleOn(src.item) else fadeOut()
+                return
+            }
+            clearReorder(commit = true)
+            val item = src.item ?: workspace.add(t.first, t.second, t.third, 1, 1, HomeItem.Type.APP, src.entry!!.key)
+            src.folder?.let { removeFromFolder(it, src.entry!!.key) }
+            item.page = t.first
+            item.x = t.second
+            item.y = t.third
+            setTarget(null)
+            val emptied = workspace.removeEmptyPages()
+            workspace.save()
+            bindAll()
+            if (emptied) pages.snapTo(item.page.coerceAtLeast(0).coerceAtMost(workspace.pageCount - 1), animate = false)
+            views[item.id]?.visibility = View.INVISIBLE
+            root.post { settleOn(item) }
+        }
+
+        /** Animates the dragged image into the item's cell, then shows the real view. */
+        private fun settleOn(item: HomeItem) {
+            val real = views[item.id]
+            val view = dragView ?: return finish()
+            if (real == null || real.width == 0) return finish()
+            val targetView = (real as? AppIconView)?.iconView ?: real
+            val rect = rectInRoot(targetView)
+            view.animate().x(rect.left.toFloat()).y(rect.top.toFloat()).scaleX(1f).scaleY(1f).alpha(1f)
+                .setDuration(200).setInterpolator(DecelerateInterpolator(2f))
+                .withEndAction { finish() }.start()
+        }
+
+        private fun fadeOut() {
+            dragView?.animate()?.alpha(0f)?.setDuration(150)?.withEndAction { finish() }?.start() ?: finish()
+        }
+
+        private fun cancel() {
+            hideEdgeZones()
+            clearReorder(commit = false)
+            setTarget(null)
+            source?.item?.let { settleOn(it) } ?: fadeOut()
+        }
+
+        private fun finish() {
+            setFolderTarget(null)
+            dragView?.let(root::removeView)
+            dragView = null
+            setTarget(null)
+            source?.item?.let { views[it.id]?.visibility = View.VISIBLE }
+            workspace.items.forEach { views[it.id]?.visibility = View.VISIBLE }
+            active = false
+        }
+
+    }
+
+    // endregion
+
+    // region Resize
+
+    fun startResize(item: HomeItem) {
+        finishResize()
+        val view = views[item.id] ?: return
+        val min = if (item.type == HomeItem.Type.WIDGET) widgets.minSpan(item.ref.toInt()) else 2 to 1
+        val frame = ResizeFrame(item, view, min)
+        root.addView(frame, FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT))
+        frame.toolbar = widgetToolbar(item).also {
+            root.addView(it, FrameLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT))
+        }
+        resize = frame
+        view.post { frame.placeToolbar() }
+    }
+
+    fun finishResize(): Boolean {
+        val frame = resize ?: return false
+        resize = null
+        root.removeView(frame)
+        frame.toolbar?.let(root::removeView)
+        workspace.save()
+        return true
+    }
+
+    /** The widget's actions, in a small bar beside the resize frame. */
+    private fun widgetToolbar(item: HomeItem): View {
+        val p = palette()
+        val actions = mutableListOf<MenuItem>()
+        when (item.type) {
+            HomeItem.Type.CLOCK -> actions += MenuItem("Clock settings", R.drawable.ic_settings) { clockSettings(item) }
+            HomeItem.Type.WIDGET -> if (widgets.canReconfigure(item.ref.toInt())) {
+                actions += MenuItem("Settings", R.drawable.ic_settings) { widgets.reconfigure(item.ref.toInt()) }
+            }
+            HomeItem.Type.APP, HomeItem.Type.FOLDER -> Unit
+        }
+        actions += MenuItem("Remove", R.drawable.ic_close, danger = true) { remove(item) }
+        return LinearLayout(activity).apply {
+            orientation = LinearLayout.HORIZONTAL
+            background = Ui.rounded(activity, p.surface, TOOLBAR_RADIUS)
+            elevation = dp(8).toFloat()
+            val pad = dp(TOOLBAR_PADDING)
+            setPadding(pad, pad, pad, pad)
+            actions.forEachIndexed { i, action ->
+                val color = if (action.danger) p.danger else p.text
+                addView(TextView(activity).apply {
+                    text = action.label
+                    gravity = Gravity.CENTER_VERTICAL
+                    style(TextStyle.Label, color)
+                    setTextSize(android.util.TypedValue.COMPLEX_UNIT_SP, 14f)
+                    setCompoundDrawablesRelativeWithIntrinsicBounds(action.icon, 0, 0, 0)
+                    compoundDrawablePadding = dp(8)
+                    compoundDrawableTintList = android.content.res.ColorStateList.valueOf(color)
+                    setPadding(dp(14), 0, dp(16), 0)
+                    background = Ui.rounded(activity, if (action.danger) p.dangerSurface else p.surfaceHigh, TOOLBAR_RADIUS - TOOLBAR_PADDING)
+                    foreground = Ui.pressable(activity, TOOLBAR_RADIUS - TOOLBAR_PADDING)
+                    isFocusable = true
+                    setOnClickListener {
+                        finishResize()
+                        action.action()
+                    }
+                }, LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, dp(40)).apply {
+                    if (i > 0) marginStart = dp(TOOLBAR_PADDING)
+                })
+            }
+            alpha = 0f
+        }
+    }
+
+    /** A frame with a handle on each side; drag a handle to change the widget's size in whole cells. */
+    @SuppressLint("ViewConstructor")
+    private inner class ResizeFrame(
+        val item: HomeItem,
+        val view: View,
+        val min: Pair<Int, Int>,
+    ) : View(activity) {
+        var toolbar: View? = null
+        private val stroke = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+            style = Paint.Style.STROKE
+            strokeWidth = dp(2).toFloat()
+            color = 0xFFFFFFFF.toInt()
+        }
+        private val knob = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = 0xFFFFFFFF.toInt() }
+        private var handle = -1 // 0 left, 1 top, 2 right, 3 bottom
+        /** This gesture belongs to the widget or the toolbar, not the frame. */
+        private var passThrough = false
+
+        private fun bounds(): RectF {
+            val r = rectInRoot(view)
+            val inset = dp(2).toFloat()
+            return RectF(r).apply { inset(inset, inset) }
+        }
+
+        override fun onDraw(canvas: Canvas) {
+            val b = bounds()
+            val radius = dp(18).toFloat()
+            canvas.drawRoundRect(b, radius, radius, stroke)
+            val r = dp(7).toFloat()
+            handles(b).forEach { (x, y) -> canvas.drawCircle(x, y, r, knob) }
+        }
+
+        private fun handles(b: RectF) = listOf(
+            b.left to b.centerY(), b.centerX() to b.top, b.right to b.centerY(), b.centerX() to b.bottom,
+        )
+
+        /** Above the widget if there's room, otherwise below, centered on it. */
+        fun placeToolbar() {
+            val bar = toolbar ?: return
+            bar.measure(View.MeasureSpec.UNSPECIFIED, View.MeasureSpec.UNSPECIFIED)
+            val b = bounds()
+            val gap = dp(12)
+            val above = b.top - gap - bar.measuredHeight
+            val y = if (above > overlays.insets.top + dp(8)) above else b.bottom + gap
+            val x = (b.centerX() - bar.measuredWidth / 2f).coerceIn(dp(12).toFloat(), (root.width - bar.measuredWidth - dp(12)).toFloat())
+            bar.x = x
+            bar.y = y
+            bar.animate().alpha(1f).setDuration(140).start()
+        }
+
+        fun handle(ev: MotionEvent): Boolean {
+            when (ev.actionMasked) {
+                MotionEvent.ACTION_DOWN -> {
+                    passThrough = false
+                    val hit = handles(bounds()).indexOfFirst { (x, y) -> hypot(ev.x - x, ev.y - y) < dp(32) }
+                    if (hit >= 0) {
+                        handle = hit
+                        return true
+                    }
+                    val onToolbar = toolbar?.let { rectInRoot(it).contains(ev.x.toInt(), ev.y.toInt()) } == true
+                    if (onToolbar || bounds().contains(ev.x, ev.y)) {
+                        // Toolbar buttons and the widget itself (long-press again to drag) work as usual.
+                        passThrough = true
+                        return false
+                    }
+                    // A tap anywhere else finishes resizing.
+                    finishResize()
+                    return true
+                }
+                MotionEvent.ACTION_MOVE -> if (handle >= 0) resizeTo(ev.x, ev.y)
+                MotionEvent.ACTION_UP, MotionEvent.ACTION_CANCEL -> handle = -1
+            }
+            return !passThrough
+        }
+
+        private fun resizeTo(px: Float, py: Float) {
+            val cells = containerFor(item.page)
+            val origin = rectInRoot(cells)
+            val gx = ((px - origin.left - cells.originX) / cells.cellWidth).roundToInt()
+            val gy = ((py - origin.top - cells.paddingTop) / cells.cellHeight).roundToInt()
+            var x = item.x
+            var y = item.y
+            var w = item.w
+            var h = item.h
+            when (handle) {
+                0 -> { val right = x + w; x = gx.coerceIn(0, right - min.first); w = right - x }
+                1 -> { val bottom = y + h; y = gy.coerceIn(0, bottom - min.second); h = bottom - y }
+                2 -> w = (gx - x).coerceIn(min.first, Workspace.COLS - x)
+                3 -> h = (gy - y).coerceIn(min.second, Workspace.ROWS - y)
+            }
+            if (x == item.x && y == item.y && w == item.w && h == item.h) return
+            if (!workspace.isFree(item.page, x, y, w, h, item)) return
+            item.x = x; item.y = y; item.w = w; item.h = h
+            cells.place(view, x, y, w, h)
+            view.post {
+                invalidate()
+                placeToolbar()
+            }
+        }
+    }
+
+    // endregion
+
+    private fun snapshot(view: View): Bitmap {
+        val bitmap = Bitmap.createBitmap(view.width.coerceAtLeast(1), view.height.coerceAtLeast(1), Bitmap.Config.ARGB_8888)
+        // Draw without the keypad highlight or press scale.
+        val background = view.background
+        view.background = null
+        view.draw(Canvas(bitmap))
+        view.background = background
+        return bitmap
+    }
+
+    /**
+     * Moves the keypad highlight on the home screen in [direction] (a View.FOCUS_ constant).
+     * Up and down stay in line vertically and left and right horizontally, choosing what's in the
+     * same column (or row) before anything off to the side. Past the last item on the right or
+     * left, it moves to the next or previous page. Returns false if there's nothing to focus.
+     */
+    fun moveFocus(direction: Int): Boolean {
+        val here = itemsOn(pages.currentPage) + itemsOn(Workspace.DOCK)
+        if (here.isEmpty()) return false
+        // Resting on the invisible spot (or nowhere) counts as no highlight yet: start at the top.
+        val from = activity.currentFocus?.takeIf { it in here && !it.isInTouchMode && it.isFocused }
+        if (from == null) {
+            here.minByOrNull { rectInRoot(it).let { r -> r.top * 10_000 + r.left } }?.requestFocusFromTouch()
+            return true
+        }
+        val r = rectInRoot(from)
+        val vertical = direction == View.FOCUS_UP || direction == View.FOCUS_DOWN
+        val best = (here - from).map { it to rectInRoot(it) }.filter { (_, o) ->
+            when (direction) {
+                View.FOCUS_DOWN -> o.top >= r.centerY()
+                View.FOCUS_UP -> o.bottom <= r.centerY()
+                // Sideways only within the same row; never up or down a row.
+                View.FOCUS_RIGHT -> o.left >= r.centerX() && gap(o.top, o.bottom, r.top, r.bottom) == 0
+                else -> o.right <= r.centerX() && gap(o.top, o.bottom, r.top, r.bottom) == 0
+            }
+        }.minByOrNull { (_, o) ->
+            val along = if (vertical) abs(o.centerY() - r.centerY()) else abs(o.centerX() - r.centerX())
+            // How far off to the side it is; 0 when it's in the same column (or row).
+            val aside = if (vertical) gap(o.left, o.right, r.left, r.right) else gap(o.top, o.bottom, r.top, r.bottom)
+            aside * 8 + along
+        }?.first
+        if (best != null) {
+            // From touch: the arrows often arrive through the key service while the screen is
+            // still in touch mode, where a plain request is refused and nothing would move.
+            best.requestFocusFromTouch()
+            return true
+        }
+        if (vertical) return true
+        // Off the edge sideways: the next page, landing on its item nearest in height.
+        val next = pages.currentPage + if (direction == View.FOCUS_RIGHT) 1 else -1
+        if (next !in 0 until workspace.pageCount || from.parent === dock) return true
+        pages.snapTo(next)
+        itemsOn(next).minByOrNull { v ->
+            val y = abs(rectInRoot(v).centerY() - r.centerY())
+            val x = if (direction == View.FOCUS_RIGHT) v.left else -v.right
+            y * 4 + x
+        }?.requestFocusFromTouch()
+        return true
+    }
+
+    /** Flips to the next or previous page, if there is one (holding right or left on the keypad). */
+    fun flipPage(delta: Int) {
+        val next = pages.currentPage + delta
+        if (next in 0 until workspace.pageCount) pages.snapTo(next)
+    }
+
+    private fun itemsOn(page: Int): List<View> = workspace.items.filter { it.page == page }
+        .mapNotNull { views[it.id] }.filter { it.isFocusable && it.visibility == View.VISIBLE }
+
+    /** Space between two ranges, 0 if they overlap. */
+    private fun gap(a0: Int, a1: Int, b0: Int, b1: Int) = maxOf(0, maxOf(a0, b0) - minOf(a1, b1))
+
+    fun rectInRoot(view: View): Rect {
+        val location = IntArray(2)
+        view.getLocationInWindow(location)
+        return Rect(location[0], location[1], location[0] + view.width, location[1] + view.height)
+    }
+
+    private fun segmented(p: Palette, options: List<String>, selected: Int, onPick: (Int) -> Unit): View =
+        LinearLayout(activity).apply {
+            orientation = LinearLayout.HORIZONTAL
+            // Buttons have 4dp side margins; this puts their outer edges in line with the headings.
+            setPadding(dp(Ui.SPACE_XL - 4), 0, dp(Ui.SPACE_XL - 4), 0)
+            options.forEachIndexed { i, label ->
+                addView(TextView(activity).apply {
+                    text = label
+                    gravity = Gravity.CENTER
+                    style(TextStyle.Label, if (i == selected) p.onAccent else p.text)
+                    setTextSize(android.util.TypedValue.COMPLEX_UNIT_SP, 14f)
+                    background = Ui.rounded(activity, if (i == selected) p.accent else p.surfaceHigh, Ui.RADIUS_PILL)
+                    foreground = Ui.pressable(activity, Ui.RADIUS_PILL)
+                    isFocusable = true
+                    setOnClickListener { onPick(i) }
+                }, LinearLayout.LayoutParams(0, dp(42), 1f).apply { setMargins(dp(4), 0, dp(4), 0) })
+            }
+        }
+
+    private fun dp(value: Int) = Ui.dp(activity, value)
+
+    companion object {
+        /** Space between the dock's edges and its icons, on every side. */
+        private const val DOCK_GAP = 15
+        /** Thickness of the targets along the edges while dragging. */
+        /** Space between the page outline and the dock (and around the slivers). */
+        private const val EDGE_GAP = 6
+        /** How close to a side edge (dp) the finger counts as over that side's sliver. */
+        private const val EDGE_HIT = 28
+        private const val FOLDER_NAME = "Folder"
+        private const val FOLDER_COLS = 4
+        private const val TOOLBAR_RADIUS = 24
+        private const val TOOLBAR_PADDING = 6
+        /** How long a dragged app hovers over a spot before icons there make room. */
+        private const val REORDER_DELAY = 180L
+    }
+}

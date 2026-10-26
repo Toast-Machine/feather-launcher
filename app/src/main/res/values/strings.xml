@@ -1,0 +1,4 @@
+<resources>
+    <string name="app_name">Feather Launcher</string>
+    <string name="accessibility_description">Lets Feather Launcher lock apps during Sleep time, however they\'re opened, and use the number keys for shortcuts before the phone\'s speed dial does.</string>
+</resources>

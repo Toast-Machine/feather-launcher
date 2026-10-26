@@ -1,0 +1,187 @@
+<?xml version="1.0" encoding="utf-8"?>
+<FrameLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:id="@+id/root"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent">
+
+    <!-- Darkens the wallpaper in dark mode (see DarkMode.wallpaperDim). -->
+    <View
+        android:id="@+id/wall_dim"
+        android:layout_width="match_parent"
+        android:layout_height="match_parent"
+        android:alpha="0"
+        android:background="#FF000000" />
+
+    <app.featherlauncher.GestureLayout
+        android:id="@+id/home"
+        android:layout_width="match_parent"
+        android:layout_height="match_parent"
+        android:clipChildren="false"
+        android:orientation="vertical">
+
+        <app.featherlauncher.PagedView
+            android:id="@+id/pages"
+            android:layout_width="match_parent"
+            android:layout_height="0dp"
+            android:layout_marginTop="8dp"
+            android:layout_weight="1"
+            android:clipChildren="false" />
+
+        <app.featherlauncher.PageDots
+            android:id="@+id/dots"
+            android:layout_width="match_parent"
+            android:layout_height="20dp" />
+
+        <app.featherlauncher.CellLayout
+            android:id="@+id/dock"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginHorizontal="16dp"
+            android:layout_marginBottom="12dp" />
+    </app.featherlauncher.GestureLayout>
+
+    <app.featherlauncher.GestureLayout
+        android:id="@+id/drawer"
+        android:layout_width="match_parent"
+        android:layout_height="match_parent"
+        android:background="#F00B111A"
+        android:clipToPadding="false"
+        android:orientation="vertical"
+        android:paddingHorizontal="8dp"
+        android:visibility="gone">
+
+        <FrameLayout
+            android:id="@+id/search_bar"
+            android:layout_width="match_parent"
+            android:layout_height="48dp"
+            android:layout_marginHorizontal="8dp"
+            android:layout_marginTop="8dp"
+            android:layout_marginBottom="4dp"
+            android:visibility="gone">
+
+            <EditText
+                android:id="@+id/search"
+                android:layout_width="match_parent"
+                android:layout_height="match_parent"
+                android:background="@null"
+                android:hint="Search apps"
+                android:imeOptions="actionGo|flagNoExtractUi"
+                android:importantForAutofill="no"
+                android:inputType="text|textNoSuggestions|textFilter"
+                android:maxLines="1"
+                android:paddingStart="48dp"
+                android:paddingEnd="48dp"
+                android:textSize="16sp" />
+
+            <ImageView
+                android:id="@+id/search_icon"
+                android:layout_width="48dp"
+                android:layout_height="48dp"
+                android:layout_gravity="start|center_vertical"
+                android:importantForAccessibility="no"
+                android:scaleType="center"
+                android:src="@drawable/ic_search" />
+
+            <ImageView
+                android:id="@+id/search_clear"
+                android:layout_width="48dp"
+                android:layout_height="48dp"
+                android:layout_gravity="end|center_vertical"
+                android:contentDescription="Clear"
+                android:scaleType="center"
+                android:src="@drawable/ic_close"
+                android:visibility="gone" />
+        </FrameLayout>
+
+        <LinearLayout
+            android:id="@+id/drawer_header"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:gravity="center_vertical"
+            android:minHeight="72dp"
+            android:orientation="horizontal"
+            android:paddingStart="16dp"
+            android:paddingEnd="4dp">
+
+            <TextView
+                android:id="@+id/drawer_title"
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1"
+                android:ellipsize="end"
+                android:fontFamily="sans-serif-medium"
+                android:includeFontPadding="false"
+                android:maxLines="1"
+                android:textSize="30sp" />
+
+            <ImageView
+                android:id="@+id/drawer_search"
+                android:layout_width="48dp"
+                android:layout_height="48dp"
+                android:contentDescription="Search"
+                android:focusable="true"
+                android:scaleType="center"
+                android:src="@drawable/ic_search" />
+
+            <ImageView
+                android:id="@+id/drawer_more"
+                android:layout_width="48dp"
+                android:layout_height="48dp"
+                android:contentDescription="More options"
+                android:focusable="true"
+                android:scaleType="center"
+                android:src="@drawable/ic_cat_more_vert" />
+        </LinearLayout>
+
+        <!-- All apps view: categories as chips, so one can still be picked. -->
+        <app.featherlauncher.ChipRow
+            android:id="@+id/chips_scroll"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginHorizontal="-8dp"
+            android:clipToPadding="false"
+            android:overScrollMode="never"
+            android:paddingBottom="8dp"
+            android:scrollbars="none"
+            android:visibility="gone">
+
+            <LinearLayout
+                android:id="@+id/chips"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:orientation="horizontal"
+                android:paddingStart="20dp"
+                android:paddingEnd="20dp" />
+        </app.featherlauncher.ChipRow>
+
+        <ListView
+            android:id="@+id/apps"
+            android:layout_width="match_parent"
+            android:layout_height="0dp"
+            android:clipToPadding="false"
+            android:divider="@null"
+            android:listSelector="@android:color/transparent"
+            android:overScrollMode="never"
+            android:layout_weight="1"
+            android:paddingBottom="12dp"
+            android:scrollbars="none" />
+
+        <HorizontalScrollView
+            android:id="@+id/tabs_scroll"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginHorizontal="8dp"
+            android:layout_marginBottom="12dp"
+            android:fillViewport="true"
+            android:overScrollMode="never"
+            android:scrollbars="none">
+
+            <LinearLayout
+                android:id="@+id/tabs"
+                android:layout_width="match_parent"
+                android:layout_height="60dp"
+                android:orientation="horizontal"
+                android:paddingHorizontal="4dp" />
+        </HorizontalScrollView>
+    </app.featherlauncher.GestureLayout>
+</FrameLayout>

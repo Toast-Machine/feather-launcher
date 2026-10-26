@@ -1,0 +1,15 @@
+{
+  "categories": [
+    { "name": "Social", "icon": "chat", "apps": ["Phone", "Messages", "WhatsApp"] },
+    { "name": "Tools", "icon": "category", "apps": ["Camera", "Calculator", "Clock"] }
+  ],
+  "fallback": "Tools",
+  "hidden": ["Simple Keyboard"],
+  "shortcuts": [
+    { "key": 17, "press": "LONG", "action": { "type": "SWITCH_KEYBOARD" }, "scope": "ALL" },
+    { "key": 19, "key2": 20, "press": "SHORT", "action": { "type": "FLASHLIGHT" }, "scope": "ALL" }
+  ],
+  "filters": [
+    { "app": "com.example.shop", "words": ["sale", "/\\d+% off/"] }
+  ]
+}
