@@ -79,4 +79,6 @@ Only adb can send it. Every part is optional: `categories` and `hidden` replace 
 
 ## License
 
-Apache License 2.0; see [LICENSE](LICENSE). MingCute icons are also Apache 2.0 ([docs/MINGCUTE_LICENSE](docs/MINGCUTE_LICENSE)).
+GNU General Public License v3.0; see [LICENSE](LICENSE). You're free to use, change and share Feather Launcher, including your own versions, as long as they stay open source under the same license.
+
+The [MingCute](https://github.com/Richard9394/MingCute) icons are under the Apache License 2.0 ([docs/MINGCUTE_LICENSE](docs/MINGCUTE_LICENSE)).
