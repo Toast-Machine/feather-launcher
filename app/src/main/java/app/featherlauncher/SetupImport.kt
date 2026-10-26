@@ -60,8 +60,11 @@ class SetupImport : BroadcastReceiver() {
                 val x = (i % cols) * cell * 2
                 val y = (i / cols) * (cell + 20)
                 val icon = a.getIcon(android.util.DisplayMetrics.DENSITY_XHIGH)
-                canvas.drawBitmap(shape.render(icon, size, IconLook.NORMAL), (x + 8).toFloat(), (y + 8).toFloat(), null)
-                canvas.drawBitmap(shape.render(icon, size, IconLook.DARK), (x + cell).toFloat(), (y + 8).toFloat(), null)
+                // Drawn at the size the launcher really uses on this screen, then shrunk for the sheet.
+                val real = (context.resources.displayMetrics.density * 64).toInt()
+                fun small(b: android.graphics.Bitmap) = android.graphics.Bitmap.createScaledBitmap(b, size, size, true)
+                canvas.drawBitmap(small(shape.render(icon, real, IconLook.NORMAL)), (x + 8).toFloat(), (y + 8).toFloat(), null)
+                canvas.drawBitmap(small(shape.render(icon, real, IconLook.DARK)), (x + cell).toFloat(), (y + 8).toFloat(), null)
                 canvas.drawText(a.label.toString().take(22), (x + 8).toFloat(), (y + cell + 10).toFloat(), text)
             }
             // The order of the apps, one per line, so two sheets can be compared app by app.

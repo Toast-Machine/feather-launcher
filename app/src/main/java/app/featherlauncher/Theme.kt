@@ -61,7 +61,7 @@ class Palette(
     val folderFill = if (lightWall) hsl(wallHue, wallSat * 0.6f, 0.72f, 0xE6) else hsl(wallHue, wallSat * 0.48f, 0.27f, 0xE6)
     val folderPanel = glass
     /** The app list's background: the wallpaper's hue, deep and nearly solid, so little shows through. */
-    val drawer = if (lightWall) hsl(wallHue, wallSat * 1.25f, 0.86f, 0xF0) else hsl(wallHue, wallSat, 0.13f, 0xF0)
+    val drawer = if (lightWall) hsl(wallHue, wallSat * 1.25f, 0.86f, 0xFA) else hsl(wallHue, wallSat, 0.13f, 0xFA)
     /** Behind Smart Search: the same as the app list. */
     val searchScrim = drawer
     /** Text on wallpaper-colored surfaces: near white (or near black) with a touch of the hue. */

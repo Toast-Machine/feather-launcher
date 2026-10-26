@@ -85,6 +85,12 @@ object IconLooks {
                 // A symbol over a plain background: the classic adaptive icon.
                 coverage in 0.03f..0.55f && plainBackground -> {
                     val plate = bg?.let(::average)
+                    // A symbol layer carrying its own copy of the background as a plate (Maps at some
+                    // sizes): lift that out. Only when it matches the background; otherwise it's part
+                    // of the symbol (Camera's white body, YouTube Music's red disc).
+                    liftPlate(fg)?.let { (symbol, found) ->
+                        if (plate != null && found != null && distance(found, plate) <= TOLERANCE) return symbol to plate
+                    }
                     // The symbol layer as the app drew it: clean edges, and holes (Calculator's signs,
                     // the key's ring) show the charcoal through them.
                     return fg to plate
@@ -107,27 +113,36 @@ object IconLooks {
         val h = b.height
         val pixels = IntArray(w * h)
         b.getPixels(pixels, 0, w, 0, 0, w, h)
-        // The plate's color: what most of a ring a little inside the edge is (corners may be cut off).
-        val ring = (w * 0.1f).toInt()
-        val samples = ArrayList<Int>()
-        for (i in 0 until 24) {
-            val t = i / 24f
-            val (x, y) = when (i % 4) {
-                0 -> (ring + t * (w - 2 * ring)).toInt() to ring
-                1 -> (w - 1 - ring) to (ring + t * (h - 2 * ring)).toInt()
-                2 -> (ring + t * (w - 2 * ring)).toInt() to (h - 1 - ring)
-                else -> ring to (ring + t * (h - 2 * ring)).toInt()
+        // The plate's color: what most of a ring inside the edge is (corners may be cut off). The
+        // plate can start a little way in (Maps), so rings further in are tried too.
+        var plate = 0
+        var found = false
+        for (f in floatArrayOf(0.1f, 0.17f, 0.24f)) {
+            val ring = (w * f).toInt()
+            val samples = ArrayList<Int>()
+            for (i in 0 until 24) {
+                val t = i / 24f
+                val (x, y) = when (i % 4) {
+                    0 -> (ring + t * (w - 2 * ring)).toInt() to ring
+                    1 -> (w - 1 - ring) to (ring + t * (h - 2 * ring)).toInt()
+                    2 -> (ring + t * (w - 2 * ring)).toInt() to (h - 1 - ring)
+                    else -> ring to (ring + t * (h - 2 * ring)).toInt()
+                }
+                samples += pixels[y * w + x]
             }
-            samples += pixels[y * w + x]
+            val opaque = samples.filter { Color.alpha(it) > 200 }
+            if (opaque.size < 12) continue
+            val candidate = opaque.groupBy { quantize(it) }.maxByOrNull { it.value.size }!!.value.let(::averageOf)
+            val onPlate = opaque.count { distance(it, candidate) <= TOLERANCE }
+            if (onPlate < opaque.size * 0.6f) continue
+            // A deliberate two-color design (Translate's blue and white halves) has no single plate.
+            val rest = opaque.filter { distance(it, candidate) > TOLERANCE }
+            if (rest.size >= opaque.size * 0.4f && rest.count { distance(it, averageOf(rest)) <= TOLERANCE } >= rest.size * 0.8f) return null
+            plate = candidate
+            found = true
+            break
         }
-        val opaque = samples.filter { Color.alpha(it) > 200 }
-        if (opaque.size < 12) return null
-        val plate = opaque.groupBy { quantize(it) }.maxByOrNull { it.value.size }!!.value.let(::averageOf)
-        val onPlate = opaque.count { distance(it, plate) <= TOLERANCE }
-        if (onPlate < opaque.size * 0.6f) return null
-        // A deliberate two-color design (Translate's blue and white halves) has no single plate.
-        val rest = opaque.filter { distance(it, plate) > TOLERANCE }
-        if (rest.size >= opaque.size * 0.4f && rest.count { distance(it, averageOf(rest)) <= TOLERANCE } >= rest.size * 0.8f) return null
+        if (!found) return null
 
         val out = pixels.copyOf()
         val seen = BooleanArray(w * h)
@@ -228,6 +243,8 @@ object IconLooks {
         // Colored parts in a different color from the plate (Gboard's G): the symbol has its own colors.
         var ownColors = 0
         var lightPlateHue = 0
+        // Solid parts in the plate's own color (Camera's lens): recoloring the white would swallow them.
+        var plateHueParts = 0
         val plateHue = plate?.let { FloatArray(3).also { h -> Color.colorToHSV(it, h) }[0] }
         val darkColors = ArrayList<Int>()
         val step = maxOf(1, symbol.width / 40)
@@ -244,6 +261,8 @@ object IconLooks {
                 // A light tint of the plate's own color (AntennaPod's pale blue rings) counts as white.
                 lightPlateHue++
             }
+            if (plateHue != null && saturation(c) >= 0.3f && l in 0.15f..0.7f &&
+                FloatArray(3).also { Color.colorToHSV(c, it) }[0].let { kotlin.math.abs(it - plateHue).let { d -> minOf(d, 360 - d) } } <= 30) plateHueParts++
             if (plateHue != null && saturation(c) > 0.3f && l > 0.15f) {
                 val hue = FloatArray(3).also { Color.colorToHSV(c, it) }[0]
                 val apart = kotlin.math.abs(hue - plateHue).let { minOf(it, 360 - it) }
@@ -277,13 +296,14 @@ object IconLooks {
         }
         // Mostly white (allowing soft gray shading, as on Fitbod's hexagon) with no dark outline.
         // The white parts take the plate's color; any colored parts stay as they are.
-        if (lightNeutral + lightPlateHue > n * 0.5f && darkNeutral < n * 0.2f && ownColors < n * 0.04f && plate != null && saturation(plate) > 0.3f) {
+        if (lightNeutral + lightPlateHue > n * 0.5f && darkNeutral < n * 0.2f && ownColors < n * 0.04f && plateHueParts < n * 0.03f && plate != null && saturation(plate) > 0.3f) {
             val color = brighten(plate)
             val pixels = IntArray(symbol.width * symbol.height)
             symbol.getPixels(pixels, 0, symbol.width, 0, 0, symbol.width, symbol.height)
             for (i in pixels.indices) {
                 val c = pixels[i]
-                if (Color.alpha(c) == 0 || luminance(c) < 0.5f) continue
+                if (Color.alpha(c) == 0) continue
+                if (luminance(c) < 0.5f) continue
                 // Only white and the plate's own hue change; other colors (Wallpapers' dots) stay.
                 if (saturation(c) >= 0.18f && plateHue != null &&
                     FloatArray(3).also { Color.colorToHSV(c, it) }[0].let { kotlin.math.abs(it - plateHue).let { d -> minOf(d, 360 - d) } } > 30) continue
