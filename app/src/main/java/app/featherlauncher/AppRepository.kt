@@ -56,10 +56,12 @@ class AppRepository(private val context: Context, shape: IconShape) {
         started = true
         setApps(readList())
         icons = priorityKeys.mapNotNull { key -> decodeIcon(key)?.let { key to it } }.toMap()
+        iconsDir = iconDir
         io.execute {
-            val cached = apps.mapNotNull { e -> (icons[e.key] ?: decodeIcon(e.key))?.let { e.key to it } }.toMap()
+            val dir = iconDir
+            val cached = apps.mapNotNull { e -> (icons[e.key] ?: decodeIcon(e.key, dir))?.let { e.key to it } }.toMap()
             main.post {
-                icons = cached
+                if (dir == iconDir) icons = cached
                 onChanged?.invoke()
             }
             reload(cached)
@@ -122,7 +124,17 @@ class AppRepository(private val context: Context, shape: IconShape) {
         byKey = list.associateBy { it.key }
     }
 
+    /** The folder the icons in memory were drawn for (a shape and look). */
+    @Volatile private var iconsDir: File? = null
+
     private fun reload(currentIcons: Map<String, Bitmap> = icons) {
+        // One consistent look for the whole pass: if it changes meanwhile, this pass is dropped
+        // and the newer one (already queued) takes over, so light and dark icons never mix.
+        val dir = iconDir
+        val passLook = look
+        val passTint = tint
+        // Icons in memory only count if they were drawn for this look; a map passed in was read from this folder.
+        val reusable = if (currentIcons !== icons || iconsDir == dir) currentIcons else emptyMap()
         val pm = context.packageManager
         val previous = apps.associateBy { it.key }
         val newIcons = HashMap<String, Bitmap>()
@@ -135,13 +147,13 @@ class AppRepository(private val context: Context, shape: IconShape) {
                 val packageInfo = runCatching { pm.getPackageInfo(info.componentName.packageName, 0) }.getOrNull()
                 val updatedAt = packageInfo?.lastUpdateTime ?: 0L
                 val old = previous[key]
-                val cachedIcon = currentIcons[key]
+                val cachedIcon = reusable[key] ?: decodeIcon(key, dir)
                 // Apps whose icon shows today's date (Google Calendar) are drawn fresh each day.
                 val dated = datedIcon(info)
                 newIcons[key] = if (dated == null && old != null && old.updatedAt == updatedAt && cachedIcon != null) {
                     cachedIcon
                 } else {
-                    shape.render(dated ?: info.getIcon(DisplayMetrics.DENSITY_XHIGH), iconSize, look, tint).also { saveIcon(key, it) }
+                    shape.render(dated ?: info.getIcon(DisplayMetrics.DENSITY_XHIGH), iconSize, passLook, passTint).also { saveIcon(key, it, dir) }
                 }
                 AppEntry(info.componentName, info.label.toString(), updatedAt,
                     Category.of(info.componentName.packageName, packageInfo?.applicationInfo))
@@ -154,7 +166,10 @@ class AppRepository(private val context: Context, shape: IconShape) {
 
         main.post {
             setApps(fresh)
-            icons = newIcons
+            if (dir == iconDir) {
+                icons = newIcons
+                iconsDir = dir
+            }
             onChanged?.invoke()
         }
     }
@@ -178,14 +193,14 @@ class AppRepository(private val context: Context, shape: IconShape) {
         }
     }.getOrNull()
 
-    private fun iconFile(key: String) = File(iconDir, key.replace('/', '_') + ".png")
+    private fun iconFile(key: String, dir: File = iconDir) = File(dir, key.replace('/', '_') + ".png")
 
-    private fun decodeIcon(key: String): Bitmap? = iconFile(key).takeIf { it.exists() }?.let {
+    private fun decodeIcon(key: String, dir: File = iconDir): Bitmap? = iconFile(key, dir).takeIf { it.exists() }?.let {
         BitmapFactory.decodeFile(it.path)
     }
 
-    private fun saveIcon(key: String, bitmap: Bitmap) {
-        runCatching { iconFile(key).outputStream().use { bitmap.compress(Bitmap.CompressFormat.PNG, 100, it) } }
+    private fun saveIcon(key: String, bitmap: Bitmap, dir: File = iconDir) {
+        runCatching { iconFile(key, dir).outputStream().use { bitmap.compress(Bitmap.CompressFormat.PNG, 100, it) } }
     }
 
     private fun readList(): List<AppEntry> = runCatching {
@@ -214,7 +229,7 @@ class AppRepository(private val context: Context, shape: IconShape) {
 
     private companion object {
         /** Bump when dark or tinted icons are drawn differently. */
-        const val LOOK_VERSION = 23
+        const val LOOK_VERSION = 26
         const val DATED_ICONS = "com.google.android.calendar.dynamic_icons"
     }
 }

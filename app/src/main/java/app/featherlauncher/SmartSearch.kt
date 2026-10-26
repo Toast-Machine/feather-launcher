@@ -197,7 +197,7 @@ class SmartSearch(private val context: Context, private val start: (Intent) -> U
          * [label] with the letters that matched [raw] picked out, the way the search found them:
          * at the start of a word, as word initials, or anywhere. T9 digits match by their letters.
          */
-        fun highlight(label: String, raw: String, color: Int, dim: Int = 0x99FFFFFF.toInt()): CharSequence {
+        fun highlight(label: String, raw: String, color: Int, dim: Int = (color and 0xFFFFFF) or 0x8C000000.toInt()): CharSequence {
             if (raw.isBlank()) return label
             val t9 = Search.isT9(raw)
             val query = if (t9) raw else Search.normalizeText(raw)

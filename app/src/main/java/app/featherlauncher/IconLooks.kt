@@ -179,8 +179,11 @@ object IconLooks {
             }
             if (region.size > w * h / 400) regions += region
         }
-        val keep = regions.singleOrNull()?.takeIf { it.size > w * h / 50 && luminance(plate) >= 0.5f }?.toHashSet()
-        for (i in inside.indices) if (inside[i] && keep?.contains(i) != true) out[i] = 0
+        // On a light plate a few such areas are part of the design (Maps' pin center, a clock's
+        // hands) and stay; many of them (MyZmanim's globe cells) are background showing through.
+        val keepAll = luminance(plate) >= 0.5f && regions.size < 6
+        if (!keepAll) for (i in inside.indices) if (inside[i]) out[i] = 0
+        val keep: Set<Int>? = if (keepAll) inside.indices.filter { inside[it] }.toHashSet() else null
         // On a light plate, what's left still has the plate mixed into its soft edges (a pale
         // fringe). Each pixel gives up exactly the plate color mixed into it, as photo editors'
         // "color to alpha" does: edges come out smooth and in their true color.
@@ -209,7 +212,7 @@ object IconLooks {
         // Nothing left (the plate was the picture) or almost nothing removed: no clear symbol.
         if (left < 0.02f || left > coverage(b) * 0.92f) return null
         // A pattern running out to every edge (a grid) is the background's texture, not a symbol.
-        if (borderCoverage(symbol) > 0.15f) return null
+        if (borderCoverage(symbol) > 0.75f) return null
         return symbol to plate
     }
 
