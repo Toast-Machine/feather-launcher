@@ -96,6 +96,7 @@ class HomeActivity : Activity(), HomeScreen.Host {
 
         prefs = Prefs(this)
         palette = currentPalette()
+        Workspace.fitRows(this)
         repo = Launcher.repo(this)
         repo.setLook(DarkMode.iconLook(this, prefs), DarkMode.tint(this, prefs))
         launcherApps = getSystemService(LauncherApps::class.java)
@@ -242,36 +243,9 @@ class HomeActivity : Activity(), HomeScreen.Host {
         offerSetup()
     }
 
-    /**
-     * The first time, lists what the launcher needs switched on, each with a button straight
-     * to it. After that the same list stays at the top of Settings until it's all done.
-     */
+    /** The first time: the welcome. Permissions are asked for later, where they're needed. */
     private fun offerSetup() {
-        val sp = getSharedPreferences("launcher", MODE_PRIVATE)
-        if (sp.getBoolean("setup_offered", false) || overlays.isShowing) return
-        val pending = Setup.pending(this)
-        if (pending.isEmpty()) return
-        sp.edit().putBoolean("setup_offered", true).apply()
-        home.post {
-            val column = LinearLayout(this).apply {
-                orientation = LinearLayout.VERTICAL
-                addView(TextView(this@HomeActivity).apply {
-                    text = "A few things need your OK before every feature works."
-                    style(TextStyle.Secondary, palette.textSecondary)
-                    setPadding(dp(Ui.SPACE_XL), 0, dp(Ui.SPACE_XL), dp(Ui.SPACE_S))
-                })
-                pending.forEach { item -> addView(Setup.row(this@HomeActivity, palette, item) { overlays.dismiss() }) }
-                addView(TextView(this@HomeActivity).apply {
-                    text = "You can finish this later at the top of Settings."
-                    style(TextStyle.Secondary, palette.textTertiary)
-                    setPadding(dp(Ui.SPACE_XL), dp(Ui.SPACE_S), dp(Ui.SPACE_XL), dp(Ui.SPACE_L))
-                })
-            }
-            overlays.showSheet("Set up Feather Launcher", android.widget.ScrollView(this).apply {
-                isVerticalScrollBarEnabled = false
-                addView(column)
-            })
-        }
+        if (!overlays.isShowing) OnboardingActivity.showIfNeeded(this)
     }
 
     private val sleep by lazy { SleepTime.get(this) }

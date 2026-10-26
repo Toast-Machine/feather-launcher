@@ -93,10 +93,12 @@ class Palette(
                     android.content.res.Configuration.UI_MODE_NIGHT_MASK == android.content.res.Configuration.UI_MODE_NIGHT_YES
             }
             val colors = WallpaperManager.getInstance(context).getWallpaperColors(WallpaperManager.FLAG_SYSTEM)
-            val wallpaperIsLight = colors != null &&
-                colors.colorHints and android.app.WallpaperColors.HINT_SUPPORTS_DARK_TEXT != 0
             val seed = colors?.let(::averageColor)?.let(::rgbToHsl)
                 ?: floatArrayOf(ColorStyle.OCEAN.hue, ColorStyle.OCEAN.saturation, 0.3f)
+            // Android's hint isn't always set (a pale pastel can come without it), so the
+            // wallpaper's own average brightness counts too.
+            val wallpaperIsLight = colors != null &&
+                (colors.colorHints and android.app.WallpaperColors.HINT_SUPPORTS_DARK_TEXT != 0 || seed[2] > 0.7f)
             android.util.Log.d("Palette", "wallpaper average -> hue ${seed[0]} sat ${seed[1]} light ${seed[2]}")
             val custom = if (accentColor != 0) rgbToHsl(accentColor) else null
             val hue = custom?.get(0) ?: if (style == ColorStyle.WALLPAPER) seed[0] else style.hue

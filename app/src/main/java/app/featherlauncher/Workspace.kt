@@ -136,7 +136,19 @@ class Workspace(context: Context) {
     companion object {
         const val DOCK = -1
         const val COLS = 4
-        const val ROWS = 5
+        /**
+         * Rows on each page. Five on short screens (keypad phones); taller phones get another row
+         * for each 120dp or so of height, so icons aren't spaced far apart. Set once at startup.
+         */
+        var ROWS = 5
+            private set
+
+        fun fitRows(context: Context) {
+            val m = context.resources.displayMetrics
+            // The page's share of the screen: everything but the status bar, dock, page dots and gesture bar.
+            val pageDp = m.heightPixels / m.density - 24 - 92 - 20 - 48
+            ROWS = (pageDp / 120f).toInt().coerceIn(5, 7)
+        }
         const val DOCK_COLS = 4
     }
 }

@@ -31,7 +31,9 @@ object Setup {
 
     val items get() = listOf(HOME, ACCESSIBILITY, NOTIFICATIONS) + permissions
 
-    private val HOME = Item("Make it the home screen", "So Home opens it, and app shortcuts work", R.drawable.ic_home,
+    fun isHome(context: Context) = HOME.done(context)
+
+    val HOME = Item("Make it the home screen", "So Home opens it, and app shortcuts work", R.drawable.ic_home,
             done = { it.getSystemService(RoleManager::class.java).isRoleHeld(RoleManager.ROLE_HOME) },
             start = { a ->
                 @Suppress("DEPRECATION")
@@ -58,7 +60,7 @@ object Setup {
 
     private val permissions = listOf(
         permission(Manifest.permission.READ_CONTACTS, "Contacts", "To find people in Smart Search", R.drawable.ic_contact),
-        permission(Manifest.permission.CALL_PHONE, "Phone calls", "So the Call key calls right away", R.drawable.ic_phone_call),
+        permission(Manifest.permission.CALL_PHONE, "Phone calls", "So calling from search starts the call right away", R.drawable.ic_phone_call),
         permission(Manifest.permission.POST_NOTIFICATIONS, "Notifications", "To tell you when Sleep time stops an app's audio", R.drawable.ic_notification),
         permission(Manifest.permission.READ_CALENDAR, "Calendar", "To show your next event on the clock", R.drawable.ic_calendar),
         permission(Manifest.permission.ACCESS_COARSE_LOCATION, "Location", "To work out zmanim where you are", R.drawable.ic_location),

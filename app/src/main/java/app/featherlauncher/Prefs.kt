@@ -131,6 +131,11 @@ class Prefs(context: Context) {
             .apply()
     }
 
+    /** The welcome has been shown (or the older first-run sheet was, for people updating). */
+    var onboarded: Boolean
+        get() = sp.getBoolean("onboarded", sp.getBoolean("setup_offered", false))
+        set(value) = sp.edit().putBoolean("onboarded", value).apply()
+
     /** Icons: Automatic (dark in dark mode), always light, always dark, or tinted. */
     var iconLook: IconLookSetting
         get() = runCatching { IconLookSetting.valueOf(sp.getString("icon_look", null)!!) }.getOrDefault(IconLookSetting.AUTO)

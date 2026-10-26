@@ -213,12 +213,11 @@ class SettingsActivity : Activity() {
 
     /** The main page: one row per area, each showing what it's set to, opening its own page. */
     private fun main(p: Palette) {
-        // Anything still switched off comes first, each with a button straight to its switch.
-        val pending = Setup.pending(this)
-        if (pending.isNotEmpty()) {
-            content.addView(heading(p, "Finish setup"))
+        // Only being the home screen is offered here; everything else is asked for on the page
+        // of the feature that needs it, when it's turned on.
+        if (!Setup.isHome(this)) {
             content.addView(spacer())
-            content.addView(Components.group(this, p, pending.map { Setup.row(this, p, it) }))
+            content.addView(Components.group(this, p, listOf(Setup.row(this, p, Setup.HOME))))
         }
         val sleep = SleepTime.get(this)
         val hiddenCount = prefs.hidden.size

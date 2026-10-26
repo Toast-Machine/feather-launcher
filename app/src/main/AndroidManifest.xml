@@ -49,6 +49,14 @@
             android:theme="@style/Theme.Launcher.Settings" />
 
         <activity
+            android:name=".OnboardingActivity"
+            android:excludeFromRecents="true"
+            android:exported="false"
+            android:screenOrientation="nosensor"
+            android:taskAffinity=""
+            android:theme="@style/Theme.Launcher.Settings" />
+
+        <activity
             android:name=".WallpaperActivity"
             android:exported="false"
             android:label="Wallpaper"

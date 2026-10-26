@@ -111,20 +111,27 @@ class ClockWidget(context: Context, val item: HomeItem) : LinearLayout(context) 
             typeface = android.graphics.Typeface.create("sans-serif", android.graphics.Typeface.BOLD)
             includeFontPadding = false
             setShadowLayer(dp(8).toFloat(), 0f, 0f, 0x66000000)
+            // Room for the soft shadow, which would otherwise be cut off square at the text's edges
+            // (the margins below take the room back, so nothing moves).
+            setPadding(dp(SHADOW_ROOM), dp(SHADOW_ROOM), dp(SHADOW_ROOM), dp(SHADOW_ROOM))
         }
         date.apply {
             setTextColor(0xFFFFFFFF.toInt())
             typeface = android.graphics.Typeface.create("sans-serif", android.graphics.Typeface.BOLD)
             includeFontPadding = false
             setShadowLayer(dp(6).toFloat(), 0f, 0f, 0x66000000)
+            setPadding(dp(SHADOW_ROOM), dp(SHADOW_ROOM), dp(SHADOW_ROOM), dp(SHADOW_ROOM))
         }
         details.orientation = HORIZONTAL
         details.addView(zman)
         details.addView(event, LayoutParams(LayoutParams.WRAP_CONTENT, LayoutParams.WRAP_CONTENT).apply { marginStart = dp(14) })
         zman.setOnClickListener { place?.let { onZman?.invoke(it) } }
         event.setOnClickListener { nextEvent?.let { onEvent?.invoke(it) } }
-        addView(time, LayoutParams(LayoutParams.WRAP_CONTENT, LayoutParams.WRAP_CONTENT))
-        addView(date, LayoutParams(LayoutParams.WRAP_CONTENT, LayoutParams.WRAP_CONTENT).apply { topMargin = dp(6) })
+        val room = -dp(SHADOW_ROOM)
+        addView(time, LayoutParams(LayoutParams.WRAP_CONTENT, LayoutParams.WRAP_CONTENT).apply { setMargins(room, room, room, room) })
+        addView(date, LayoutParams(LayoutParams.WRAP_CONTENT, LayoutParams.WRAP_CONTENT).apply {
+            setMargins(room, dp(6) + 2 * room, room, room)
+        })
         addView(details, LayoutParams(LayoutParams.WRAP_CONTENT, LayoutParams.WRAP_CONTENT).apply { topMargin = dp(8) })
     }
 
@@ -200,6 +207,9 @@ class ClockWidget(context: Context, val item: HomeItem) : LinearLayout(context) 
 
     val dateView: TextView get() = date
 }
+
+/** Padding around the clock's text so its shadow isn't clipped. */
+private const val SHADOW_ROOM = 10
 
 class ClockOptions(val size: Size, val alignStart: Boolean, val showDate: Boolean) {
     enum class Size(val label: String) { SMALL("Small"), MEDIUM("Medium"), LARGE("Large") }
