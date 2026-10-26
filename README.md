@@ -2,6 +2,14 @@
 
 A light, fast and beautiful Android home screen. It's a pleasure to use on any phone, and it's especially good on phones with a hardware number keypad (T9), where most launchers fall apart.
 
+
+<p align="center">
+  <img src="docs/screenshots/home.png" width="23%" alt="Home screen">
+  <img src="docs/screenshots/apps.png" width="23%" alt="App list with categories">
+  <img src="docs/screenshots/dark-home.png" width="23%" alt="Dark mode with dark icons">
+  <img src="docs/screenshots/search.png" width="23%" alt="Smart Search">
+</p>
+
 Plain Kotlin and platform Views, no AndroidX and no third-party libraries, so it opens instantly even on slow phones.
 
 ## What it does
@@ -27,6 +35,27 @@ Plain Kotlin and platform Views, no AndroidX and no third-party libraries, so it
 - **Sleep time:** at night, chosen apps lock however they're opened. Opening one needs a short wait, then it's open for a few minutes; its audio stops when time is up.
 - **Notification filters:** hide notifications by app and by words or patterns, always or only at night, with a history of what was hidden.
 
+## Screenshots
+
+| Light and dark | | |
+|---|---|---|
+| <img src="docs/screenshots/home.png" width="240" alt="Home"> | <img src="docs/screenshots/dark-home.png" width="240" alt="Dark home"> | <img src="docs/screenshots/dark-apps.png" width="240" alt="Dark app list"> |
+| Home screen, colors from your wallpaper | Dark mode: dark icons, the night wallpaper of a pair | App list in dark mode |
+
+| Getting things done | | |
+|---|---|---|
+| <img src="docs/screenshots/search.png" width="240" alt="Search"> | <img src="docs/screenshots/folder.png" width="240" alt="Folder"> | <img src="docs/screenshots/sleep-time.png" width="240" alt="Sleep time"> |
+| Smart Search: apps, contacts, shortcuts, settings, files | Folders | Sleep time |
+
+| Make it yours | | |
+|---|---|---|
+| <img src="docs/screenshots/wallpaper.png" width="240" alt="Wallpapers"> | <img src="docs/screenshots/settings.png" width="240" alt="Settings"> | <img src="docs/screenshots/welcome.png" width="240" alt="Welcome"> |
+| Wallpapers, including light and dark pairs | Settings | A short welcome on first run |
+
+**On a keypad phone** (480×640): type a number to dial or search, with T9.
+
+<img src="docs/screenshots/keypad.png" width="240" alt="Keypad phone search">
+
 ## Install
 
 Download the APK from the releases page and install it, or build it yourself:
@@ -36,7 +65,7 @@ Download the APK from the releases page and install it, or build it yourself:
 adb install -r app/build/outputs/apk/release/app-release.apk
 ```
 
-The first time it opens, Feather Launcher lists what needs your OK (home screen, accessibility for Sleep time and keys, notification access, and a few permissions), each with a button that goes straight to the right switch. Everything is optional; features you don't allow simply stay off.
+The first time it opens, a short welcome sets it as your home screen and lets you choose how apps are arranged. Other permissions are only asked for when you turn on the feature that needs them (accessibility for Sleep time and key shortcuts, notification access for filters, contacts for search). Everything is optional.
 
 Requires Android 13 or later.
 
