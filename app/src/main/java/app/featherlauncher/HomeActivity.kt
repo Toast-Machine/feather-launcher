@@ -537,8 +537,11 @@ class HomeActivity : Activity(), HomeScreen.Host {
             interpolator = PANEL_EASING
             addUpdateListener { applyPanelProgress(it.animatedValue as Float) }
             addListener(object : android.animation.AnimatorListenerAdapter() {
+                // cancel() also calls onAnimationEnd; a cancelled open must not hide the home screen.
+                private var cancelled = false
+                override fun onAnimationCancel(animation: android.animation.Animator) { cancelled = true }
                 override fun onAnimationEnd(animation: android.animation.Animator) {
-                    if (panelAnimator !== animation) return
+                    if (cancelled || panelAnimator !== animation) return
                     if (open) {
                         home.visibility = View.INVISIBLE
                     } else {
@@ -554,6 +557,7 @@ class HomeActivity : Activity(), HomeScreen.Host {
     /** Puts everything back to its resting state. */
     private fun resetPanelProgress() {
         panelProgress = 0f
+        home.visibility = View.VISIBLE
         home.translationY = 0f
         home.alpha = 1f
         drawer.background?.alpha = 255

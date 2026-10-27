@@ -217,7 +217,7 @@ class HomeScreen(
         dock.setPadding(0, vertical, 0, vertical)
         // Like Smart Launcher: on the wallpaper the dock is the app list's deep tone; the lighter
         // tone is for bars that sit on that deep background (the app list's tab bar).
-        dock.background = Ui.rounded(activity, p.drawer, Ui.RADIUS_BAR, p.hairline)
+        dock.background = Ui.rounded(activity, p.dock, Ui.RADIUS_BAR, p.hairline)
     }
 
     /** Size of one page cell in dp, for sizing new widgets. */

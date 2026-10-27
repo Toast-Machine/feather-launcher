@@ -39,8 +39,16 @@ class Palette(
      * measured over many wallpapers: the wallpaper's hue at a fixed, gentle saturation and a
      * fixed lightness, nearly solid. Dark for most wallpapers; light when the wallpaper is light.
      */
-    private val wallSat = (wallSaturation * 1.5f).coerceAtMost(0.28f)
     private val lightWall = wallpaperIsLight
+    /**
+     * A bright, colorful wallpaper that isn't light enough for dark text. The usual near-black
+     * surfaces look like a hole in it, so they take a richer, lighter tone of its color instead.
+     */
+    private val vividWall = !lightWall && wallLightness > 0.42f && wallSaturation > 0.3f
+    private val wallSat = if (vividWall) (wallSaturation * 0.95f).coerceAtMost(0.62f) else (wallSaturation * 1.5f).coerceAtMost(0.28f)
+    /** How light the deep surfaces (app list, search, folders) are when the wallpaper isn't light. */
+    private val deep = if (vividWall) 0.29f else 0.13f
+    private val glassSat = if (vividWall) wallSat * 0.85f else wallSat * 0.48f
 
     val accent = if (dark) hsl(hue, saturation.coerceIn(0.35f, 0.75f), 0.74f) else hsl(hue, saturation.coerceIn(0.40f, 0.80f), 0.42f)
     val onAccent = if (dark) hsl(hue, 0.45f, 0.14f) else Color.WHITE
@@ -54,14 +62,24 @@ class Palette(
     /** Buttons, rows and fields inside a surface. */
     val surfaceHigh = if (dark) hsl(hue, tint * 0.9f, 0.22f) else hsl(hue, tint, 0.905f)
     /** The dock, tab bar and search bar: a lighter, softer tone than the app list, nearly solid. */
-    val glass = if (lightWall) hsl(wallHue, wallSat * 0.6f, 0.78f, 0xF5) else hsl(wallHue, wallSat * 0.48f, 0.21f, 0xF5)
+    val glass = if (lightWall) hsl(wallHue, wallSat * 0.6f, 0.78f, 0xF5) else hsl(wallHue, glassSat, deep + 0.08f, 0xF5)
     /** The faint line around the dock and tab bar. */
     val hairline = if (lightWall) 0x14000000 else 0x14FFFFFF
-    /** Folder icon tile, and the folder when it's open. */
-    val folderFill = if (lightWall) hsl(wallHue, wallSat * 0.6f, 0.72f, 0xE6) else hsl(wallHue, wallSat * 0.48f, 0.27f, 0xE6)
+    /** The folder when it's open. */
     val folderPanel = glass
     /** The app list's background: the wallpaper's hue, deep and nearly solid, so little shows through. */
-    val drawer = if (lightWall) hsl(wallHue, wallSat * 1.25f, 0.86f, 0xFA) else hsl(wallHue, wallSat, 0.13f, 0xFA)
+    val drawer = if (lightWall) hsl(wallHue, wallSat * 1.25f, 0.86f, 0xFA) else hsl(wallHue, wallSat, deep, if (vividWall) 0xEB else 0xFA)
+    /**
+     * The dock on the home screen. On darker wallpapers, the app list's deep tone; on bright
+     * ones (light or vivid) that's a heavy slab, so it becomes a soft frosted white instead.
+     */
+    val dock = when {
+        lightWall -> hsl(wallHue, wallSat * 0.6f, 0.95f, 0x8C)
+        vividWall -> 0x4DFFFFFF
+        else -> drawer
+    }
+    /** Folder tiles on the home screen match the dock, so the two read as one family. */
+    val folderFill = dock
     /** Behind Smart Search: the same as the app list. */
     val searchScrim = drawer
     /** Text on wallpaper-colored surfaces: near white (or near black) with a touch of the hue. */
