@@ -2086,7 +2086,9 @@ class HomeActivity : Activity(), HomeScreen.Host {
             done = {
                 val onScreen = order.iterator()
                 categories.setOrder(id, apps.map { if (it in home) onScreen.next() else it })
-                // Rebuilt while the app still sits in its new place, so the highlight is found there, not where it started.
+                // The highlight waits on the invisible spot while the list is rebuilt: left on the app,
+                // the rebuild would put it back on the app's old row (on another app) for a moment.
+                focusPark.requestFocus()
                 updateResults()
                 settle()
                 // The list is rebuilt in the new order; the highlight stays on the app that moved.
