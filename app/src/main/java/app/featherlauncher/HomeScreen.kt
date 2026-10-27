@@ -793,17 +793,14 @@ class HomeScreen(
             if (candidate != null) {
                 clearReorder(commit = false)
                 setTarget(null)
-            } else if (w == 1 && h == 1) {
-                // Apps make room: after a short hover, icons in the way slide aside.
+            } else {
+                // After a short hover, what's in the way slides aside: icons for an app, anything for a widget.
                 val cell = Triple(page, col, row)
                 if (cell != hoverCell) {
                     hoverCell = cell
                     root.removeCallbacks(reorder)
                     root.postDelayed(reorder, REORDER_DELAY)
                 }
-            } else {
-                val spot = workspace.nearestSpot(page, col, row, w, h, source?.item)
-                setTarget(spot?.let { Triple(page, it.first, it.second) })
             }
         }
 
@@ -964,11 +961,12 @@ class HomeScreen(
 
         private fun applyReorder() {
             val (page, x, y) = hoverCell ?: return
-            when (val plan = planReorder(page, x, y)) {
+            val plan = if (w == 1 && h == 1) planReorder(page, x, y) else planWidgetReorder(page, x, y)
+            when (plan) {
                 null -> {
-                    // No way to make room here (a widget, or a full page): use the closest free cell.
+                    // No way to make room here (a widget, or a full page): use the closest free spot.
                     setShifted(emptyMap())
-                    val spot = workspace.nearestSpot(page, x, y, 1, 1, source?.item)
+                    val spot = workspace.nearestSpot(page, x, y, w, h, source?.item)
                     setTarget(spot?.let { Triple(page, it.first, it.second) })
                 }
                 else -> {
@@ -1012,6 +1010,44 @@ class HomeScreen(
                 }
             }
             return null
+        }
+
+        /**
+         * What moves where so a dragged widget fits at ([cx], [cy]). Each thing in the way goes where
+         * the dragged widget came from if it fits there (so two widgets swap), else to the nearest
+         * free spot. Empty map: the space is free. Null: there isn't room on the page.
+         */
+        private fun planWidgetReorder(page: Int, cx: Int, cy: Int): Map<HomeItem, Pair<Int, Int>>? {
+            val dragged = source?.item
+            val cols = workspace.cols(page)
+            val rows = workspace.rows(page)
+            val others = workspace.on(page).filter { it !== dragged }
+            fun overlaps(a: HomeItem, x: Int, y: Int, w: Int, h: Int) = a.x < x + w && x < a.x + a.w && a.y < y + h && y < a.y + a.h
+            val inWay = others.filter { overlaps(it, cx, cy, w, h) }
+            if (inWay.isEmpty()) return emptyMap()
+            // Taken cells: everything staying put, and where the widget is going.
+            val taken = Array(rows) { BooleanArray(cols) }
+            fun take(x: Int, y: Int, w: Int, h: Int) {
+                for (yy in y until y + h) for (xx in x until x + w) if (yy in 0 until rows && xx in 0 until cols) taken[yy][xx] = true
+            }
+            fun free(x: Int, y: Int, w: Int, h: Int) =
+                x >= 0 && y >= 0 && x + w <= cols && y + h <= rows && (y until y + h).all { yy -> (x until x + w).none { xx -> taken[yy][xx] } }
+            others.filter { it !in inWay }.forEach { take(it.x, it.y, it.w, it.h) }
+            take(cx, cy, w, h)
+            val plan = LinkedHashMap<HomeItem, Pair<Int, Int>>()
+            for (item in inWay.sortedBy { it.y * cols + it.x }) {
+                val swap = dragged?.takeIf { it.page == page }?.let { d ->
+                    (d.x + item.x - cx).coerceIn(0, cols - item.w) to (d.y + item.y - cy).coerceIn(0, rows - item.h)
+                }
+                val spot = swap?.takeIf { free(it.first, it.second, item.w, item.h) }
+                    ?: (0..rows - item.h).flatMap { y -> (0..cols - item.w).map { x -> x to y } }
+                        .filter { (x, y) -> free(x, y, item.w, item.h) }
+                        .minByOrNull { (x, y) -> abs(x - item.x) + abs(y - item.y) * 2 }
+                    ?: return null
+                plan[item] = spot
+                take(spot.first, spot.second, item.w, item.h)
+            }
+            return plan
         }
 
         /** Slides icons to their temporary cells (and others back home). Nothing is saved until drop. */

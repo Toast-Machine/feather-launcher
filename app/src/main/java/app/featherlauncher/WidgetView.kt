@@ -2,12 +2,18 @@ package app.featherlauncher
 
 import android.appwidget.AppWidgetHostView
 import android.content.Context
+import android.graphics.Outline
 import android.view.HapticFeedbackConstants
 import android.view.MotionEvent
+import android.view.View
 import android.view.ViewConfiguration
+import android.view.ViewOutlineProvider
 import kotlin.math.abs
 
-/** Hosts another app's widget and adds long-press (for the widget menu) on top of its own touch handling. */
+/**
+ * Hosts another app's widget, with Android's rounded widget corners, and adds long-press (to
+ * move and resize it) on top of its own touch handling, wherever it's held, buttons and lists too.
+ */
 class WidgetView(context: Context) : AppWidgetHostView(context) {
     var onLongPress: (() -> Unit)? = null
 
@@ -18,8 +24,23 @@ class WidgetView(context: Context) : AppWidgetHostView(context) {
 
     private val longPress = Runnable {
         longPressed = true
+        // The widget's buttons and lists stop where they are: no click when the finger lifts.
+        val now = android.os.SystemClock.uptimeMillis()
+        MotionEvent.obtain(now, now, MotionEvent.ACTION_CANCEL, downX, downY, 0).let {
+            super.dispatchTouchEvent(it)
+            it.recycle()
+        }
         performHapticFeedback(HapticFeedbackConstants.LONG_PRESS)
         onLongPress?.invoke()
+    }
+
+    init {
+        // Square widgets get the same corners as Android's own (as they have on the Pixel launcher).
+        val radius = resources.getDimension(android.R.dimen.system_app_widget_background_radius)
+        outlineProvider = object : ViewOutlineProvider() {
+            override fun getOutline(view: View, outline: Outline) = outline.setRoundRect(0, 0, view.width, view.height, radius)
+        }
+        clipToOutline = true
     }
 
     override fun onSizeChanged(w: Int, h: Int, oldw: Int, oldh: Int) {
@@ -31,15 +52,13 @@ class WidgetView(context: Context) : AppWidgetHostView(context) {
         }
     }
 
-    override fun onInterceptTouchEvent(ev: MotionEvent): Boolean {
+    // Every touch is watched here, before the widget's own views: a list or button inside can
+    // keep touches from the usual interception, and the hold would go unnoticed.
+    override fun dispatchTouchEvent(ev: MotionEvent): Boolean {
         track(ev)
-        // After a long press, take the rest of the gesture so the widget doesn't also get a click.
-        return longPressed
-    }
-
-    override fun onTouchEvent(ev: MotionEvent): Boolean {
-        track(ev)
-        return true
+        // After a long press, the rest of the gesture is ours (the drag), not the widget's.
+        if (longPressed && ev.actionMasked != MotionEvent.ACTION_DOWN) return true
+        return super.dispatchTouchEvent(ev) || true
     }
 
     private fun track(ev: MotionEvent) {

@@ -99,22 +99,9 @@ class Widgets(
 
     /** Opens the widget picker: Feather's own widgets first, then widgets grouped by app, each with its preview. */
     fun pick() {
-        val pm = activity.packageManager
-        val collator = Collator.getInstance()
         val rows = ArrayList<PickerRow>()
         rows += PickerRow.Header(null, "Feather Launcher")
         FeatherKind.entries.forEach { rows += PickerRow.Feather(it) }
-        manager.installedProviders
-            .groupBy { it.provider.packageName }
-            .map { (pkg, infos) ->
-                val app = runCatching { pm.getApplicationLabel(pm.getApplicationInfo(pkg, 0)).toString() }.getOrDefault(pkg)
-                Triple(pkg, app, infos)
-            }
-            .sortedWith { a, b -> collator.compare(a.second, b.second) }
-            .forEach { (pkg, app, infos) ->
-                rows += PickerRow.Header(pkg, app)
-                infos.forEach { rows += PickerRow.Widget(it, it.loadLabel(pm)) }
-            }
 
         val list = ListView(activity).apply {
             divider = null
@@ -124,7 +111,8 @@ class Widgets(
             clipToPadding = false
             setPadding(0, 0, 0, dp(Ui.SPACE_S))
         }
-        list.adapter = PickerAdapter(rows)
+        val adapter = PickerAdapter(rows)
+        list.adapter = adapter
         list.setOnItemClickListener { _, _, position, _ ->
             when (val row = rows[position]) {
                 is PickerRow.Widget -> {
@@ -146,6 +134,34 @@ class Widgets(
             true
         }
         overlays.showSheet("Widgets", list, scrollable = list, fill = true)
+        // Other apps' widgets are listed once their names are read, which can take a moment
+        // with many apps; the sheet opens straight away with Feather's own.
+        previews.execute {
+            val others = otherApps()
+            main.post {
+                rows += others
+                adapter.notifyDataSetChanged()
+            }
+        }
+    }
+
+    /** Every other app's widgets, under the app's name, apps in alphabetical order. */
+    private fun otherApps(): List<PickerRow> {
+        val pm = activity.packageManager
+        val collator = Collator.getInstance()
+        val rows = ArrayList<PickerRow>()
+        manager.installedProviders
+            .groupBy { it.provider.packageName }
+            .map { (pkg, infos) ->
+                val app = runCatching { pm.getApplicationLabel(pm.getApplicationInfo(pkg, 0)).toString() }.getOrDefault(pkg)
+                Triple(pkg, app, infos)
+            }
+            .sortedWith { a, b -> collator.compare(a.second, b.second) }
+            .forEach { (pkg, app, infos) ->
+                rows += PickerRow.Header(pkg, app)
+                infos.forEach { rows += PickerRow.Widget(it, it.loadLabel(pm)) }
+            }
+        return rows
     }
 
     private sealed class PickerRow {
