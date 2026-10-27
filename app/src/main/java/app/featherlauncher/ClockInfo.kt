@@ -29,7 +29,8 @@ class ClockInfo(private val context: Context) {
             }.getOrNull()
         }
     }
-    class Event(val id: Long, val title: String, val begin: Long, val allDay: Boolean = false)
+    /** [color] is its calendar's, as the calendar app shows it. */
+    class Event(val id: Long, val title: String, val begin: Long, val allDay: Boolean = false, val end: Long = begin, val color: Int = 0)
 
     private val prefs = Prefs(context)
 
@@ -65,13 +66,13 @@ class ClockInfo(private val context: Context) {
         return runCatching {
             context.contentResolver.query(uri,
                 arrayOf(CalendarContract.Instances.EVENT_ID, CalendarContract.Instances.TITLE, CalendarContract.Instances.BEGIN,
-                    CalendarContract.Instances.END, CalendarContract.Instances.ALL_DAY),
+                    CalendarContract.Instances.END, CalendarContract.Instances.ALL_DAY, CalendarContract.Instances.DISPLAY_COLOR),
                 "${CalendarContract.Instances.END} > ? AND ${CalendarContract.Instances.VISIBLE} = 1",
                 arrayOf(from.toString()), "${CalendarContract.Instances.ALL_DAY} DESC, ${CalendarContract.Instances.BEGIN} ASC",
             )?.use { c ->
                 val list = ArrayList<Event>()
                 while (c.moveToNext() && list.size < limit) {
-                    list += Event(c.getLong(0), c.getString(1).orEmpty().ifEmpty { "Event" }, c.getLong(2), c.getInt(4) == 1)
+                    list += Event(c.getLong(0), c.getString(1).orEmpty().ifEmpty { "Event" }, c.getLong(2), c.getInt(4) == 1, c.getLong(3), c.getInt(5))
                 }
                 list
             }.orEmpty()

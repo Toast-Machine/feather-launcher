@@ -90,7 +90,7 @@ class ClockWidget(context: Context, val item: HomeItem) : FitColumn(context) {
     /** The second calendar's date, today's holiday, the parsha, the Omer, Daf Yomi. */
     private val detail = WidgetStyle.text(context, 15f, WidgetStyle.body, WidgetStyle.SOFT_WHITE)
     /** The weather and up to two things coming up. */
-    private val pills = FitRow(context)
+    private val pills = FitRow(context).apply { gap = Ui.dp(context, 14) }
     private val glance = Glance(context)
     private var place: ClockInfo.Place? = null
     private var pillSp = 13f
@@ -173,7 +173,7 @@ class ClockWidget(context: Context, val item: HomeItem) : FitColumn(context) {
         detail.visibility = if (lines.detail != null) VISIBLE else GONE
         pills.removeAllViews()
         lines.weather?.let { w ->
-            pills.addView(WidgetStyle.pill(context, WeatherIcon(w.sky, w.night, WidgetStyle.onSurface()), "${w.temperature}°  ${w.description}", pillSp).apply {
+            pills.addView(WidgetStyle.pill(context, WeatherArt.icon(w.sky, w.night), "${w.temperature}°  ${w.description}", pillSp).apply {
                 setOnClickListener { onWeather?.invoke() }
             })
         }

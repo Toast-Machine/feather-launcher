@@ -10,28 +10,42 @@ import android.view.ViewGroup
 import android.widget.TextView
 
 /**
- * How Feather's own widgets look, so they all match each other and the dock: type straight on
- * the wallpaper is white with a soft shadow; pills and cards sit on the frosted surface of the
- * search bar and tab bar: nearly solid and tinted from the wallpaper, so they look the same on
- * any part of it, unlike a see-through fill.
+ * How Feather's own widgets look, in the style of Android's own: cards in the Material You
+ * colors Android makes from the wallpaper (the ones Google's widgets use), light or dark with
+ * the app's theme, with large rounded corners; and on the wallpaper itself, white type with a
+ * soft shadow and nothing behind it, like the Pixel's At a glance.
  */
 object WidgetStyle {
     const val WHITE = 0xFFFFFFFF.toInt()
     const val SOFT_WHITE = 0xD9FFFFFF.toInt()
+    /** A card's corners, as Android's own widgets have them. */
+    const val RADIUS = 28
 
     /** The home screen's colors, from the wallpaper; set by [HomeScreen]. */
     var palette: () -> Palette? = { null }
+    /** For reading Android's colors; set by [HomeScreen]. */
+    var context: Context? = null
 
-    /** The surface and its text colors, for pills and cards. */
-    fun surface(): Int = palette()?.glass ?: 0xF5202124.toInt()
-    fun onSurface(): Int = palette()?.onWall ?: WHITE
-    fun onSurfaceSecondary(): Int = palette()?.onWallSecondary ?: SOFT_WHITE
-    private fun hairline(): Int = palette()?.hairline ?: 0x14FFFFFF
+    private fun dark() = palette()?.dark ?: true
 
-    /** A rounded piece of the surface, [radius] in dp. */
-    fun surfaceBackground(ctx: Context, radius: Int) = Ui.rounded(ctx, surface(), radius, hairline())
+    private fun system(dark: Int, light: Int, fallback: Int): Int =
+        context?.getColor(if (dark()) dark else light) ?: fallback
 
-    val display: Typeface = Typeface.create(Typeface.DEFAULT, 500, false)
+    /** A card's background, its text, and its quieter text. */
+    fun card() = system(android.R.color.system_accent2_800, android.R.color.system_accent2_50, 0xFF2B2D31.toInt())
+    fun onCard() = system(android.R.color.system_neutral1_50, android.R.color.system_neutral1_900, WHITE)
+    fun onCardQuiet() = system(android.R.color.system_neutral2_200, android.R.color.system_neutral2_700, SOFT_WHITE)
+    /** The accent, for what matters most on a card. */
+    fun accent() = system(android.R.color.system_accent1_200, android.R.color.system_accent1_600, 0xFFA8C7FA.toInt())
+    /** A softer accent fill, and text on it. */
+    fun accentFill() = system(android.R.color.system_accent1_700, android.R.color.system_accent1_100, 0xFF0B57D0.toInt())
+    fun onAccentFill() = system(android.R.color.system_accent1_100, android.R.color.system_accent1_900, WHITE)
+    /** Text and icons on a solid [accent] fill. */
+    fun onAccent() = system(android.R.color.system_accent1_800, android.R.color.system_accent1_0, 0xFF062E6F.toInt())
+
+    fun cardBackground(ctx: Context) = Ui.rounded(ctx, card(), RADIUS)
+
+    val display: Typeface = Typeface.create(Typeface.DEFAULT, 400, false)
     val title: Typeface = Typeface.create(Typeface.DEFAULT, 600, false)
     val body: Typeface = Typeface.create(Typeface.DEFAULT, 400, false)
     val label: Typeface = Typeface.create(Typeface.DEFAULT, 500, false)
@@ -47,9 +61,9 @@ object WidgetStyle {
         ellipsize = android.text.TextUtils.TruncateAt.END
     }
 
-    /** Text on a card, in the dock's text color. */
-    fun cardText(ctx: Context, sp: Float, face: Typeface, secondary: Boolean = false) = TextView(ctx).apply {
-        setTextColor(if (secondary) onSurfaceSecondary() else onSurface())
+    /** Text on a card: [color] is one of the card colors above. */
+    fun cardText(ctx: Context, sp: Float, face: Typeface, color: Int = onCard()) = TextView(ctx).apply {
+        setTextColor(color)
         typeface = face
         includeFontPadding = false
         setTextSize(TypedValue.COMPLEX_UNIT_SP, sp)
@@ -57,30 +71,21 @@ object WidgetStyle {
         ellipsize = android.text.TextUtils.TruncateAt.END
     }
 
-    /** A rounded pill with an icon and a few words, for something to tap. */
-    fun pill(ctx: Context, icon: Drawable?, words: String, sp: Float) = TextView(ctx).apply {
+    /** An icon and a few words straight on the wallpaper, for something to tap. */
+    fun pill(ctx: Context, icon: Drawable?, words: String, sp: Float) = text(ctx, sp, label).apply {
         val dp = { v: Int -> Ui.dp(ctx, v) }
         text = words
-        setTextColor(onSurface())
-        typeface = label
-        includeFontPadding = false
-        setTextSize(TypedValue.COMPLEX_UNIT_SP, sp)
-        maxLines = 1
-        ellipsize = android.text.TextUtils.TruncateAt.END
         gravity = Gravity.CENTER_VERTICAL
-        background = surfaceBackground(ctx, Ui.RADIUS_PILL)
         foreground = Ui.pressable(ctx, Ui.RADIUS_PILL)
-        val size = (sp * 1.2f * ctx.resources.displayMetrics.scaledDensity).toInt()
-        icon?.mutate()?.apply {
-            setTint(onSurface())
-            setBounds(0, 0, size, size)
-        }
+        val size = (sp * 1.25f * ctx.resources.displayMetrics.scaledDensity).toInt()
+        icon?.mutate()?.setBounds(0, 0, size, size)
         setCompoundDrawablesRelative(icon, null, null, null)
         compoundDrawablePadding = dp(6)
-        setPadding(dp(10), dp(6), dp(12), dp(6))
+        setPadding(dp(4), dp(4), dp(4), dp(4))
     }
 
-    fun icon(ctx: Context, res: Int): Drawable? = ctx.getDrawable(res)
+    /** One of the app's line icons, white for the wallpaper. */
+    fun icon(ctx: Context, res: Int): Drawable? = ctx.getDrawable(res)?.mutate()?.apply { setTint(WHITE) }
 }
 
 /**

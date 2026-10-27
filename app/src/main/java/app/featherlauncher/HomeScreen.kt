@@ -252,6 +252,7 @@ class HomeScreen(
         dock.background = Ui.rounded(activity, p.dock, Ui.RADIUS_BAR, p.hairline)
         // Feather's widgets take the wallpaper's colors too, so they're made again in the new ones.
         WidgetStyle.palette = palette
+        WidgetStyle.context = activity.applicationContext
         views.entries.filter { it.value is CardWidget || it.value is ClockWidget }.map { it.key }.forEach { id ->
             views.remove(id)?.let { (it.parent as? ViewGroup)?.removeView(it) }
         }

@@ -16,8 +16,11 @@ object Weather {
         val temperature: Int, val high: Int, val low: Int, val description: String, val sky: Sky, val night: Boolean,
         /** The coming hours and days, for the Weather widget. */
         val hours: List<Hour> = emptyList(), val days: List<Day> = emptyList(),
+        /** Today's highest chance of rain or snow, in percent. */
+        val rainChance: Int = 0,
     )
-    class Hour(val time: Long, val temperature: Int, val sky: Sky, val night: Boolean)
+    /** [rain] is the chance of rain or snow that hour, in percent. */
+    class Hour(val time: Long, val temperature: Int, val sky: Sky, val night: Boolean, val rain: Int = 0)
     class Day(val time: Long, val high: Int, val low: Int, val sky: Sky)
 
     private const val FRESH = 30 * 60_000L
@@ -52,8 +55,8 @@ object Weather {
     private fun fetch(place: ClockInfo.Place): Now {
         val unit = if (fahrenheit) "&temperature_unit=fahrenheit" else ""
         val url = "https://api.open-meteo.com/v1/forecast?latitude=${place.lat}&longitude=${place.lon}" +
-            "&current=temperature_2m,weather_code,is_day&hourly=temperature_2m,weather_code,is_day" +
-            "&daily=temperature_2m_max,temperature_2m_min,weather_code&forecast_days=5&timezone=auto&timeformat=unixtime$unit"
+            "&current=temperature_2m,weather_code,is_day&hourly=temperature_2m,weather_code,is_day,precipitation_probability" +
+            "&daily=temperature_2m_max,temperature_2m_min,weather_code,precipitation_probability_max&forecast_days=5&timezone=auto&timeformat=unixtime$unit"
         val text = (URL(url).openConnection() as HttpURLConnection).run {
             connectTimeout = 10_000
             readTimeout = 15_000
@@ -70,7 +73,8 @@ object Weather {
             .take(24)
             .map { i ->
                 Hour(hourly.getJSONArray("time").getLong(i) * 1000, Math.round(hourly.getJSONArray("temperature_2m").getDouble(i)).toInt(),
-                    sky(hourly.getJSONArray("weather_code").getInt(i)), hourly.getJSONArray("is_day").getInt(i) == 0)
+                    sky(hourly.getJSONArray("weather_code").getInt(i)), hourly.getJSONArray("is_day").getInt(i) == 0,
+                    hourly.optJSONArray("precipitation_probability")?.optInt(i) ?: 0)
             }
         val days = (0 until daily.getJSONArray("time").length()).map { i ->
             Day(daily.getJSONArray("time").getLong(i) * 1000, Math.round(daily.getJSONArray("temperature_2m_max").getDouble(i)).toInt(),
@@ -81,6 +85,7 @@ object Weather {
             Math.round(daily.getJSONArray("temperature_2m_max").getDouble(0)).toInt(),
             Math.round(daily.getJSONArray("temperature_2m_min").getDouble(0)).toInt(),
             describe(code), sky(code), current.optInt("is_day", 1) == 0, hours, days,
+            daily.optJSONArray("precipitation_probability_max")?.optInt(0) ?: 0,
         )
     }
 
