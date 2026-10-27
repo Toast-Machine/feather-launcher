@@ -315,7 +315,20 @@ class HomeActivity : Activity(), HomeScreen.Host {
         updateResults()
     }
 
+    /** The rest of a touch that ended a keypad move; it does nothing else. */
+    private var touchEndedMove = false
+
     override fun dispatchTouchEvent(ev: MotionEvent): Boolean {
+        // Touching the screen while moving something with the keypad puts it down where it is.
+        if (ev.actionMasked == MotionEvent.ACTION_DOWN) keyMover?.let { mover ->
+            keyMover = null
+            mover.done()
+            touchEndedMove = true
+        }
+        if (touchEndedMove) {
+            if (ev.actionMasked == MotionEvent.ACTION_UP || ev.actionMasked == MotionEvent.ACTION_CANCEL) touchEndedMove = false
+            return true
+        }
         if (tabDrag.handle(ev)) return true
         if (appDrag.handle(ev)) return true
         // A drag or resize on the home screen takes over the gesture once it starts.

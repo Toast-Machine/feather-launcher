@@ -681,11 +681,18 @@ class HomeScreen(
         return true
     }
 
+    /** The rest of a touch that ended a keypad move. */
+    private var touchEndedMove = false
+
     /** Called from the activity for every touch event; returns true when a drag consumed it. */
     fun dispatchTouch(ev: MotionEvent): Boolean {
-        // Moving with the keypad: a tap puts the item down where it is.
-        if (drag.isKeyMoving) {
-            if (ev.actionMasked == MotionEvent.ACTION_UP) drag.keyDrop()
+        // Moving with the keypad: a touch puts the item down where it is, and does nothing else.
+        if (ev.actionMasked == MotionEvent.ACTION_DOWN && drag.isKeyMoving) {
+            drag.keyDrop()
+            touchEndedMove = true
+        }
+        if (touchEndedMove) {
+            if (ev.actionMasked == MotionEvent.ACTION_UP || ev.actionMasked == MotionEvent.ACTION_CANCEL) touchEndedMove = false
             return true
         }
         if (ev.actionMasked == MotionEvent.ACTION_DOWN) {
