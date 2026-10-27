@@ -178,7 +178,25 @@ class GestureLayout(context: Context, attrs: AttributeSet?) : LinearLayout(conte
     private fun isVerticalDrag(ev: MotionEvent): Boolean {
         if (onPull == null && onSwipeUp == null && onSwipeDown == null) return false
         val dy = ev.y - downY
-        return abs(dy) > slop && abs(dy) > abs(ev.x - downX) && canDrag(dy)
+        return abs(dy) > slop && abs(dy) > abs(ev.x - downX) && canDrag(dy) && !scrollsAt(this, downX, downY, dy)
+    }
+
+    /**
+     * Whether something under ([x], [y]) can still scroll the way the finger is going (a widget's
+     * list, say): then the drag is its own, until it's scrolled to the end.
+     */
+    private fun scrollsAt(group: android.view.ViewGroup, x: Float, y: Float, dy: Float): Boolean {
+        for (i in group.childCount - 1 downTo 0) {
+            val child = group.getChildAt(i)
+            if (child.visibility != VISIBLE) continue
+            val cx = x - child.left + group.scrollX - child.translationX
+            val cy = y - child.top + group.scrollY - child.translationY
+            if (cx < 0 || cy < 0 || cx >= child.width || cy >= child.height) continue
+            // Dragging up shows what's further down.
+            if (child.canScrollVertically(if (dy < 0) 1 else -1)) return true
+            if (child is android.view.ViewGroup && scrollsAt(child, cx, cy, dy)) return true
+        }
+        return false
     }
 }
 
