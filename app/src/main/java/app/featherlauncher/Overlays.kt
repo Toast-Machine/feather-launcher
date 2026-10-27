@@ -378,10 +378,10 @@ class Overlays(private val root: FrameLayout, private val palette: () -> Palette
         current = overlay
         setUnderlyingFocusable(false)
         // With the keypad, start on the first option.
-        // (The options are the wide rows, not a small button beside the title like app info.)
+        // (Not the round button beside a title, like app info: the options are wider than they're tall.)
         if (!card.isInTouchMode) card.post {
             val options = ArrayList<View>().also { card.addFocusables(it, View.FOCUS_DOWN) }
-            (options.firstOrNull { it.width > card.width / 2 } ?: options.firstOrNull())?.requestFocus()
+            (options.firstOrNull { it.width > it.height * 3 / 2 } ?: options.firstOrNull())?.requestFocus()
         }
     }
 

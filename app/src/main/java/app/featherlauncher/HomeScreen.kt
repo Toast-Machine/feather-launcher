@@ -1581,12 +1581,15 @@ class HomeScreen(
                 View.FOCUS_RIGHT -> o.left >= r.centerX() && gap(o.top, o.bottom, r.top, r.bottom) == 0
                 else -> o.right <= r.centerX() && gap(o.top, o.bottom, r.top, r.bottom) == 0
             }
-        }.minByOrNull { (_, o) ->
+        }.minWithOrNull(compareBy({ (_, o) ->
             val along = if (vertical) abs(o.centerY() - r.centerY()) else abs(o.centerX() - r.centerX())
             // How far off to the side it is; 0 when it's in the same column (or row).
             val aside = if (vertical) gap(o.left, o.right, r.left, r.right) else gap(o.top, o.bottom, r.top, r.bottom)
             aside * 8 + along
-        }?.first
+        }, { (_, o) ->
+            // Two as close (under a wide widget, say): the one most in line with where it's coming from.
+            if (vertical) abs(o.centerX() - r.centerX()) else abs(o.centerY() - r.centerY())
+        }))?.first
         if (best != null) {
             // From touch: the arrows often arrive through the key service while the screen is
             // still in touch mode, where a plain request is refused and nothing would move.

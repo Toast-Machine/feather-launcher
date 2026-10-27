@@ -34,14 +34,30 @@ class WidgetView(context: Context) : AppWidgetHostView(context) {
         onLongPress?.invoke()
     }
 
-    init {
-        // Square widgets get the same corners as Android's own (as they have on the Pixel launcher).
-        // Some phones set Android's widget corner to almost nothing; at least as round as Feather's cards.
-        val radius = maxOf(resources.getDimension(android.R.dimen.system_app_widget_background_radius), WidgetStyle.RADIUS * resources.displayMetrics.density)
-        outlineProvider = object : ViewOutlineProvider() {
-            override fun getOutline(view: View, outline: Outline) = outline.setRoundRect(0, 0, view.width, view.height, radius)
+    /**
+     * Every widget gets rounded corners, square ones too (as on the Pixel launcher), at least as
+     * round as Feather's cards: some phones set Android's own widget corner to almost nothing.
+     * A widget that marks its background is rounded around that, the way Android does it.
+     */
+    private val rounded = object : ViewOutlineProvider() {
+        override fun getOutline(view: View, outline: Outline) {
+            val box = android.graphics.Rect(0, 0, view.width, view.height)
+            findViewById<View>(android.R.id.background)?.takeIf { it !== this@WidgetView && it.width > 0 }?.let { bg ->
+                box.set(0, 0, bg.width, bg.height)
+                offsetDescendantRectToMyCoords(bg, box)
+            }
+            val radius = maxOf(resources.getDimension(android.R.dimen.system_app_widget_background_radius), WidgetStyle.RADIUS * resources.displayMetrics.density)
+            outline.setRoundRect(box, minOf(radius, minOf(box.width(), box.height()) / 2f))
         }
+    }
+
+    override fun onLayout(changed: Boolean, left: Int, top: Int, right: Int, bottom: Int) {
+        super.onLayout(changed, left, top, right, bottom)
+        // Android sets its own corners while laying a widget out (and none on widgets that don't
+        // mark their background); ours go back on after.
+        outlineProvider = rounded
         clipToOutline = true
+        invalidateOutline()
     }
 
     override fun onSizeChanged(w: Int, h: Int, oldw: Int, oldh: Int) {
