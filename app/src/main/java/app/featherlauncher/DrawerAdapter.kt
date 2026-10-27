@@ -31,6 +31,8 @@ class DrawerAdapter(
     private val isAsleep: (AppEntry) -> Boolean,
     /** Installed and not opened yet: a dot on the icon. */
     private val isNew: (AppEntry) -> Boolean,
+    /** Notifications showing: a red badge with the count. */
+    private val badge: (AppEntry) -> Int = { 0 },
     private val onClick: (AppEntry, View) -> Unit,
     private val onLongClick: (AppEntry, View) -> Unit,
 ) : BaseAdapter() {
@@ -149,12 +151,15 @@ class DrawerAdapter(
     private fun tile(app: AppEntry, p: Palette): View {
         val image = ImageView(context).apply {
             setImageBitmap(icon(app))
-            IconBadges.apply(this, isAsleep(app), isNew(app), 54)
+            IconBadges.apply(this, isAsleep(app), isNew(app), 54, badge(app))
         }
         return LinearLayout(context).apply {
             orientation = LinearLayout.VERTICAL
             gravity = Gravity.CENTER_HORIZONTAL
             setPadding(dp(4), dp(10), dp(4), dp(10))
+            // The notification badge hangs off the icon's corner.
+            clipChildren = false
+            clipToPadding = false
             foreground = Ui.pressable(context, Ui.RADIUS_L, focusColor = p.onWall)
             isFocusable = true
             alpha = if (app.key == dragging?.key) 0f else 1f
@@ -178,12 +183,14 @@ class DrawerAdapter(
     private fun line(app: AppEntry, p: Palette): View {
         val image = ImageView(context).apply {
             setImageBitmap(icon(app))
-            IconBadges.apply(this, isAsleep(app), isNew(app), 40)
+            IconBadges.apply(this, isAsleep(app), isNew(app), 40, badge(app))
         }
         return LinearLayout(context).apply {
             orientation = LinearLayout.HORIZONTAL
             gravity = Gravity.CENTER_VERTICAL
             minimumHeight = dp(56)
+            clipChildren = false
+            clipToPadding = false
             setPadding(dp(Ui.SPACE_M), 0, dp(Ui.SPACE_L), 0)
             foreground = Ui.pressable(context, Ui.RADIUS_L, focusColor = p.onWall)
             isFocusable = true

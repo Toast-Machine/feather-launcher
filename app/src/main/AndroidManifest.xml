@@ -4,6 +4,8 @@
     <uses-permission android:name="android.permission.QUERY_ALL_PACKAGES" />
     <!-- Only for browsing wallpapers. -->
     <uses-permission android:name="android.permission.INTERNET" />
+    <!-- Installs its own updates from GitHub; Android asks the person to allow it first. -->
+    <uses-permission android:name="android.permission.REQUEST_INSTALL_PACKAGES" />
     <uses-permission android:name="android.permission.SET_WALLPAPER" />
     <uses-permission android:name="android.permission.READ_CONTACTS" />
     <uses-permission android:name="android.permission.CALL_PHONE" />
@@ -105,6 +107,11 @@
                 <action android:name="app.featherlauncher.SETUP" />
             </intent-filter>
         </receiver>
+
+        <!-- Hears how installing an update went. -->
+        <receiver
+            android:name=".UpdateReceiver"
+            android:exported="false" />
 
         <!-- Lets the launcher be opened like a normal app while it's being tried out. -->
         <activity-alias

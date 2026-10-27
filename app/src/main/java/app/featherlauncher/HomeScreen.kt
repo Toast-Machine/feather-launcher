@@ -143,13 +143,17 @@ class HomeScreen(
             if (view is AppIconView) {
                 val showLabel = !item.inDock && prefs.showLabels
                 if (item.type == HomeItem.Type.FOLDER) {
-                    view.bind(folderIcon(item), item.label ?: FOLDER_NAME, showLabel,
+                    // As on iOS, a folder's badge adds up its apps' (ones asleep don't count).
+                    val badge = item.apps.mapNotNull(repo::find).distinctBy { it.packageName }
+                        .filter { !sleep.isLocked(it.packageName, now) }.sumOf { prefs.badgeCount(it.packageName) }
+                    view.bind(folderIcon(item), item.label ?: FOLDER_NAME, showLabel, badge = badge,
                         iconDp = if (item.inDock) AppIconView.DOCK_ICON else AppIconView.ICON)
                 } else {
                     val entry = repo.find(item.ref)
                     view.bind(entry?.let(repo::icon), item.label ?: entry?.label.orEmpty(), showLabel,
                         asleep = entry != null && sleep.isLocked(entry.packageName, now),
                         isNew = entry != null && newApps.isNew(entry),
+                        badge = entry?.let { prefs.badgeCount(it.packageName) } ?: 0,
                         iconDp = if (item.inDock) AppIconView.DOCK_ICON else AppIconView.ICON)
                 }
             }
@@ -468,11 +472,18 @@ class HomeScreen(
     }
 
     private fun folderTile(folder: HomeItem, entry: AppEntry, p: Palette): View {
-        val icon = ImageView(activity).apply { setImageBitmap(repo.icon(entry)) }
+        val icon = ImageView(activity).apply {
+            setImageBitmap(repo.icon(entry))
+            IconBadges.apply(this, SleepTime.get(activity).isLocked(entry.packageName), NewApps.get(activity).isNew(entry), 54,
+                prefs.badgeCount(entry.packageName))
+        }
         return LinearLayout(activity).apply {
             orientation = LinearLayout.VERTICAL
             gravity = Gravity.CENTER_HORIZONTAL
             setPadding(dp(4), dp(Ui.SPACE_S), dp(4), dp(Ui.SPACE_S))
+            // The notification badge hangs off the icon's corner.
+            clipChildren = false
+            clipToPadding = false
             background = Ui.pressable(activity, Ui.RADIUS_M)
             isFocusable = true
             addView(icon, LinearLayout.LayoutParams(dp(54), dp(54)))

@@ -74,6 +74,14 @@ class Prefs(context: Context) {
         get() = sp.getBoolean("show_labels", true)
         set(value) = sp.edit().putBoolean("show_labels", value).apply()
 
+    /** A red badge on apps with notifications (needs notification access). */
+    var notificationBadges: Boolean
+        get() = sp.getBoolean("notification_badges", true)
+        set(value) = sp.edit().putBoolean("notification_badges", value).apply()
+
+    /** How many notifications to show on [pkg]'s icon: 0 for none, or when badges are off. */
+    fun badgeCount(pkg: String) = if (notificationBadges) NotificationBadges.count(pkg) else 0
+
     private fun readDock(): List<String?> {
         val saved = sp.getString("dock", null)?.split('|')?.map { it.ifEmpty { null } } ?: emptyList()
         return List(DOCK_SIZE) { saved.getOrNull(it) }

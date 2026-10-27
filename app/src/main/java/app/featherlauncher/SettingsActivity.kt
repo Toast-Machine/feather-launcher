@@ -115,12 +115,17 @@ class SettingsActivity : Activity() {
             windowInsets
         }
         build()
+        if (intent.getBooleanExtra(EXTRA_UPDATE, false)) root.post { updatesSheet() }
     }
 
     override fun onResume() {
         super.onResume()
         // Default home app may have been changed in system settings.
         if (::content.isInitialized) build()
+        if (installWhenAllowed) {
+            installWhenAllowed = false
+            if (packageManager.canRequestPackageInstalls()) root.post { updatesSheet(installNow = true) }
+        }
     }
 
     /** Draws the whole page from the current settings; called again after every change. */
@@ -301,7 +306,14 @@ class SettingsActivity : Activity() {
             Components.toggleRow(this, p, R.drawable.ic_text_fields, "App names on the home screen", prefs.showLabels) {
                 prefs.showLabels = it
             },
+            Components.toggleRow(this, p, R.drawable.ic_notification, "Notification badges", prefs.notificationBadges) {
+                prefs.notificationBadges = it
+                // Badges come from notification access; turning them on is the moment to ask for it.
+                if (it && !NotificationService.isEnabled(this)) Setup.NOTIFICATIONS.start(this)
+            },
         )))
+        content.addView(Components.footnote(this, p,
+            "A red badge shows how many notifications an app has. Needs notification access."))
 
         content.addView(heading(p, "Dark mode"))
         content.addView(spacer())
@@ -429,10 +441,95 @@ class SettingsActivity : Activity() {
                 startSafely(Intent(Settings.ACTION_HOME_SETTINGS))
             },
             Components.row(this, p, R.drawable.ic_history, "Backup and restore", chevron = true, inset = Ui.SPACE_L) { backupSheet() },
+            Updates.get(this).available.let { release ->
+                Components.row(this, p, R.drawable.ic_arrow_downward, "Updates",
+                    if (release != null) "${release.version} available" else "Version ${Updates.get(this).currentVersion}",
+                    chevron = true, inset = Ui.SPACE_L) { updatesSheet() }
+            },
             Components.row(this, p, R.drawable.ic_settings, "Phone settings", chevron = true, inset = Ui.SPACE_L) {
                 startSafely(Intent(Settings.ACTION_SETTINGS))
             },
         )))
+    }
+
+    /**
+     * The newest version and what's new in it, with a button to install it; or, when this is the
+     * newest one known, a button to check again.
+     */
+    /** Sent to Android's "install unknown apps" switch; coming back carries on with the install. */
+    private var installWhenAllowed = false
+
+    private fun updatesSheet(installNow: Boolean = false) {
+        val p = palette
+        val updates = Updates.get(this)
+        val release = updates.available
+        val status = TextView(this).apply {
+            style(TextStyle.Secondary, p.textSecondary)
+            setPadding(dp(Ui.SPACE_XL), 0, dp(Ui.SPACE_XL), dp(Ui.SPACE_M))
+            visibility = View.GONE
+        }
+        fun say(text: String) {
+            status.text = text
+            status.visibility = View.VISIBLE
+        }
+        val column = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            setPadding(0, 0, 0, dp(Ui.SPACE_M))
+        }
+        if (release == null) {
+            column.addView(TextView(this).apply {
+                text = "You have version ${updates.currentVersion}."
+                style(TextStyle.Body, p.text)
+                setPadding(dp(Ui.SPACE_XL), 0, dp(Ui.SPACE_XL), dp(Ui.SPACE_M))
+            })
+            column.addView(status)
+            column.addView(Components.row(this, p, R.drawable.ic_refresh, "Check for updates", color = p.accent) {
+                say("Checking…")
+                updates.check { ok ->
+                    when {
+                        !ok -> say("Couldn't check. Make sure you're online and try again.")
+                        updates.available == null -> say("You have the newest version.")
+                        else -> {
+                            overlays.dismiss()
+                            build()
+                            updatesSheet()
+                        }
+                    }
+                }
+            })
+            overlays.showSheet("Updates", column)
+            return
+        }
+        column.addView(TextView(this).apply {
+            text = release.notes.ifBlank { "A new version of Feather Launcher." }
+            style(TextStyle.Body, p.text)
+            // Long notes are cut short, so the button below always fits.
+            maxLines = 10
+            ellipsize = android.text.TextUtils.TruncateAt.END
+            setPadding(dp(Ui.SPACE_XL), 0, dp(Ui.SPACE_XL), dp(Ui.SPACE_M))
+        })
+        column.addView(status)
+        lateinit var installRow: View
+        fun install() {
+            if (updates.busy) return
+            // Android asks once whether Feather Launcher may install apps.
+            if (!packageManager.canRequestPackageInstalls()) {
+                installWhenAllowed = true
+                startSafely(Intent(Settings.ACTION_MANAGE_UNKNOWN_APP_SOURCES, android.net.Uri.parse("package:$packageName")))
+                return
+            }
+            // The progress takes the button's place while it downloads; it comes back to try again.
+            installRow.visibility = View.GONE
+            say("Downloading…")
+            updates.install(release, progress = { say("Downloading… $it%") }, failed = {
+                say(it)
+                installRow.visibility = View.VISIBLE
+            })
+        }
+        installRow = Components.row(this, p, R.drawable.ic_arrow_downward, "Install ${release.version}", color = p.accent) { install() }
+        column.addView(installRow)
+        overlays.showSheet("Feather Launcher ${release.version}", column)
+        if (installNow) install()
     }
 
     /** Save everything to a file, or bring it back from one (another phone, or after a reset). */
@@ -580,5 +677,7 @@ class SettingsActivity : Activity() {
         private const val REQUEST_BACKUP = 32
         private const val REQUEST_RESTORE = 33
         const val EXTRA_PAGE = "page"
+        /** Opened from the update notification: shows the update. */
+        const val EXTRA_UPDATE = "update"
     }
 }

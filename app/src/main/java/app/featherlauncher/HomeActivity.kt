@@ -240,7 +240,20 @@ class HomeActivity : Activity(), HomeScreen.Host {
         homeScreen.bindAll()
         updateResults()
         watchSleepTime()
+        NotificationBadges.onChange = badgesChanged
+        Updates.get(this).checkIfDue()
         offerSetup()
+    }
+
+    /** Notifications come and go while the home screen shows; a burst redraws once. */
+    private val redrawBadges = Runnable {
+        homeScreen.bindAll()
+        updateResults()
+    }
+    private val badgesChanged = {
+        home.removeCallbacks(redrawBadges)
+        home.postDelayed(redrawBadges, 150)
+        Unit
     }
 
     /** The first time: the welcome. Permissions are asked for later, where they're needed. */
@@ -270,6 +283,8 @@ class HomeActivity : Activity(), HomeScreen.Host {
     override fun onStop() {
         super.onStop()
         home.removeCallbacks(sleepChanged)
+        home.removeCallbacks(redrawBadges)
+        if (NotificationBadges.onChange === badgesChanged) NotificationBadges.onChange = null
         widgets.stopListening()
         hideDrawer(animate = false)
     }
@@ -377,6 +392,7 @@ class HomeActivity : Activity(), HomeScreen.Host {
             digitFor = { prefs.shortcutDigitFor(it.key) },
             isAsleep = { sleep.isLocked(it.packageName) },
             isNew = { newApps.isNew(it) },
+            badge = { prefs.badgeCount(it.packageName) },
             onClick = { entry, view -> choose(entry, view) },
             onLongClick = { entry, view ->
                 if (pick == null) appDrag.arm(entry, view)
@@ -412,7 +428,10 @@ class HomeActivity : Activity(), HomeScreen.Host {
         // Closing follows the finger too: down on the app list, up on Smart Search.
         drawer.onPull = { dy ->
             val closing = if (searching) -dy else dy
-            if (drawerOpen) applyPanelProgress(1f - (closing / dp(PANEL_PULL)).coerceIn(0f, 1f), home = true)
+            if (drawerOpen) {
+                stopSlide()
+                applyPanelProgress(1f - (closing / dp(PANEL_PULL)).coerceIn(0f, 1f), home = true)
+            }
         }
         drawer.onPullEnd = { dy, flung ->
             val closing = if (searching) -dy else dy
@@ -601,6 +620,7 @@ class HomeActivity : Activity(), HomeScreen.Host {
         search.clearFocus()
         home.visibility = View.VISIBLE
         drawer.animate().cancel()
+        stopSlide()
         if (animate) {
             // Reverse of opening: the panel fades away, then the home screen comes back as the tint lifts.
             settlePanel(open = false)
@@ -651,13 +671,37 @@ class HomeActivity : Activity(), HomeScreen.Host {
             list.animate().translationX(0f).alpha(1f).setDuration(220).setInterpolator(PANEL_EASING).start()
             return
         }
-        val out = -by * list.width * 0.35f
+        slideTo(next.id, -by * list.width * 0.35f)
+    }
+
+    /** The category a slide is on its way to, until it gets there. */
+    private var slidingTo: String? = null
+
+    /** Slides the list out toward [out], switches to [next], and slides it back in from the other side. */
+    private fun slideTo(next: String, out: Float, then: () -> Unit = {}) {
+        slidingTo = next
         list.animate().translationX(out).alpha(0f).setDuration(110).setInterpolator(DecelerateInterpolator()).withEndAction {
-            category = next.id
+            slidingTo = null
+            category = next
             updateResults()
             list.translationX = -out
             list.animate().translationX(0f).alpha(1f).setDuration(260).setInterpolator(PANEL_EASING).start()
+            then()
         }.start()
+    }
+
+    /**
+     * Ends a category slide at once, landing on where it was going. The panel closing fades the
+     * list itself, and a slide still running would keep bringing it back over the home screen.
+     */
+    private fun stopSlide() {
+        list.animate().cancel()
+        list.translationX = 0f
+        slidingTo?.let {
+            slidingTo = null
+            category = it
+            updateResults()
+        }
     }
 
     private fun addApps(rows: MutableList<DrawerAdapter.Row>, apps: List<AppEntry>) {
@@ -1705,15 +1749,10 @@ class HomeActivity : Activity(), HomeScreen.Host {
         if (shown.isEmpty()) return
         val i = shown.indexOfFirst { it.id == category }.coerceAtLeast(0)
         val next = shown[(i + delta + shown.size) % shown.size]
-        val out = -delta * list.width * 0.35f
         list.animate().cancel()
-        list.animate().translationX(out).alpha(0f).setDuration(110).setInterpolator(DecelerateInterpolator()).withEndAction {
-            category = next.id
-            updateResults()
-            list.translationX = -out
-            list.animate().translationX(0f).alpha(1f).setDuration(260).setInterpolator(PANEL_EASING).start()
+        slideTo(next.id, -delta * list.width * 0.35f) {
             list.post { firstListRow()?.let { focusRow(it, 0, true) } }
-        }.start()
+        }
     }
 
     private fun directionOf(keyCode: Int): Int? = when (keyCode) {

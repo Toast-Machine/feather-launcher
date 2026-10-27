@@ -1,7 +1,14 @@
 package app.featherlauncher
 
+import android.graphics.Canvas
+import android.graphics.ColorFilter
 import android.graphics.ColorMatrix
 import android.graphics.ColorMatrixColorFilter
+import android.graphics.Paint
+import android.graphics.PixelFormat
+import android.graphics.Rect
+import android.graphics.RectF
+import android.graphics.Typeface
 import android.graphics.drawable.Drawable
 import android.graphics.drawable.GradientDrawable
 import android.graphics.drawable.LayerDrawable
@@ -9,19 +16,25 @@ import android.view.Gravity
 import android.widget.ImageView
 
 /**
- * Marks drawn on an app icon: a dot at the top corner for an app that was just installed and
- * hasn't been opened yet, and during Sleep time, gray with a moon at the bottom corner.
+ * Marks drawn on an app icon: at the top corner, a red badge with the number of notifications
+ * the app has showing, as on iOS, or a dot for an app that was just installed and hasn't been
+ * opened yet; and during Sleep time, gray with a moon at the bottom corner.
  */
 object IconBadges {
     private val gray = ColorMatrixColorFilter(ColorMatrix().apply { setSaturation(0f) })
 
-    /** [sizeDp] is the icon's size, which the marks scale with. */
-    fun apply(icon: ImageView, asleep: Boolean, isNew: Boolean, sizeDp: Int) {
+    /** [sizeDp] is the icon's size, which the marks scale with; [count] is its notifications. */
+    fun apply(icon: ImageView, asleep: Boolean, isNew: Boolean, sizeDp: Int, count: Int = 0) {
         icon.colorFilter = if (asleep) gray else null
         icon.imageAlpha = if (asleep) 150 else 255
         val size = Ui.dp(icon.context, sizeDp)
         val layers = listOfNotNull(
-            if (isNew && !asleep) newDot(icon, size) else null,
+            when {
+                asleep -> null
+                count > 0 -> countBadge(icon, size, count)
+                isNew -> newDot(icon, size)
+                else -> null
+            },
             if (asleep) moon(icon, size) else null,
         )
         icon.foreground = if (layers.isEmpty()) null else LayerDrawable(layers.flatMap { it.layers }.toTypedArray()).apply {
@@ -46,6 +59,63 @@ object IconBadges {
             d.setLayerSize(i, dot, dot)
             d.setLayerGravity(i, Gravity.TOP or Gravity.END)
         })
+    }
+
+    /**
+     * A red pill with the count in white, growing sideways for longer numbers. As on iOS, it's
+     * placed by the icon itself (not the view's padding around it) and hangs off its top corner,
+     * so the view's parent must not clip it.
+     */
+    private fun countBadge(icon: ImageView, size: Int, count: Int): Group {
+        val pad = icon.paddingTop
+        val height = ((size - 2 * pad) * 0.4f).toInt()
+        val overhang = (height * 0.28f).toInt()
+        val badge = CountBadge(if (count > 99) "99+" else count.toString(), height, overhang)
+        return Group(listOf(badge), listOf { d, i ->
+            d.setLayerSize(i, badge.intrinsicWidth, height)
+            d.setLayerGravity(i, Gravity.TOP or Gravity.END)
+            d.setLayerInsetTop(i, pad)
+            d.setLayerInsetEnd(i, icon.paddingEnd)
+        })
+    }
+
+    /** Drawn [shift] up and out from its bounds, past the icon's corner. */
+    private class CountBadge(private val text: String, height: Int, private val shift: Int) : Drawable() {
+        private val fill = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = 0xFFFF3B30.toInt() }
+        private val ink = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+            color = 0xFFFFFFFF.toInt()
+            textSize = height * 0.64f
+            typeface = Typeface.create("sans-serif", Typeface.BOLD)
+            textAlign = Paint.Align.CENTER
+        }
+        private val width = maxOf(height, (ink.measureText(text) + height * 0.7f).toInt())
+        private val h = height
+        private val digits = Rect()
+
+        override fun getIntrinsicWidth() = width
+        override fun getIntrinsicHeight() = h
+
+        override fun draw(canvas: Canvas) {
+            val b = RectF(bounds).apply { offset(shift.toFloat(), -shift.toFloat()) }
+            val r = b.height() / 2
+            canvas.drawRoundRect(b, r, r, fill)
+            // Centered on the digits' own height, not the font's ascent and descent.
+            ink.getTextBounds(text, 0, text.length, digits)
+            canvas.drawText(text, b.centerX(), b.centerY() - digits.exactCenterY(), ink)
+        }
+
+        override fun setAlpha(alpha: Int) {
+            fill.alpha = alpha
+            ink.alpha = alpha
+        }
+
+        override fun setColorFilter(filter: ColorFilter?) {
+            fill.colorFilter = filter
+            ink.colorFilter = filter
+        }
+
+        @Deprecated("Platform Drawable API")
+        override fun getOpacity() = PixelFormat.TRANSLUCENT
     }
 
     private fun moon(icon: ImageView, size: Int): Group {

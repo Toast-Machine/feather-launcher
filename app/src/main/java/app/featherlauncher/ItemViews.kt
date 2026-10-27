@@ -45,14 +45,15 @@ class AppIconView(context: Context, val item: HomeItem) : LinearLayout(context) 
     /** Icon size in dp: [ICON] on pages, [DOCK_ICON] in the dock. */
     private var size = ICON
 
-    fun bind(bitmap: Bitmap?, name: String, showLabel: Boolean, asleep: Boolean = false, isNew: Boolean = false, iconDp: Int = ICON) {
+    fun bind(bitmap: Bitmap?, name: String, showLabel: Boolean, asleep: Boolean = false, isNew: Boolean = false,
+             badge: Int = 0, iconDp: Int = ICON) {
         if (iconDp != size) {
             size = iconDp
             icon.layoutParams = LayoutParams(dp(size + 2 * INSET), dp(size + 2 * INSET))
             icon.background = Ui.focusHighlight(context, ICON_RADIUS * size / ICON + INSET)
         }
         icon.setImageBitmap(bitmap)
-        IconBadges.apply(icon, asleep, isNew, size + 2 * INSET)
+        IconBadges.apply(icon, asleep, isNew, size + 2 * INSET, badge)
         label.text = name
         label.visibility = if (showLabel) VISIBLE else GONE
         contentDescription = name

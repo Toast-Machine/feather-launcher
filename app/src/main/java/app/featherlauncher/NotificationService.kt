@@ -8,7 +8,8 @@ import android.service.notification.StatusBarNotification
 
 /**
  * Sees every notification as it arrives. Ones a filter matches are dismissed and kept in the
- * history; ones from apps locked by Sleep time are held back until it ends.
+ * history; ones from apps locked by Sleep time are held back until it ends. What's left is
+ * counted for the badges on app icons.
  */
 class NotificationService : NotificationListenerService() {
     private var media: MediaGuard? = null
@@ -16,15 +17,29 @@ class NotificationService : NotificationListenerService() {
     override fun onListenerConnected() {
         media = MediaGuard(this).also { it.start() }
         // Ones already showing when access was given (or the service restarted) are filtered too.
-        runCatching { activeNotifications }.getOrNull()?.forEach(::onNotificationPosted)
+        runCatching { activeNotifications }.getOrNull()?.forEach(::filter)
+        recount()
     }
 
     override fun onListenerDisconnected() {
         media?.stop()
         media = null
+        NotificationBadges.clear()
     }
 
     override fun onNotificationPosted(sbn: StatusBarNotification) {
+        filter(sbn)
+        recount()
+    }
+
+    override fun onNotificationRemoved(sbn: StatusBarNotification) = recount()
+
+    // Someone turned an app's notification dots on or off.
+    override fun onNotificationRankingUpdate(rankingMap: RankingMap) = recount()
+
+    private fun recount() = NotificationBadges.update(this, runCatching { activeNotifications }.getOrNull())
+
+    private fun filter(sbn: StatusBarNotification) {
         val n = sbn.notification
         if (sbn.packageName == packageName || n.flags and Notification.FLAG_GROUP_SUMMARY != 0) return
         val extras = n.extras

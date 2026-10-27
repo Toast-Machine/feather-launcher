@@ -18,7 +18,7 @@ Plain Kotlin and platform Views, no AndroidX and no third-party libraries, so it
 - Pages, a dock, folders, widgets, and a built-in clock with the Hebrew date, the next zman and your next calendar event.
 - An app list grouped into categories (with tabs) or all at once (with category chips). Drag apps to reorder them or move them between categories.
 - Hidden apps, kept on their own page behind an optional PIN.
-- A dot on apps you've installed but haven't opened yet.
+- A red badge with the number of notifications an app has, as on iPhone (folders add up their apps'), and a dot on apps you've installed but haven't opened yet.
 - Colors taken from your wallpaper, and an iOS-style dark mode: dark or tinted icons, a dimmed wallpaper, and an optional light and dark wallpaper pair that switches by itself.
 - A built-in wallpaper picker: your photos, calm colors, and free photos from Unsplash photographers.
 
@@ -69,6 +69,16 @@ The first time it opens, a short welcome sets it as your home screen and lets yo
 
 Requires Android 13 or later.
 
+### Updates
+
+Once a day the app checks this repository's latest release. When there's a newer version, a notification says so and **Settings → Updates** installs it: the app downloads the APK, checks it against the release's checksum, and hands it to Android, which only accepts it if it's signed with the same key. The first time, Android asks you to allow Feather Launcher to install apps.
+
+To publish a release:
+
+1. Raise `versionCode` and `versionName` in `app/build.gradle.kts`.
+2. Build with `./gradlew :app:assembleRelease`, signed with the release key (`setup/keystore.properties`). Every release must use the same key, or phones can't update to it.
+3. Create a GitHub release tagged `v` plus the version name (`v1.1`) and attach the APK as `FeatherLauncher-1.1.apk`. The app shows the release notes on its update screen, so write them for people using the app.
+
 ## Bringing in a setup
 
 Categories, hidden apps, key shortcuts and notification filters can be loaded from a JSON file over adb, which is handy when setting up several phones the same way. See [`docs/setup-example.json`](docs/setup-example.json):
@@ -102,6 +112,8 @@ Only adb can send it. Every part is optional: `categories` and `hidden` replace 
 | `SleepTime`, `SleepActivity`, `MediaGuard` | Sleep time |
 | `KeyShortcuts`, `KeyActionRunner` | Key shortcuts |
 | `NotificationService`, `NotificationFilters` | Notification filters |
+| `NotificationBadges`, `IconBadges` | Notification counts on app icons, and the other marks drawn on icons |
+| `Updates` | Updates from GitHub releases |
 | `ClockInfo`, `Zmanim` | The clock's extra lines |
 | `WallpaperActivity`, `DarkMode` | Wallpapers and dark mode |
 | `Setup`, `SetupImport` | First-run checklist, and loading a setup over adb |

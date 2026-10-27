@@ -49,7 +49,7 @@ object Setup {
                     Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS))
             })
 
-    val NOTIFICATIONS = Item("Notification access", "For notification filters, and holding them during Sleep time", R.drawable.ic_notification,
+    val NOTIFICATIONS = Item("Notification access", "For badges on app icons, notification filters, and holding them during Sleep time", R.drawable.ic_notification,
             done = NotificationService::isEnabled,
             start = { a ->
                 val component = ComponentName(a, NotificationService::class.java).flattenToString()
