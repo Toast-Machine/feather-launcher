@@ -267,6 +267,9 @@ class UpdateReceiver : BroadcastReceiver() {
         // Updated: Android closed Feather to replace it, leaving whatever app was open before on
         // screen until it starts the home screen again. Start it now instead.
         if (intent.action == Intent.ACTION_MY_PACKAGE_REPLACED) {
+            // Not over the lock screen: it would cover it while it stays locked underneath, taking
+            // the keypad. Unlocking shows the home screen anyway.
+            if (context.getSystemService(android.app.KeyguardManager::class.java).isKeyguardLocked) return
             context.startActivity(Intent(Intent.ACTION_MAIN).addCategory(Intent.CATEGORY_HOME)
                 .setPackage(context.packageName).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
             return

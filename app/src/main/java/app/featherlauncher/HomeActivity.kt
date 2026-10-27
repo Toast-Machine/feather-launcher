@@ -1734,7 +1734,10 @@ class HomeActivity : Activity(), HomeScreen.Host {
      * search bar, right goes to its clear button and left comes back.
      */
     private fun moveSideways(direction: Int) {
-        val from = currentFocus ?: return
+        val from = currentFocus
+        // Nothing highlighted yet (the panel was opened by touch): left and right start at the
+        // beginning too, as up and down do.
+        if (from == null || from === list || from === focusPark) return moveInList(true)
         val bar = findViewById<View>(R.id.search_bar)
         if (from === bar && direction == View.FOCUS_RIGHT) {
             if (searchClear.visibility == View.VISIBLE) searchClear.requestFocusFromTouch()
@@ -2046,6 +2049,16 @@ class HomeActivity : Activity(), HomeScreen.Host {
         val slots = order.map { home.getValue(it) }
         val moving = tiles[entry.key] ?: return
         moving.requestFocusFromTouch()
+        // Apps moving up or down a row pass outside their own row; nothing cuts them off on the way.
+        val rows = (0 until list.childCount).mapNotNull { list.getChildAt(it) as? ViewGroup }
+        fun unclip(on: Boolean) {
+            list.clipChildren = !on
+            rows.forEach { it.clipChildren = !on }
+            // The one moving is drawn over the others.
+            moving.translationZ = if (on) dp(4).toFloat() else 0f
+            (moving.parent as? View)?.translationZ = if (on) 1f else 0f
+        }
+        unclip(true)
         fun slide(animate: Boolean) = order.forEachIndexed { i, key ->
             val view = tiles[key] ?: return@forEachIndexed
             val from = home.getValue(key)
@@ -2057,6 +2070,7 @@ class HomeActivity : Activity(), HomeScreen.Host {
         }
         fun settle() {
             tiles.values.forEach { it.animate().cancel(); it.translationX = 0f; it.translationY = 0f }
+            unclip(false)
         }
         keyMover = KeyMover(
             step = { dx, dy ->

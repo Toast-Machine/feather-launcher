@@ -53,7 +53,8 @@ abstract class CardWidget(context: Context, val item: HomeItem) : FrameLayout(co
     init {
         isFocusable = true
         setCard(WidgetStyle.cardBackground(context))
-        foreground = InsetDrawable(Ui.focusRing(context, WidgetStyle.RADIUS, WidgetStyle.onCard()), dp(GAP))
+        // The keypad highlight is white around the card, as it is around app icons.
+        foreground = Ui.focusHighlight(context, WidgetStyle.RADIUS + GAP)
         setPadding(dp(GAP + 18), dp(GAP + 16), dp(GAP + 18), dp(GAP + 16))
         addView(content, LayoutParams(LayoutParams.MATCH_PARENT, LayoutParams.MATCH_PARENT))
     }
