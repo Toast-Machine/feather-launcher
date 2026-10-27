@@ -384,7 +384,7 @@ class KeySettings(private val s: SettingsActivity) {
     }
 
     private fun pickApp(title: String, current: String?, allowNone: Boolean, onPick: (String?) -> Unit) {
-        val apps = s.repo.apps.sortedBy { it.label.lowercase() }
+        val apps = s.visibleApps.sortedBy { it.label.lowercase() }
         val offset = if (allowNone) 1 else 0
         val options = (if (allowNone) listOf("None" to null) else emptyList()) + apps.map { e ->
             e.label to ImageView(s).apply { setImageBitmap(s.repo.icon(e)) }

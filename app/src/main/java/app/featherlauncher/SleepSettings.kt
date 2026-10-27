@@ -75,7 +75,7 @@ class SleepSettings(private val s: SettingsActivity) {
 
         content.addView(s.heading(p, "Apps"))
         content.addView(s.spacer())
-        val count = sleep.apps.count { pkg -> s.repo.apps.any { it.packageName == pkg } }
+        val count = sleep.apps.count { pkg -> s.visibleApps.any { it.packageName == pkg } }
         content.addView(Components.group(s, p, listOf(
             Components.row(s, p, R.drawable.ic_lock, "Locked apps",
                 if (count == 0) "Choose" else if (count == 1) "1 app" else "$count apps", chevron = true, inset = Ui.SPACE_L) { appsSheet() },
@@ -146,7 +146,7 @@ class SleepSettings(private val s: SettingsActivity) {
     /** Every app, chosen ones first so they're easy to find and remove. */
     private fun appsSheet() {
         val chosen = sleep.apps.toMutableSet()
-        val apps = s.repo.apps
+        val apps = s.visibleApps
             .filter { it.packageName != s.packageName }
             .distinctBy { it.packageName }
             .sortedWith(compareBy({ it.packageName !in chosen }, { it.label.lowercase() }))

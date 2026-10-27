@@ -23,6 +23,8 @@ import android.widget.Toast
 class SettingsActivity : Activity() {
     internal lateinit var prefs: Prefs
     internal lateinit var repo: AppRepository
+    /** Apps the pickers on these pages offer: hidden apps stay out of sight here too. */
+    internal val visibleApps get() = repo.apps.filter { it.key !in prefs.hidden }
     internal lateinit var palette: Palette
     internal lateinit var root: FrameLayout
     internal lateinit var overlays: Overlays

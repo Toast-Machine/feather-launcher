@@ -172,7 +172,7 @@ class NotificationSettings(private val s: SettingsActivity) {
     }
 
     private fun pickApp(current: String?, onPick: (String?) -> Unit) {
-        val apps = s.repo.apps.distinctBy { it.packageName }.sortedBy { it.label.lowercase() }
+        val apps = s.visibleApps.distinctBy { it.packageName }.sortedBy { it.label.lowercase() }
         val options = listOf("All apps" to null) + apps.map { e -> e.label to ImageView(s).apply { setImageBitmap(s.repo.icon(e)) } }
         val selected = if (current == null) 0 else apps.indexOfFirst { it.packageName == current } + 1
         Components.choiceSheet(s, s.palette, s.overlays, "App", options, selected) { i ->
