@@ -50,7 +50,7 @@ class Updates private constructor(private val context: Context) {
     /** Looks at the latest release; [done] gets false if GitHub couldn't be reached. */
     fun check(done: (Boolean) -> Unit) {
         io.execute {
-            val latest = runCatching { parse(JSONObject(fetch(LATEST))) }
+            val latest = runCatching { retrying { parse(JSONObject(fetch(LATEST))) } }
             main.post {
                 latest.onSuccess { release ->
                     sp.edit().putLong("checked", System.currentTimeMillis()).apply()
@@ -87,7 +87,7 @@ class Updates private constructor(private val context: Context) {
         dir.listFiles()?.forEach { if (it != apk) it.delete() }
         if (apk.exists() && problem(apk, release) == null) return apk
         val part = File(dir, apk.name + ".part")
-        runCatching {
+        runCatching { retrying {
             open(release.apkUrl).inputStream.use { input ->
                 part.outputStream().use { out ->
                     val buf = ByteArray(64 * 1024)
@@ -101,7 +101,7 @@ class Updates private constructor(private val context: Context) {
                     }
                 }
             }
-        }.onFailure {
+        } }.onFailure {
             part.delete()
             throw IllegalStateException("Couldn't download the update. Check your connection.")
         }
@@ -183,6 +183,23 @@ class Updates private constructor(private val context: Context) {
         setRequestProperty("Accept", "application/vnd.github+json")
     }.inputStream.bufferedReader().use { it.readText() }
 
+    /**
+     * Tries [block] up to three times. Internet filters on many phones (Livigent, NetSpark) often
+     * turn away the first connection to a site and let the next one through.
+     */
+    private fun <T> retrying(block: () -> T): T {
+        var last: Exception? = null
+        repeat(3) { attempt ->
+            try {
+                return block()
+            } catch (e: java.io.IOException) {
+                last = e
+                Thread.sleep(800L * (attempt + 1))
+            }
+        }
+        throw last!!
+    }
+
     private fun open(url: String): HttpURLConnection = (URL(url).openConnection() as HttpURLConnection).apply {
         connectTimeout = 10_000
         readTimeout = 30_000
@@ -247,6 +264,13 @@ class Updates private constructor(private val context: Context) {
 /** Hears back from Android's installer: shows its prompt, or says why the update failed. */
 class UpdateReceiver : BroadcastReceiver() {
     override fun onReceive(context: Context, intent: Intent) {
+        // Updated: Android closed Feather to replace it, leaving whatever app was open before on
+        // screen until it starts the home screen again. Start it now instead.
+        if (intent.action == Intent.ACTION_MY_PACKAGE_REPLACED) {
+            context.startActivity(Intent(Intent.ACTION_MAIN).addCategory(Intent.CATEGORY_HOME)
+                .setPackage(context.packageName).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
+            return
+        }
         when (intent.getIntExtra(PackageInstaller.EXTRA_STATUS, PackageInstaller.STATUS_FAILURE)) {
             PackageInstaller.STATUS_PENDING_USER_ACTION -> {
                 @Suppress("DEPRECATION")

@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Trusts certificates the phone's owner installed as well as Android's own. Internet filters
+  (Livigent, NetSpark and the like) install one to check secure connections; without it, every
+  connection to GitHub and the weather fails on a filtered phone.
+-->
+<network-security-config>
+    <base-config>
+        <trust-anchors>
+            <certificates src="system" />
+            <certificates src="user" />
+        </trust-anchors>
+    </base-config>
+</network-security-config>

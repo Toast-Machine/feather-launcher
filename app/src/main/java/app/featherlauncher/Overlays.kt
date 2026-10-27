@@ -282,8 +282,12 @@ class Overlays(private val root: FrameLayout, private val palette: () -> Palette
             card.removeView(content)
             card.measuredHeight
         }
-        card.addView(content, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, 0, 1f))
-        card.layoutParams = FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, height).apply {
+        // Content that fits keeps its own height, so a line added later (a status, say) makes the
+        // sheet taller instead of pushing what's below out of sight. Taller content scrolls in a fixed height.
+        val fits = !fill && height < maxHeight
+        card.addView(content, if (fits) LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT)
+            else LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, 0, 1f))
+        card.layoutParams = FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, if (fits) ViewGroup.LayoutParams.WRAP_CONTENT else height).apply {
             gravity = Gravity.BOTTOM
             setMargins(margin, 0, margin, insets.bottom + margin)
         }
