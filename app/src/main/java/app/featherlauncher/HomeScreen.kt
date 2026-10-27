@@ -250,6 +250,12 @@ class HomeScreen(
         // Like Smart Launcher: on the wallpaper the dock is the app list's deep tone; the lighter
         // tone is for bars that sit on that deep background (the app list's tab bar).
         dock.background = Ui.rounded(activity, p.dock, Ui.RADIUS_BAR, p.hairline)
+        // Feather's widgets take the wallpaper's colors too, so they're made again in the new ones.
+        WidgetStyle.palette = palette
+        views.entries.filter { it.value is CardWidget || it.value is ClockWidget }.map { it.key }.forEach { id ->
+            views.remove(id)?.let { (it.parent as? ViewGroup)?.removeView(it) }
+        }
+        bindAll()
     }
 
     /** Size of one page cell in dp, for sizing new widgets. */
@@ -568,7 +574,7 @@ class HomeScreen(
 
     /** What a Feather widget's settings are, if it has any. */
     private fun featherSettings(item: HomeItem): MenuItem? = when (FeatherKind.of(item)) {
-        FeatherKind.CLOCK, FeatherKind.GLANCE -> MenuItem("${clockName(item)} settings", R.drawable.ic_settings) { clockSettings(item) }
+        FeatherKind.CLOCK -> MenuItem("${clockName(item)} settings", R.drawable.ic_settings) { clockSettings(item) }
         FeatherKind.WORLD -> MenuItem("Choose city", R.drawable.ic_location) { chooseCity(item) }
         FeatherKind.COUNTDOWN -> MenuItem("Count to…", R.drawable.ic_hourglass) { countdownSheet(item) }
         else -> null
@@ -653,15 +659,19 @@ class HomeScreen(
         }
         column.addView(sectionLabel("Size", p))
         column.addView(segmented(p, ClockOptions.Size.entries.map { it.label }, options.size.ordinal) {
-            update(ClockOptions(ClockOptions.Size.entries[it], options.alignStart, options.showDate))
+            update(options.copy(size = ClockOptions.Size.entries[it]))
         })
         column.addView(sectionLabel("Alignment", p))
         column.addView(segmented(p, listOf("Center", "Left"), if (options.alignStart) 1 else 0) {
-            update(ClockOptions(options.size, it == 1, options.showDate))
+            update(options.copy(alignStart = it == 1))
         })
         column.addView(sectionLabel("Date", p))
         column.addView(segmented(p, listOf("Show", "Hide"), if (options.showDate) 0 else 1) {
-            update(ClockOptions(options.size, options.alignStart, it == 0))
+            update(options.copy(showDate = it == 0))
+        })
+        column.addView(sectionLabel("Time", p))
+        column.addView(segmented(p, listOf("Show", "Hide"), if (options.showTime) 0 else 1) {
+            update(options.copy(showTime = it == 0))
         })
         // What the clock shows besides the time is the same for every clock, so it's in Settings.
         column.addView(android.view.View(activity), LinearLayout.LayoutParams(1, dp(Ui.SPACE_M)))

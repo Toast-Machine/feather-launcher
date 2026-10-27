@@ -27,7 +27,7 @@ import java.text.Collator
 import java.util.concurrent.Executors
 import kotlin.math.ceil
 
-/** Hosting other apps' widgets, plus the picker that also offers the built-in clock. */
+/** Hosting other apps' widgets, plus the picker that also offers Feather's own. */
 class Widgets(
     private val activity: Activity,
     private val overlays: Overlays,
@@ -178,24 +178,10 @@ class Widgets(
                     (view.getChildAt(1) as TextView).text = row.app
                     view
                 }
-                is PickerRow.Feather -> {
-                    val view = convertView as? FrameLayout ?: widgetCard(p)
-                    val parts = cardParts(view)
-                    parts.preview.setImageDrawable(null)
-                    parts.preview.visibility = View.GONE
-                    parts.sample.visibility = View.VISIBLE
-                    // A few words in place of a picture; the clock's is its time, in large type.
-                    parts.sample.text = row.kind.sample
-                    parts.sample.setTextSize(TypedValue.COMPLEX_UNIT_SP, if (row.kind == FeatherKind.CLOCK) 44f else 22f)
-                    parts.name.text = row.kind.label
-                    parts.size.text = "${row.kind.w} × ${row.kind.h}"
-                    view
-                }
+                is PickerRow.Feather -> featherCards.getOrPut(row.kind) { featherCard(row.kind, p) }
                 is PickerRow.Widget -> {
                     val view = convertView as? FrameLayout ?: widgetCard(p)
                     val parts = cardParts(view)
-                    parts.sample.visibility = View.GONE
-                    parts.preview.visibility = View.VISIBLE
                     parts.name.text = row.name
                     parts.size.text = "${spanX(row.info)} × ${spanY(row.info)}"
                     val preview = parts.preview
@@ -219,14 +205,75 @@ class Widgets(
             }
         }
 
-        private inner class CardParts(val preview: ImageView, val sample: TextView, val name: TextView, val size: TextView)
+        private inner class CardParts(val preview: ImageView, val name: TextView, val size: TextView)
 
         private fun cardParts(view: FrameLayout): CardParts {
             val card = view.getChildAt(0) as LinearLayout
             val top = card.getChildAt(0) as FrameLayout
             val bottom = card.getChildAt(1) as LinearLayout
-            return CardParts(top.getChildAt(0) as ImageView, top.getChildAt(1) as TextView,
-                bottom.getChildAt(0) as TextView, bottom.getChildAt(1) as TextView)
+            return CardParts(top.getChildAt(0) as ImageView, bottom.getChildAt(0) as TextView, bottom.getChildAt(1) as TextView)
+        }
+
+        /** Feather's widgets, live, made once each while the list is open. */
+        private val featherCards = HashMap<FeatherKind, View>()
+
+        /**
+         * One of Feather's widgets as it will look: the real widget, live, on the wallpaper's own
+         * tone (the clock's white type needs something dark under it), with what it's for.
+         */
+        private fun featherCard(kind: FeatherKind, p: Palette): View {
+            val preview = object : FrameLayout(activity) {
+                // A picture of the widget, not the widget itself: a tap picks it from the list.
+                override fun onInterceptTouchEvent(ev: android.view.MotionEvent) = true
+            }.apply {
+                background = Ui.rounded(activity, p.drawer, Ui.RADIUS_M)
+                clipToOutline = true
+                setPadding(dp(Ui.SPACE_S), dp(Ui.SPACE_S), dp(Ui.SPACE_S), dp(Ui.SPACE_S))
+                // The size it takes on the home screen, so it shows just what it will there.
+                val (cellW, cellH) = cellSizeDp()
+                addView(sample(kind), FrameLayout.LayoutParams(
+                    if (kind.w < Workspace.COLS) dp((cellW * kind.w).toInt()) else ViewGroup.LayoutParams.MATCH_PARENT,
+                    dp((cellH * kind.h).toInt()), Gravity.CENTER))
+            }
+            val card = LinearLayout(activity).apply {
+                orientation = LinearLayout.VERTICAL
+                background = Ui.rounded(activity, p.surfaceHigh, Ui.RADIUS_L)
+                foreground = Ui.pressable(activity, Ui.RADIUS_L)
+                setPadding(dp(Ui.SPACE_M), dp(Ui.SPACE_M), dp(Ui.SPACE_M), dp(Ui.SPACE_M))
+                addView(preview, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT))
+                addView(LinearLayout(activity).apply {
+                    orientation = LinearLayout.HORIZONTAL
+                    gravity = Gravity.CENTER_VERTICAL
+                    setPadding(dp(Ui.SPACE_XS), 0, dp(Ui.SPACE_XS), 0)
+                    addView(TextView(activity).apply { style(TextStyle.Body, p.text); text = kind.label; maxLines = 1 },
+                        LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f))
+                    addView(TextView(activity).apply { style(TextStyle.Caption, p.textTertiary); text = "${kind.w} × ${kind.h}" })
+                }, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply {
+                    topMargin = dp(Ui.SPACE_M)
+                })
+                addView(TextView(activity).apply {
+                    style(TextStyle.Secondary, p.textSecondary)
+                    text = kind.about
+                    setPadding(dp(Ui.SPACE_XS), dp(2), dp(Ui.SPACE_XS), 0)
+                })
+            }
+            return FrameLayout(activity).apply {
+                setPadding(dp(Ui.SPACE_S), dp(Ui.SPACE_XS), dp(Ui.SPACE_S), dp(Ui.SPACE_XS))
+                addView(card)
+            }
+        }
+
+        /** The widget itself, with an example city or countdown where it would otherwise ask for one. */
+        private fun sample(kind: FeatherKind): View {
+            val item = HomeItem(PREVIEW_ID - kind.ordinal, 0, 0, 0, kind.w, kind.h, HomeItem.Type.CLOCK, kind.ref)
+            val prefs = Prefs(activity)
+            if (kind == FeatherKind.WORLD) ClockInfo.COMMUNITIES.firstOrNull()?.let { prefs.setWidgetPlace(item.id, it.first) }
+            if (kind == FeatherKind.COUNTDOWN) prefs.setCountdown(item.id,
+                if (prefs.secondCalendar == SecondCalendar.HEBREW) org.json.JSONObject().put("kind", "shabbos")
+                else org.json.JSONObject().put("title", "the trip").put("time", System.currentTimeMillis() + 12 * 86_400_000L))
+            return CardWidget.create(activity, item) ?: ClockWidget(activity, item).apply {
+                apply(ClockOptions(ClockOptions.Size.MEDIUM, alignStart = false, showDate = true))
+            }
         }
 
         private fun widgetCard(p: Palette): FrameLayout {
@@ -237,15 +284,6 @@ class Widgets(
                     scaleType = ImageView.ScaleType.FIT_CENTER
                     minimumHeight = dp(56)
                 }, FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT))
-                // Stand-in preview for the built-in clock.
-                addView(TextView(activity).apply {
-                    text = "12:30"
-                    gravity = Gravity.CENTER
-                    setTextSize(TypedValue.COMPLEX_UNIT_SP, 44f)
-                    typeface = android.graphics.Typeface.create("sans-serif", android.graphics.Typeface.BOLD)
-                    setTextColor(p.text)
-                    visibility = View.GONE
-                }, FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(84)))
             }
             val card = LinearLayout(activity).apply {
                 orientation = LinearLayout.VERTICAL
@@ -331,6 +369,8 @@ class Widgets(
 
     companion object {
         private const val HOST_ID = 1024
+        /** Ids for the picker's live previews, well clear of the home screen's. */
+        private const val PREVIEW_ID = -1000L
         const val REQUEST_BIND = 11
         const val REQUEST_CONFIGURE = 12
         const val REQUEST_RECONFIGURE = 13

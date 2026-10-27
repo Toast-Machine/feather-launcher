@@ -80,9 +80,8 @@ class AppIconView(context: Context, val item: HomeItem) : LinearLayout(context) 
 }
 
 /**
- * The built-in clock, and At a glance (the same without the time): the time, the date, a
- * quieter line with the Hebrew date, the parsha and the like, then the weather and what's
- * coming up as pills. Its layout options live in [ClockOptions]; the look in [WidgetStyle].
+ * The built-in clock: the time (which can be hidden), the date, a quieter line with the Hebrew
+ * date, the parsha and the like, then the weather and what's coming up as pills. Its layout options live in [ClockOptions]; the look in [WidgetStyle].
  */
 @SuppressLint("ViewConstructor")
 class ClockWidget(context: Context, val item: HomeItem) : FitColumn(context) {
@@ -174,7 +173,7 @@ class ClockWidget(context: Context, val item: HomeItem) : FitColumn(context) {
         detail.visibility = if (lines.detail != null) VISIBLE else GONE
         pills.removeAllViews()
         lines.weather?.let { w ->
-            pills.addView(WidgetStyle.pill(context, WeatherIcon(w.sky, w.night, WidgetStyle.WHITE), "${w.temperature}°  ${w.description}", pillSp).apply {
+            pills.addView(WidgetStyle.pill(context, WeatherIcon(w.sky, w.night, WidgetStyle.onSurface()), "${w.temperature}°  ${w.description}", pillSp).apply {
                 setOnClickListener { onWeather?.invoke() }
             })
         }
@@ -200,7 +199,7 @@ class ClockWidget(context: Context, val item: HomeItem) : FitColumn(context) {
         date.setTextSize(TypedValue.COMPLEX_UNIT_SP, dateSp)
         detail.setTextSize(TypedValue.COMPLEX_UNIT_SP, dateSp * 0.8f)
         pillSp = dateSp * 0.7f
-        time.visibility = if (FeatherKind.of(item) == FeatherKind.GLANCE) GONE else VISIBLE
+        time.visibility = if (options.showTime) VISIBLE else GONE
         date.visibility = if (options.showDate) VISIBLE else GONE
         val horizontal = if (options.alignStart) Gravity.START else Gravity.CENTER_HORIZONTAL
         gravity = horizontal or Gravity.CENTER_VERTICAL
@@ -219,7 +218,7 @@ class ClockWidget(context: Context, val item: HomeItem) : FitColumn(context) {
 /** Padding around the clock's time so its shadow isn't clipped. */
 private const val SHADOW_ROOM = 12
 
-class ClockOptions(val size: Size, val alignStart: Boolean, val showDate: Boolean) {
+data class ClockOptions(val size: Size, val alignStart: Boolean, val showDate: Boolean, val showTime: Boolean = true) {
     enum class Size(val label: String) { SMALL("Small"), MEDIUM("Medium"), LARGE("Large") }
 }
 

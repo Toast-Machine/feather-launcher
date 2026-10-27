@@ -108,6 +108,7 @@ class Prefs(context: Context) {
         runCatching { ClockOptions.Size.valueOf(sp.getString("clock_size_$id", null)!!) }.getOrDefault(ClockOptions.Size.LARGE),
         sp.getBoolean("clock_start_$id", false),
         sp.getBoolean("clock_date_$id", true),
+        sp.getBoolean("clock_time_$id", true),
     )
 
     fun setClockOptions(id: Long, options: ClockOptions) {
@@ -115,6 +116,7 @@ class Prefs(context: Context) {
             .putString("clock_size_$id", options.size.name)
             .putBoolean("clock_start_$id", options.alignStart)
             .putBoolean("clock_date_$id", options.showDate)
+            .putBoolean("clock_time_$id", options.showTime)
             .apply()
     }
 

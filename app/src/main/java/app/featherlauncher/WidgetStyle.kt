@@ -3,7 +3,6 @@ package app.featherlauncher
 import android.content.Context
 import android.graphics.Typeface
 import android.graphics.drawable.Drawable
-import android.graphics.drawable.GradientDrawable
 import android.util.TypedValue
 import android.view.Gravity
 import android.view.View
@@ -11,15 +10,26 @@ import android.view.ViewGroup
 import android.widget.TextView
 
 /**
- * How Feather's own widgets look on the wallpaper, so they all match: white type in a few
- * weights with a soft shadow, and small rounded pills with a dark see-through fill for the
- * things you can tap, which stay readable on light and dark wallpapers alike.
+ * How Feather's own widgets look, so they all match each other and the dock: type straight on
+ * the wallpaper is white with a soft shadow; pills and cards sit on the frosted surface of the
+ * search bar and tab bar: nearly solid and tinted from the wallpaper, so they look the same on
+ * any part of it, unlike a see-through fill.
  */
 object WidgetStyle {
     const val WHITE = 0xFFFFFFFF.toInt()
     const val SOFT_WHITE = 0xD9FFFFFF.toInt()
-    /** A pill's fill: dark and see-through. */
-    private const val PILL = 0x33000000
+
+    /** The home screen's colors, from the wallpaper; set by [HomeScreen]. */
+    var palette: () -> Palette? = { null }
+
+    /** The surface and its text colors, for pills and cards. */
+    fun surface(): Int = palette()?.glass ?: 0xF5202124.toInt()
+    fun onSurface(): Int = palette()?.onWall ?: WHITE
+    fun onSurfaceSecondary(): Int = palette()?.onWallSecondary ?: SOFT_WHITE
+    private fun hairline(): Int = palette()?.hairline ?: 0x14FFFFFF
+
+    /** A rounded piece of the surface, [radius] in dp. */
+    fun surfaceBackground(ctx: Context, radius: Int) = Ui.rounded(ctx, surface(), radius, hairline())
 
     val display: Typeface = Typeface.create(Typeface.DEFAULT, 500, false)
     val title: Typeface = Typeface.create(Typeface.DEFAULT, 600, false)
@@ -37,25 +47,32 @@ object WidgetStyle {
         ellipsize = android.text.TextUtils.TruncateAt.END
     }
 
+    /** Text on a card, in the dock's text color. */
+    fun cardText(ctx: Context, sp: Float, face: Typeface, secondary: Boolean = false) = TextView(ctx).apply {
+        setTextColor(if (secondary) onSurfaceSecondary() else onSurface())
+        typeface = face
+        includeFontPadding = false
+        setTextSize(TypedValue.COMPLEX_UNIT_SP, sp)
+        maxLines = 1
+        ellipsize = android.text.TextUtils.TruncateAt.END
+    }
+
     /** A rounded pill with an icon and a few words, for something to tap. */
     fun pill(ctx: Context, icon: Drawable?, words: String, sp: Float) = TextView(ctx).apply {
         val dp = { v: Int -> Ui.dp(ctx, v) }
         text = words
-        setTextColor(WHITE)
+        setTextColor(onSurface())
         typeface = label
         includeFontPadding = false
         setTextSize(TypedValue.COMPLEX_UNIT_SP, sp)
         maxLines = 1
         ellipsize = android.text.TextUtils.TruncateAt.END
         gravity = Gravity.CENTER_VERTICAL
-        background = GradientDrawable().apply {
-            cornerRadius = dp(100).toFloat()
-            setColor(PILL)
-        }
+        background = surfaceBackground(ctx, Ui.RADIUS_PILL)
         foreground = Ui.pressable(ctx, Ui.RADIUS_PILL)
         val size = (sp * 1.2f * ctx.resources.displayMetrics.scaledDensity).toInt()
         icon?.mutate()?.apply {
-            setTint(WHITE)
+            setTint(onSurface())
             setBounds(0, 0, size, size)
         }
         setCompoundDrawablesRelative(icon, null, null, null)
@@ -121,15 +138,13 @@ open class FitColumn(context: Context) : android.widget.LinearLayout(context) {
         if (MeasureSpec.getMode(heightMeasureSpec) == MeasureSpec.UNSPECIFIED) return
         val room = MeasureSpec.getSize(heightMeasureSpec) - paddingTop - paddingBottom
         val width = MeasureSpec.makeMeasureSpec(measuredWidth - paddingLeft - paddingRight, MeasureSpec.AT_MOST)
-        var hid = false
         while (used(width) > room) {
             val last = (childCount - 1 downTo 1).map(::getChildAt).firstOrNull { it.visibility == View.VISIBLE } ?: break
             last.visibility = View.GONE
             last.setTag(R.id.fit_hidden, true)
-            hid = true
-            super.onMeasure(widthMeasureSpec, heightMeasureSpec)
         }
-        if (hid) super.onMeasure(widthMeasureSpec, heightMeasureSpec)
+        // Checking the rows' own heights measured them loosely; measure them properly to lay out.
+        super.onMeasure(widthMeasureSpec, heightMeasureSpec)
     }
 
     /** The rows' own heights, as they'd be with room to spare (the column would squeeze the last one to fit). */
