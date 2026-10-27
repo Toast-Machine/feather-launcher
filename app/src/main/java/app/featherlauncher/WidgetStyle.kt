@@ -100,7 +100,8 @@ object WidgetStyle {
 
 /**
  * A row of pills that only shows the ones that fit, in order: on a small screen the last ones
- * are left out rather than squeezed. Centred, or from the start with [alignStart].
+ * are left out rather than squeezed, or first one marked with [FitColumn.dropFirst]. Centred,
+ * or from the start with [alignStart].
  */
 class FitRow(context: Context) : ViewGroup(context) {
     var gap = Ui.dp(context, 8)
@@ -108,11 +109,19 @@ class FitRow(context: Context) : ViewGroup(context) {
 
     override fun onMeasure(widthMeasureSpec: Int, heightMeasureSpec: Int) {
         val available = MeasureSpec.getSize(widthMeasureSpec).let { if (it == 0) Int.MAX_VALUE else it }
+        // A pill marked to go first is left out when everything doesn't fit.
+        val all = (0 until childCount).map(::getChildAt)
+        all.forEach { it.measure(MeasureSpec.makeMeasureSpec(available, MeasureSpec.AT_MOST), MeasureSpec.UNSPECIFIED) }
+        val total = all.sumOf { it.measuredWidth } + gap * (all.size - 1).coerceAtLeast(0)
+        val skip = all.filter { (it.getTag(R.id.fit_priority) as? Int ?: 0) > 0 }.takeIf { total > available && all.size > 1 }.orEmpty()
         var used = 0
         var height = 0
         for (i in 0 until childCount) {
             val child = getChildAt(i)
-            child.measure(MeasureSpec.makeMeasureSpec(available, MeasureSpec.AT_MOST), MeasureSpec.UNSPECIFIED)
+            if (child in skip) {
+                child.visibility = View.GONE
+                continue
+            }
             val next = used + (if (used > 0) gap else 0) + child.measuredWidth
             // The first pill always shows, shortened if it must be; later ones only if they fit whole.
             if (used > 0 && next > available) {

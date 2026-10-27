@@ -179,6 +179,8 @@ class ClockWidget(context: Context, val item: HomeItem) : FitColumn(context) {
         lines.weather?.let { w ->
             pills.addView(WidgetStyle.pill(context, WeatherArt.icon(w.sky, w.night), "${w.temperature}°  ${w.description}", pillPx).apply {
                 setOnClickListener { onWeather?.invoke() }
+                // With two things coming up and room for only some, the weather makes way.
+                if (lines.coming.size >= 2) FitColumn.dropFirst(this)
             })
         }
         lines.coming.forEach { item ->
