@@ -235,6 +235,8 @@ class HomeScreen(
             isFocusable = true
             foreground = Ui.focusRing(activity, Ui.RADIUS_L, 0xFFFFFFFF.toInt())
             onLongPress = { onItemLongPress(item, this) }
+            // Holding OK on it with the keypad (a touch hold is caught above).
+            setOnLongClickListener { if (it.isInTouchMode) false else { onItemLongPress(item, it); true } }
         }
     }
 
@@ -323,6 +325,8 @@ class HomeScreen(
 
     private fun onItemLongPress(item: HomeItem, view: View) {
         view.performHapticFeedback(HapticFeedbackConstants.LONG_PRESS)
+        // Held with the keypad: its menu, where Move and Resize work with the arrows.
+        if (!view.isInTouchMode) return showItemMenu(item, view)
         drag.arm(DragSource(item, null, view))
         // Widgets go straight to resizing (with their actions next to the frame); apps get their menu.
         if (item.isWidget) startResize(item) else showItemMenu(item, view)
@@ -627,6 +631,9 @@ class HomeScreen(
     /** An item is being moved with the keypad (see [startKeyMove]). */
     val isKeyMoving get() = drag.isKeyMoving
 
+    /** The keys are for moving or resizing on the home screen right now, not their usual jobs. */
+    val takesKeys get() = drag.isKeyMoving || resize != null
+
     /**
      * Picks [item] up to move it with the keypad: the arrows step it a cell at a time, with what's
      * in the way moving aside as it does for a drag; past the side of the page it goes on to the
@@ -643,6 +650,17 @@ class HomeScreen(
     /** A key while moving with the keypad. Returns true: every key is the move's while it lasts. */
     fun keyMove(event: KeyEvent): Boolean {
         val down = event.action == KeyEvent.ACTION_DOWN
+        resize?.let { frame ->
+            when (event.keyCode) {
+                KeyEvent.KEYCODE_DPAD_LEFT -> if (down) frame.step(-1, 0)
+                KeyEvent.KEYCODE_DPAD_RIGHT -> if (down) frame.step(1, 0)
+                KeyEvent.KEYCODE_DPAD_UP -> if (down) frame.step(0, -1)
+                KeyEvent.KEYCODE_DPAD_DOWN -> if (down) frame.step(0, 1)
+                KeyEvent.KEYCODE_DPAD_CENTER, KeyEvent.KEYCODE_ENTER, KeyEvent.KEYCODE_MENU, KeyEvent.KEYCODE_BACK ->
+                    if (!down && !event.isCanceled) finishResize()
+            }
+            return true
+        }
         when (event.keyCode) {
             KeyEvent.KEYCODE_DPAD_LEFT -> if (down) drag.keyStep(-1, 0)
             KeyEvent.KEYCODE_DPAD_RIGHT -> if (down) drag.keyStep(1, 0)
@@ -1348,6 +1366,9 @@ class HomeScreen(
         }
         resize = frame
         view.post { frame.placeToolbar() }
+        if (!view.isInTouchMode) {
+            android.widget.Toast.makeText(activity, "Resize it with the arrows, then press OK", android.widget.Toast.LENGTH_SHORT).show()
+        }
     }
 
     fun finishResize(): Boolean {
@@ -1478,6 +1499,13 @@ class HomeScreen(
             return !passThrough
         }
 
+        /** With the keypad: right and down make it bigger by a cell, left and up smaller. */
+        fun step(dw: Int, dh: Int) {
+            val w = (item.w + dw).coerceIn(min.first, Workspace.COLS - item.x)
+            val h = (item.h + dh).coerceIn(min.second, Workspace.ROWS - item.y)
+            setSpan(item.x, item.y, w, h)
+        }
+
         private fun resizeTo(px: Float, py: Float) {
             val cells = containerFor(item.page)
             val origin = rectInRoot(cells)
@@ -1493,10 +1521,14 @@ class HomeScreen(
                 2 -> w = (gx - x).coerceIn(min.first, Workspace.COLS - x)
                 3 -> h = (gy - y).coerceIn(min.second, Workspace.ROWS - y)
             }
+            setSpan(x, y, w, h)
+        }
+
+        private fun setSpan(x: Int, y: Int, w: Int, h: Int) {
             if (x == item.x && y == item.y && w == item.w && h == item.h) return
             if (!workspace.isFree(item.page, x, y, w, h, item)) return
             item.x = x; item.y = y; item.w = w; item.h = h
-            cells.place(view, x, y, w, h)
+            containerFor(item.page).place(view, x, y, w, h)
             view.post {
                 invalidate()
                 placeToolbar()

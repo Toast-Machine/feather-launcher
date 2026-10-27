@@ -1329,6 +1329,7 @@ class HomeActivity : Activity(), HomeScreen.Host {
     private fun categoryMenu(c: Categories.Item, tab: View) {
         val items = listOf(
             MenuItem("Add category", R.drawable.ic_add) { newCategory(null) },
+            MenuItem("Move", R.drawable.ic_move) { moveCategoryWithKeys(c) },
             MenuItem("Edit icon", R.drawable.ic_cat_category) { iconSheet(c) },
             MenuItem("Rename", R.drawable.ic_edit) {
                 overlays.showInput("Rename category", c.name, "Name") {
@@ -1497,8 +1498,9 @@ class HomeActivity : Activity(), HomeScreen.Host {
 
     override fun dispatchKeyEvent(event: KeyEvent): Boolean {
         if (pinKey(event)) return true
-        // Moving an icon or widget with the keypad: the keys are the move's until it's put down.
-        if (homeScreen.isKeyMoving) return homeScreen.keyMove(event)
+        // Moving or resizing with the keypad: the keys are for that until it's done.
+        if (homeScreen.takesKeys) return homeScreen.keyMove(event)
+        keyMover?.let { return it.handle(event) }
         // A held arrow does something (see holdAction); a press still just moves.
         if (heldArrow(event)) return true
         // OK on the search bar opens the first result, as Enter does in the text box.
@@ -1538,6 +1540,7 @@ class HomeActivity : Activity(), HomeScreen.Host {
     private fun onBack() {
         when {
             homeScreen.isKeyMoving -> homeScreen.cancelKeyMove()
+            keyMover != null -> keyMover?.undo?.invoke().also { keyMover = null }
             overlays.dismiss() -> Unit
             homeScreen.finishResize() -> Unit
             drawerOpen && showingHidden -> {
@@ -1589,7 +1592,7 @@ class HomeActivity : Activity(), HomeScreen.Host {
      * The phone's speed dial takes held numbers before an app sees them, so the service
      * catches them first and hands them over through [pressDigit] and [holdDigit].
      */
-    fun atHome(): Boolean = !drawerOpen && !overlays.isShowing && !homeScreen.isKeyMoving
+    fun atHome(): Boolean = !drawerOpen && !overlays.isShowing && !homeScreen.takesKeys
 
     /**
      * A key the service held back (to see if it was held) and then let through. Arrow keys move
@@ -1597,7 +1600,7 @@ class HomeActivity : Activity(), HomeScreen.Host {
      */
     fun pressKey(code: Int) {
         val now = android.os.SystemClock.uptimeMillis()
-        if (homeScreen.isKeyMoving) {
+        if (homeScreen.takesKeys) {
             homeScreen.keyMove(KeyEvent(now, now, KeyEvent.ACTION_DOWN, code, 0))
             homeScreen.keyMove(KeyEvent(now, now, KeyEvent.ACTION_UP, code, 0))
             return
@@ -1613,7 +1616,7 @@ class HomeActivity : Activity(), HomeScreen.Host {
 
     /** A key the service held back that turned out to be held: its built-in hold action, if any. */
     fun holdKey(code: Int) {
-        if (homeScreen.isKeyMoving) return pressKey(code)
+        if (homeScreen.takesKeys) return pressKey(code)
         holdAction(code)?.invoke()
     }
 
@@ -1940,6 +1943,11 @@ class HomeActivity : Activity(), HomeScreen.Host {
                         homeScreen.addApp(entry)
                     },
                     MenuItem("Category: ${categories.find(categories.of(entry))?.name ?: ""}", R.drawable.ic_widgets) { categorySheet(entry) },
+                ) + listOfNotNull(
+                    // Apps keep an order you choose within their category.
+                    MenuItem("Move", R.drawable.ic_move) { moveAppWithKeys(entry) }
+                        .takeIf { !searching && !showingHidden && prefs.drawerCategories && category == categories.of(entry) },
+                ) + listOf(
                     MenuItem(if (hidden) "Show in app list" else "Hide from app list",
                         if (hidden) R.drawable.ic_visibility else R.drawable.ic_visibility_off) {
                         prefs.setHidden(entry.key, !hidden)
@@ -1953,6 +1961,112 @@ class HomeActivity : Activity(), HomeScreen.Host {
             rectOf(row),
             repo.icon(entry),
         ) { showAppInfo(entry) }
+    }
+
+    /**
+     * Moving a category tab or an app in the app list with the keypad: the arrows move it,
+     * OK keeps it there and Back puts it back.
+     */
+    private class KeyMover(val step: (dx: Int, dy: Int) -> Unit, val done: () -> Unit, val undo: () -> Unit)
+
+    private var keyMover: KeyMover? = null
+
+    private fun KeyMover.handle(event: KeyEvent): Boolean {
+        val down = event.action == KeyEvent.ACTION_DOWN
+        when (event.keyCode) {
+            KeyEvent.KEYCODE_DPAD_LEFT -> if (down) step(-1, 0)
+            KeyEvent.KEYCODE_DPAD_RIGHT -> if (down) step(1, 0)
+            KeyEvent.KEYCODE_DPAD_UP -> if (down) step(0, -1)
+            KeyEvent.KEYCODE_DPAD_DOWN -> if (down) step(0, 1)
+            KeyEvent.KEYCODE_DPAD_CENTER, KeyEvent.KEYCODE_ENTER, KeyEvent.KEYCODE_MENU -> if (!down && !event.isCanceled) {
+                keyMover = null
+                done()
+            }
+            KeyEvent.KEYCODE_BACK -> if (!down && !event.isCanceled) {
+                keyMover = null
+                undo()
+            }
+        }
+        return true
+    }
+
+    /** Moves a category's tab along the bar with the left and right arrows. */
+    private fun moveCategoryWithKeys(c: Categories.Item) {
+        val before = visibleCategories().map { it.id }
+        fun lift() {
+            val tabs = findViewById<LinearLayout>(R.id.tabs)
+            val tab = (0 until tabs.childCount).map(tabs::getChildAt).firstOrNull { it.tag == c.id } ?: return
+            tab.requestFocusFromTouch()
+            tab.scaleX = 1.15f
+            tab.scaleY = 1.15f
+        }
+        fun show() {
+            renderTabs(visibleCategories())
+            lift()
+        }
+        keyMover = KeyMover(
+            step = { dx, _ ->
+                val order = visibleCategories().map { it.id }.toMutableList()
+                val from = order.indexOf(c.id)
+                if (dx != 0 && from + dx in order.indices) {
+                    order.add(from + dx, order.removeAt(from))
+                    categories.reorder(order)
+                    show()
+                }
+            },
+            done = { updateResults() },
+            undo = {
+                categories.reorder(before)
+                updateResults()
+            },
+        )
+        lift()
+        toast("Move it with the arrows, then press OK")
+    }
+
+    /** Moves an app within its category with the arrows: left and right by one, up and down by a row. */
+    private fun moveAppWithKeys(entry: AppEntry) {
+        val id = category ?: return
+        fun apps() = categories.sorted(id, repo.apps.filter { it.key !in prefs.hidden && categories.of(it) == id }).map { it.key }
+        val before = apps()
+        val across = if (prefs.drawerGrid) DrawerAdapter.COLS else 1
+        fun lift() {
+            val position = adapter.rows.indexOfFirst { row ->
+                (row is DrawerAdapter.Row.Tiles && row.apps.any { it.key == entry.key }) ||
+                    (row is DrawerAdapter.Row.Line && row.app.key == entry.key)
+            }
+            if (position < 0) return
+            list.post {
+                focusRow(position, 0, true)
+                list.post {
+                    val row = list.getChildAt(position - list.firstVisiblePosition) as? ViewGroup ?: return@post
+                    val tile = (0 until row.childCount).map(row::getChildAt).firstOrNull { (it.tag as? AppEntry)?.key == entry.key } ?: row
+                    tile.requestFocusFromTouch()
+                    tile.scaleX = 1.1f
+                    tile.scaleY = 1.1f
+                }
+            }
+        }
+        keyMover = KeyMover(
+            step = { dx, dy ->
+                val order = apps().toMutableList()
+                val from = order.indexOf(entry.key)
+                val to = from + dx + dy * across
+                if (from >= 0 && to != from && to in order.indices) {
+                    order.add(to, order.removeAt(from))
+                    categories.setOrder(id, order)
+                    updateResults()
+                    lift()
+                }
+            },
+            done = { updateResults() },
+            undo = {
+                categories.setOrder(id, before)
+                updateResults()
+            },
+        )
+        lift()
+        toast("Move it with the arrows, then press OK")
     }
 
     private fun sheetRow(icon: Int, label: String, color: Int = palette.text, onClick: () -> Unit): View =

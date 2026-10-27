@@ -36,7 +36,8 @@ class WidgetView(context: Context) : AppWidgetHostView(context) {
 
     init {
         // Square widgets get the same corners as Android's own (as they have on the Pixel launcher).
-        val radius = resources.getDimension(android.R.dimen.system_app_widget_background_radius)
+        // Some phones set Android's widget corner to almost nothing; at least as round as Feather's cards.
+        val radius = maxOf(resources.getDimension(android.R.dimen.system_app_widget_background_radius), WidgetStyle.RADIUS * resources.displayMetrics.density)
         outlineProvider = object : ViewOutlineProvider() {
             override fun getOutline(view: View, outline: Outline) = outline.setRoundRect(0, 0, view.width, view.height, radius)
         }

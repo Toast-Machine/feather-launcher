@@ -114,7 +114,10 @@ class LauncherService : AccessibilityService() {
             val action = KeyShortcuts.get(this).digit(digit)?.action ?: return false
             if (typing()) return false
             owned += code
-            press(code, onHold = { run(action) }, onPress = {})
+            // In Feather's own search and app list, a quick press still types the number (to
+            // search or dial); Feather is in front whenever it's running.
+            val feather = HomeActivity.running
+            press(code, onHold = { run(action) }, onPress = { feather?.pressKey(code) })
             return true
         }
         if (!KeyShortcuts.canUse(code)) return false
