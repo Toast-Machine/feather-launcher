@@ -66,13 +66,13 @@
             android:theme="@style/Theme.Launcher.Settings" />
 
         <activity
-            android:name=".SleepActivity"
+            android:name=".LimitActivity"
             android:excludeFromRecents="true"
             android:exported="false"
             android:launchMode="singleTask"
             android:noHistory="true"
             android:screenOrientation="nosensor"
-            android:taskAffinity="app.featherlauncher.sleep"
+            android:taskAffinity="app.featherlauncher.limit"
             android:theme="@style/Theme.Launcher" />
 
         <service

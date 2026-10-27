@@ -18,24 +18,24 @@ import android.widget.ImageView
 /**
  * Marks drawn on an app icon: at the top corner, a red badge with the number of notifications
  * the app has showing, as on iOS, or a dot for an app that was just installed and hasn't been
- * opened yet; and during Sleep time, gray with a moon at the bottom corner.
+ * opened yet; and while a limit has it locked, gray with a lock at the bottom corner.
  */
 object IconBadges {
     private val gray = ColorMatrixColorFilter(ColorMatrix().apply { setSaturation(0f) })
 
     /** [sizeDp] is the icon's size, which the marks scale with; [count] is its notifications. */
-    fun apply(icon: ImageView, asleep: Boolean, isNew: Boolean, sizeDp: Int, count: Int = 0) {
-        icon.colorFilter = if (asleep) gray else null
-        icon.imageAlpha = if (asleep) 150 else 255
+    fun apply(icon: ImageView, locked: Boolean, isNew: Boolean, sizeDp: Int, count: Int = 0) {
+        icon.colorFilter = if (locked) gray else null
+        icon.imageAlpha = if (locked) 150 else 255
         val size = Ui.dp(icon.context, sizeDp)
         val layers = listOfNotNull(
             when {
-                asleep -> null
+                locked -> null
                 count > 0 -> countBadge(icon, size, count)
                 isNew -> newDot(icon, size)
                 else -> null
             },
-            if (asleep) moon(icon, size) else null,
+            if (locked) lock(icon, size) else null,
         )
         icon.foreground = if (layers.isEmpty()) null else LayerDrawable(layers.flatMap { it.layers }.toTypedArray()).apply {
             var i = 0
@@ -118,14 +118,14 @@ object IconBadges {
         override fun getOpacity() = PixelFormat.TRANSLUCENT
     }
 
-    private fun moon(icon: ImageView, size: Int): Group {
+    private fun lock(icon: ImageView, size: Int): Group {
         val ctx = icon.context
-        val glyphDrawable = ctx.getDrawable(R.drawable.ic_moon_fill)!!.mutate().apply { setTint(0xFF1B1C1F.toInt()) }
+        val glyphDrawable = ctx.getDrawable(R.drawable.ic_lock)!!.mutate().apply { setTint(0xFF1B1C1F.toInt()) }
         val circle = GradientDrawable().apply {
             shape = GradientDrawable.OVAL
             setColor(0xFFFFFFFF.toInt())
         }
-        // The dot is 40% of the icon, the moon 60% of the dot.
+        // The dot is 40% of the icon, the lock 60% of the dot.
         val dot = (size * 0.4f).toInt()
         val glyph = (dot * 0.6f).toInt()
         val inset = (dot - glyph) / 2

@@ -40,7 +40,7 @@ object Setup {
                 a.startActivityForResult(a.getSystemService(RoleManager::class.java).createRequestRoleIntent(RoleManager.ROLE_HOME), 0)
             })
 
-    val ACCESSIBILITY = Item("Accessibility", "For Sleep time, key shortcuts and holding numbers", R.drawable.ic_unlock,
+    val ACCESSIBILITY = Item("Accessibility", "For app limits, key shortcuts and holding numbers", R.drawable.ic_unlock,
             done = LauncherService::isEnabled,
             start = { a ->
                 // Opens Launcher's own switch; older phones get the list instead.
@@ -49,7 +49,7 @@ object Setup {
                     Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS))
             })
 
-    val NOTIFICATIONS = Item("Notification access", "For badges on app icons, notification filters, and holding them during Sleep time", R.drawable.ic_notification,
+    val NOTIFICATIONS = Item("Notification access", "For badges on app icons, notification filters, and app limits", R.drawable.ic_notification,
             done = NotificationService::isEnabled,
             start = { a ->
                 val component = ComponentName(a, NotificationService::class.java).flattenToString()
@@ -61,7 +61,7 @@ object Setup {
     private val permissions = listOf(
         permission(Manifest.permission.READ_CONTACTS, "Contacts", "To find people in Smart Search", R.drawable.ic_contact),
         permission(Manifest.permission.CALL_PHONE, "Phone calls", "So calling from search starts the call right away", R.drawable.ic_phone_call),
-        permission(Manifest.permission.POST_NOTIFICATIONS, "Notifications", "To tell you when Sleep time stops an app's audio", R.drawable.ic_notification),
+        permission(Manifest.permission.POST_NOTIFICATIONS, "Notifications", "To tell you when an app limit stops an app's sound", R.drawable.ic_notification),
         permission(Manifest.permission.READ_CALENDAR, "Calendar", "To show your next event on the clock", R.drawable.ic_calendar),
         permission(Manifest.permission.ACCESS_COARSE_LOCATION, "Location", "To work out zmanim where you are", R.drawable.ic_location),
     )

@@ -35,13 +35,16 @@ class SettingsActivity : Activity() {
     /** Each feature has its own page; the main page links to them. */
     enum class Page(val title: String) {
         MAIN("Settings"), APPEARANCE("Appearance"), APP_LIST("App list"), CLOCK("Clock"), KEYS("Gestures and keys"),
-        SLEEP("Sleep time"), NOTIFICATIONS("Notifications"), HIDDEN("Hidden apps"), SHORTCUT("Shortcut"),
+        LIMITS("App limits"), LIMIT("App limit"), NOTIFICATIONS("Notifications"), HIDDEN("Hidden apps"), SHORTCUT("Shortcut"),
         FILTER("Filter"), NOTIFICATION_HISTORY("Hidden notifications"),
     }
 
     /** The notification filter open in its editor, and whether it's a new one. */
     internal var filterDraft: NotificationFilter? = null
     internal var filterIsNew = false
+
+    /** The app limit open on its page. */
+    internal var limitId: Long? = null
 
     /** The key shortcut open in the editor. */
     internal var draft: ShortcutDraft? = null
@@ -130,6 +133,12 @@ class SettingsActivity : Activity() {
         if (intent.getBooleanExtra(EXTRA_UPDATE, false)) root.post { updatesSheet() }
     }
 
+    override fun onStop() {
+        super.onStop()
+        // Unlocking changes to app limits lasts until Settings is left.
+        AppLimits.get(this).lockAgain()
+    }
+
     override fun onResume() {
         super.onResume()
         // Default home app may have been changed in system settings.
@@ -179,7 +188,8 @@ class SettingsActivity : Activity() {
             Page.NOTIFICATION_HISTORY -> NotificationSettings(this).buildHistory(p)
             Page.HIDDEN -> hidden(p)
             Page.CLOCK -> ClockSettings(this).build(p)
-            Page.SLEEP -> SleepSettings(this).build(p)
+            Page.LIMITS -> LimitSettings(this).build(p)
+            Page.LIMIT -> LimitSettings(this).buildLimit(p)
         }
         scroll.post { scroll.scrollTo(0, scrollY) }
     }
@@ -202,6 +212,7 @@ class SettingsActivity : Activity() {
             text = when (current) {
                 Page.SHORTCUT -> if (draft?.original == null) "New shortcut" else "Edit shortcut"
                 Page.FILTER -> if (filterIsNew) "New filter" else "Edit filter"
+                Page.LIMIT -> limitId?.let { AppLimits.get(this@SettingsActivity).find(it) }?.name ?: current.title
                 else -> current.title
             }
             style(TextStyle.Title, p.text)
@@ -224,6 +235,7 @@ class SettingsActivity : Activity() {
                 filterDraft = null
                 open(Page.NOTIFICATIONS)
             }
+            Page.LIMIT -> open(Page.LIMITS)
             else -> open(Page.MAIN)
         }
     }
@@ -236,7 +248,7 @@ class SettingsActivity : Activity() {
             content.addView(spacer())
             content.addView(Components.group(this, p, listOf(Setup.row(this, p, Setup.HOME))))
         }
-        val sleep = SleepTime.get(this)
+        val limitsOn = AppLimits.get(this).limits.filter { it.enabled }
         val hiddenCount = prefs.hidden.size
         val keyCount = KeyShortcuts.get(this).list.count { it.isDigit }
         content.addView(spacer())
@@ -254,8 +266,8 @@ class SettingsActivity : Activity() {
             pageRow(p, R.drawable.ic_keyboard, Page.KEYS,
                 "Swipe down for ${if (prefs.swipeDownSearch) "Smart Search" else "notifications"}" +
                     if (keyCount > 0) " · $keyCount number keys" else ""),
-            pageRow(p, R.drawable.ic_moon, Page.SLEEP,
-                if (sleep.enabled) "${SleepTime.formatTime(this, sleep.start)}–${SleepTime.formatTime(this, sleep.end)}" else "Off"),
+            pageRow(p, R.drawable.ic_hourglass, Page.LIMITS,
+                if (limitsOn.isEmpty()) "Off" else limitsOn.joinToString(", ") { it.name }),
             pageRow(p, R.drawable.ic_notification, Page.NOTIFICATIONS, NotificationFilters.get(this).filters.count { it.enabled }.let {
                 if (it == 0) "No filters" else if (it == 1) "1 filter" else "$it filters"
             }),

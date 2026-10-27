@@ -239,7 +239,7 @@ class HomeActivity : Activity(), HomeScreen.Host {
         applyDarkMode()
         homeScreen.bindAll()
         updateResults()
-        watchSleepTime()
+        watchLimits()
         NotificationBadges.onChange = badgesChanged
         Updates.get(this).checkIfDue()
         offerSetup()
@@ -261,18 +261,18 @@ class HomeActivity : Activity(), HomeScreen.Host {
         if (!overlays.isShowing) OnboardingActivity.showIfNeeded(this)
     }
 
-    private val sleep by lazy { SleepTime.get(this) }
-    private val sleepChanged = Runnable {
+    private val limits by lazy { AppLimits.get(this) }
+    private val limitsChanged = Runnable {
         homeScreen.bindAll()
         updateResults()
-        watchSleepTime()
+        watchLimits()
     }
 
-    /** Redraws app icons when Sleep time starts or ends while the home screen is showing. */
-    private fun watchSleepTime() {
-        home.removeCallbacks(sleepChanged)
+    /** Redraws app icons when a limit starts or ends while the home screen is showing. */
+    private fun watchLimits() {
+        home.removeCallbacks(limitsChanged)
         val now = System.currentTimeMillis()
-        sleep.nextChange(now)?.let { home.postDelayed(sleepChanged, it - now + 500) }
+        limits.nextChange(now)?.let { home.postDelayed(limitsChanged, it - now + 500) }
     }
 
     override fun onPause() {
@@ -282,7 +282,7 @@ class HomeActivity : Activity(), HomeScreen.Host {
 
     override fun onStop() {
         super.onStop()
-        home.removeCallbacks(sleepChanged)
+        home.removeCallbacks(limitsChanged)
         home.removeCallbacks(redrawBadges)
         if (NotificationBadges.onChange === badgesChanged) NotificationBadges.onChange = null
         widgets.stopListening()
@@ -390,7 +390,7 @@ class HomeActivity : Activity(), HomeScreen.Host {
             onDial = ::call,
             icon = { repo.icon(it) },
             digitFor = { KeyShortcuts.get(this).digitFor(it.key) },
-            isAsleep = { sleep.isLocked(it.packageName) },
+            isLocked = { limits.isLocked(it.packageName) },
             isNew = { newApps.isNew(it) },
             badge = { prefs.badgeCount(it.packageName) },
             onClick = { entry, view -> choose(entry, view) },
@@ -1616,7 +1616,7 @@ class HomeActivity : Activity(), HomeScreen.Host {
         val action = keys.digit(digit)?.action
         val app = action?.takeIf { it.type == ActionType.APP }?.value?.let(repo::find)
         when {
-            // Opened the usual way, so Sleep time and recent apps see it.
+            // Opened the usual way, so app limits and recent apps see it.
             app != null -> launch(app, null)
             action != null && action.type != ActionType.APP -> KeyActionRunner.run(this, action, LauncherService.running)
             else -> openSearch(fromKeypad = true, hint = "Choose an app for $digit") {
@@ -1959,8 +1959,8 @@ class HomeActivity : Activity(), HomeScreen.Host {
     // region Actions
 
     override fun launch(entry: AppEntry, from: View?) {
-        // Locked apps go straight to the Sleep time screen, without showing the app first.
-        if (sleep.isLocked(entry.packageName)) return startActivity(SleepActivity.intent(this, entry.packageName))
+        // Locked apps go straight to the limit's screen, without showing the app first.
+        if (limits.isLocked(entry.packageName)) return startActivity(LimitActivity.intent(this, entry.packageName))
         val bounds = from?.let { v -> Rect().also { v.getGlobalVisibleRect(it) } }
         val options = from?.let { ActivityOptions.makeScaleUpAnimation(it, 0, 0, it.width, it.height).toBundle() }
         try {

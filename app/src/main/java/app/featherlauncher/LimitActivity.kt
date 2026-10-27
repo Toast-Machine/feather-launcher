@@ -19,11 +19,14 @@ import android.widget.LinearLayout
 import android.widget.TextView
 
 /**
- * What a locked app shows during Sleep time: the user's message, and a button that opens the
- * app after a wait. The wait only counts while this screen stays in front; leaving starts it over.
+ * What a locked app shows while a limit is on: the limit's message and, for a limit that waits,
+ * a button that opens the app after the wait. The wait only counts while this screen stays in
+ * front; leaving starts it over.
  */
-class SleepActivity : Activity() {
-    private lateinit var sleep: SleepTime
+class LimitActivity : Activity() {
+    private lateinit var limits: AppLimits
+    /** The limit keeping the app closed, as of when this screen opened. */
+    private var limit: AppLimit? = null
     private lateinit var palette: Palette
     private lateinit var pkg: String
     private lateinit var label: String
@@ -44,7 +47,7 @@ class SleepActivity : Activity() {
         super.onCreate(savedInstanceState)
         @Suppress("DEPRECATION")
         window.setDecorFitsSystemWindows(false)
-        sleep = SleepTime.get(this)
+        limits = AppLimits.get(this)
         val prefs = Prefs(this)
         palette = Palette.from(this, prefs.colorStyle, prefs.themeMode, prefs.accentColor)
         read(intent)
@@ -66,10 +69,12 @@ class SleepActivity : Activity() {
             packageManager.getApplicationLabel(packageManager.getApplicationInfo(pkg, 0)).toString()
         }.getOrDefault("This app")
         waitStarted = 0
+        limit = limits.lockFor(pkg)
     }
 
     private fun build() {
         val p = palette
+        val limit = limit ?: return openApp()
         val root = FrameLayout(this).apply { setBackgroundColor(p.searchScrim) }
         val column = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
@@ -85,11 +90,11 @@ class SleepActivity : Activity() {
         // The message, in the middle of the screen.
         column.addView(View(this), LinearLayout.LayoutParams(1, 0, 1f))
         column.addView(ImageView(this).apply {
-            setImageResource(R.drawable.ic_moon)
+            setImageResource(limit.strictness.icon)
             imageTintList = android.content.res.ColorStateList.valueOf(p.onWall)
         }, LinearLayout.LayoutParams(dp(36), dp(36)))
         column.addView(TextView(this).apply {
-            text = sleep.message
+            text = limit.message.ifBlank { if (limit.strictness == Strictness.BLOCK) "This app is blocked for now." else "Do you want to open this right now?" }
             style(TextStyle.Title, p.onWall)
             setTextSize(TypedValue.COMPLEX_UNIT_SP, 24f)
             gravity = Gravity.CENTER
@@ -110,14 +115,14 @@ class SleepActivity : Activity() {
         column.addView(LinearLayout(this).apply {
             orientation = LinearLayout.HORIZONTAL
             gravity = Gravity.CENTER
-            addView(ImageView(this@SleepActivity).apply {
-                val repo = Launcher.repo(this@SleepActivity)
+            addView(ImageView(this@LimitActivity).apply {
+                val repo = Launcher.repo(this@LimitActivity)
                 val entry = repo.apps.firstOrNull { it.packageName == pkg }
                 val bitmap = entry?.let(repo::icon)
                 if (bitmap != null) setImageBitmap(bitmap) else runCatching { setImageDrawable(packageManager.getApplicationIcon(pkg)) }
-                IconBadges.apply(this, asleep = true, isNew = false, sizeDp = 28)
+                IconBadges.apply(this, locked = true, isNew = false, sizeDp = 28)
             }, LinearLayout.LayoutParams(dp(28), dp(28)))
-            addView(TextView(this@SleepActivity).apply {
+            addView(TextView(this@LimitActivity).apply {
                 text = label
                 style(TextStyle.Label, p.onWall)
                 maxLines = 1
@@ -133,30 +138,31 @@ class SleepActivity : Activity() {
         button = TextView(this).apply {
             gravity = Gravity.CENTER
             style(TextStyle.Label, p.onWall)
-            background = LayerDrawable(arrayOf(Ui.rounded(this@SleepActivity, p.glass, Ui.RADIUS_PILL, p.hairline), progress))
-            foreground = Ui.pressable(this@SleepActivity, Ui.RADIUS_PILL)
+            background = LayerDrawable(arrayOf(Ui.rounded(this@LimitActivity, p.glass, Ui.RADIUS_PILL, p.hairline), progress))
+            foreground = Ui.pressable(this@LimitActivity, Ui.RADIUS_PILL)
             isFocusable = true
             setOnClickListener { onButton() }
         }
-        column.addView(button, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(52)))
+        // A blocked app has no way in until the limit ends.
+        if (limit.strictness == Strictness.WAIT) column.addView(button, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(52)))
         column.addView(TextView(this).apply {
             text = "Close"
             gravity = Gravity.CENTER
             style(TextStyle.Label, p.onWallSecondary)
-            background = Ui.pressable(this@SleepActivity, Ui.RADIUS_PILL)
+            background = Ui.pressable(this@LimitActivity, Ui.RADIUS_PILL)
             isFocusable = true
             setOnClickListener { goHome() }
         }, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(48)).apply { topMargin = dp(Ui.SPACE_XS) })
 
         setContentView(root)
-        button.requestFocus()
+        if (limit.strictness == Strictness.WAIT) button.requestFocus()
         update()
     }
 
     override fun onResume() {
         super.onResume()
-        // Sleep time may have ended, or the app was opened in the meantime.
-        if (!sleep.isLocked(pkg)) return openApp()
+        // The limit may have ended, or the app was opened in the meantime.
+        if (!limits.isLocked(pkg)) return openApp()
         button.post(tick)
     }
 
@@ -168,17 +174,22 @@ class SleepActivity : Activity() {
     }
 
     private fun onButton() {
+        val limit = limit ?: return
         val now = System.currentTimeMillis()
-        if (now < sleep.readyAt(pkg)) return
+        if (now < limits.readyAt(pkg, limit)) return
         waitStarted = if (waitStarted == 0L) SystemClock.elapsedRealtime() else 0L
         update()
     }
 
     private fun update() {
+        val limit = limit ?: return
         val now = System.currentTimeMillis()
-        until.text = sleep.nightEnd(now)?.let { "Sleep time until ${SleepTime.formatTime(this, it)}" } ?: ""
-        val ready = sleep.readyAt(pkg)
-        val minutes = sleep.openMinutes
+        // A limit that's on all day, every day, never ends; others say when they do.
+        until.text = if (limit.allDay && limit.days == AppLimits.ALL_DAYS) limit.name
+            else limit.endsAt(now)?.let { "${limit.name} until ${AppLimits.formatTime(this, it)}" } ?: limit.name
+        if (limit.strictness == Strictness.BLOCK) return
+        val ready = limits.readyAt(pkg, limit)
+        val minutes = limit.openMinutes
         when {
             now < ready -> {
                 val left = ((ready - now + 999) / 1000).toInt()
@@ -187,10 +198,10 @@ class SleepActivity : Activity() {
                 progress.level = 0
             }
             waitStarted != 0L -> {
-                val total = sleep.waitSeconds * 1000L
+                val total = limit.waitSeconds * 1000L
                 val elapsed = SystemClock.elapsedRealtime() - waitStarted
                 if (elapsed >= total) {
-                    sleep.open(pkg)
+                    limits.open(pkg, limit)
                     return openApp()
                 }
                 val left = ((total - elapsed + 999) / 1000).toInt()
@@ -236,7 +247,7 @@ class SleepActivity : Activity() {
         private const val EXTRA_PACKAGE = "package"
 
         fun intent(context: Context, pkg: String): Intent =
-            Intent(context, SleepActivity::class.java)
+            Intent(context, LimitActivity::class.java)
                 .putExtra(EXTRA_PACKAGE, pkg)
                 .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_NO_ANIMATION)
     }

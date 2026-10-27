@@ -13,7 +13,7 @@ import android.os.Handler
 import android.os.Looper
 
 /**
- * Keeps locked apps quiet during Sleep time. When an app's open time runs out, or Sleep time
+ * Keeps locked apps quiet. When an app's open time runs out, or a limit that covers it
  * starts, its audio is stopped (not paused); if it starts again from earbuds or its
  * notification, it's stopped again straight away. Needs notification access to see media.
  */
@@ -21,7 +21,7 @@ class MediaGuard(private val context: Context) {
     private val sessions = context.getSystemService(MediaSessionManager::class.java)
     private val listener = ComponentName(context, NotificationService::class.java)
     private val main = Handler(Looper.getMainLooper())
-    private val sleep = SleepTime.get(context)
+    private val limits = AppLimits.get(context)
     private val watched = HashMap<MediaController, MediaController.Callback>()
 
     private val sessionsChanged = MediaSessionManager.OnActiveSessionsChangedListener { watch(it.orEmpty()) }
@@ -31,7 +31,7 @@ class MediaGuard(private val context: Context) {
     fun start() {
         runCatching { sessions.addOnActiveSessionsChangedListener(sessionsChanged, listener, main) }
         runCatching { watch(sessions.getActiveSessions(listener)) }
-        sleep.listeners += opened
+        limits.listeners += opened
         schedule()
     }
 
@@ -39,7 +39,7 @@ class MediaGuard(private val context: Context) {
         runCatching { sessions.removeOnActiveSessionsChangedListener(sessionsChanged) }
         watched.forEach { (c, cb) -> c.unregisterCallback(cb) }
         watched.clear()
-        sleep.listeners -= opened
+        limits.listeners -= opened
         main.removeCallbacks(recheck)
     }
 
@@ -66,7 +66,7 @@ class MediaGuard(private val context: Context) {
         val state = c.playbackState?.state ?: return
         val playing = state == PlaybackState.STATE_PLAYING || state == PlaybackState.STATE_BUFFERING ||
             state == PlaybackState.STATE_CONNECTING
-        if (!playing || !sleep.isLocked(c.packageName)) return
+        if (!playing || !limits.isLocked(c.packageName)) return
         // Stop where the app allows it (that ends the session); some apps (Chrome) only pause.
         val canStop = (c.playbackState?.actions ?: 0L) and PlaybackState.ACTION_STOP != 0L
         if (canStop) c.transportControls.stop() else c.transportControls.pause()
@@ -90,34 +90,36 @@ class MediaGuard(private val context: Context) {
         audio.abandonAudioFocusRequest(request)
     }
 
-    /** Looks again when Sleep time starts or an app's open time ends. */
+    /** Looks again when a limit starts or an app's open time ends. */
     private fun schedule() {
         main.removeCallbacks(recheck)
         val now = System.currentTimeMillis()
-        sleep.nextChange(now)?.let { main.postDelayed(recheck, it - now + 500) }
+        limits.nextChange(now)?.let { main.postDelayed(recheck, it - now + 500) }
     }
 
     /** A notification saying why the audio stopped, which opens the unlock screen. */
     private fun tell(pkg: String) {
         val nm = context.getSystemService(NotificationManager::class.java)
         if (!nm.areNotificationsEnabled()) return
-        nm.createNotificationChannel(NotificationChannel(CHANNEL, "Sleep time", NotificationManager.IMPORTANCE_LOW))
+        nm.createNotificationChannel(NotificationChannel(CHANNEL, "App limits", NotificationManager.IMPORTANCE_LOW))
         val label = runCatching {
             context.packageManager.getApplicationLabel(context.packageManager.getApplicationInfo(pkg, 0)).toString()
         }.getOrDefault("This app")
-        val until = sleep.nightEnd()?.let { " until ${SleepTime.formatTime(context, it)}" } ?: ""
-        val open = PendingIntent.getActivity(context, pkg.hashCode(), SleepActivity.intent(context, pkg),
+        val limit = limits.lockFor(pkg) ?: return
+        val until = limit.takeIf { !it.allDay }?.endsAt(System.currentTimeMillis())?.let { " until ${AppLimits.formatTime(context, it)}" } ?: ""
+        val open = PendingIntent.getActivity(context, pkg.hashCode(), LimitActivity.intent(context, pkg),
             PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT)
         nm.notify(pkg.hashCode(), Notification.Builder(context, CHANNEL)
-            .setSmallIcon(R.drawable.ic_moon)
+            .setSmallIcon(limit.strictness.icon)
             .setContentTitle("$label is locked$until")
-            .setContentText("Its audio was stopped for Sleep time. Tap to open it for a few minutes.")
+            .setContentText(if (limit.strictness == Strictness.WAIT) "${limit.name} stopped its sound. Tap to open it for a few minutes."
+                else "${limit.name} stopped its sound.")
             .setContentIntent(open)
             .setAutoCancel(true)
             .build())
     }
 
     companion object {
-        private const val CHANNEL = "sleep_time"
+        private const val CHANNEL = "app_limits"
     }
 }

@@ -11,7 +11,7 @@ import java.io.File
 
 /**
  * Everything the launcher keeps, in one JSON file: every setting (layout, categories, hidden apps
- * and PIN, Sleep time, key shortcuts, notification filters, clock and appearance), the home
+ * and PIN, app limits, key shortcuts, notification filters, clock and appearance), the home
  * screen, and the light and dark wallpapers. Restoring it on another phone, or into a fresh
  * install, brings all of that back. Widgets have to be added again: Android ties each one to
  * the install that added it.
@@ -20,7 +20,7 @@ object Backup {
     private const val FORMAT = 1
 
     /** The saved settings, by their store's name. Icon and app list caches are left out; they're rebuilt. */
-    private val STORES = listOf("launcher", "categories", "keys", "notifications", "sleep", "sleep_state", "new_apps", "launches")
+    private val STORES = listOf("launcher", "categories", "keys", "notifications", "limits", "limits_state", "new_apps", "launches")
     private val FILES = listOf("workspace.json", "wallpaper_light.png", "wallpaper_dark.png")
 
     fun export(context: Context): String {

@@ -27,8 +27,8 @@ class DrawerAdapter(
     private val onDial: (String) -> Unit = {},
     private val icon: (AppEntry) -> Bitmap?,
     private val digitFor: (AppEntry) -> Int?,
-    /** Locked by Sleep time right now: drawn gray with a moon. */
-    private val isAsleep: (AppEntry) -> Boolean,
+    /** Locked by an app limit right now: drawn gray with a lock. */
+    private val isLocked: (AppEntry) -> Boolean,
     /** Installed and not opened yet: a dot on the icon. */
     private val isNew: (AppEntry) -> Boolean,
     /** Notifications showing: a red badge with the count. */
@@ -151,7 +151,7 @@ class DrawerAdapter(
     private fun tile(app: AppEntry, p: Palette): View {
         val image = ImageView(context).apply {
             setImageBitmap(icon(app))
-            IconBadges.apply(this, isAsleep(app), isNew(app), 54, badge(app))
+            IconBadges.apply(this, isLocked(app), isNew(app), 54, badge(app))
         }
         return LinearLayout(context).apply {
             orientation = LinearLayout.VERTICAL
@@ -183,7 +183,7 @@ class DrawerAdapter(
     private fun line(app: AppEntry, p: Palette): View {
         val image = ImageView(context).apply {
             setImageBitmap(icon(app))
-            IconBadges.apply(this, isAsleep(app), isNew(app), 40, badge(app))
+            IconBadges.apply(this, isLocked(app), isNew(app), 40, badge(app))
         }
         return LinearLayout(context).apply {
             orientation = LinearLayout.HORIZONTAL

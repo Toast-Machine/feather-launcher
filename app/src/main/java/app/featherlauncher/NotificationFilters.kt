@@ -7,19 +7,20 @@ import org.json.JSONObject
 /**
  * One notification filter. For [app] (a package name, or null for every app), notifications
  * that mention any of [words] are hidden; with [allowOnly], everything except those is hidden.
- * No words means every notification from the app. [onlyAtNight] limits it to Sleep time.
+ * No words means every notification from the app. With [during], only while that app limit is on.
  */
 data class NotificationFilter(
     val id: Long,
     val app: String?,
     val words: List<String>,
     val allowOnly: Boolean = false,
-    val onlyAtNight: Boolean = false,
+    /** An app limit's id. */
+    val during: Long? = null,
     val enabled: Boolean = true,
 ) {
-    /** Whether a notification from [pkg] saying [text] should be hidden. */
-    fun hides(pkg: String, text: String, night: Boolean): Boolean {
-        if (!enabled || (app != null && app != pkg) || (onlyAtNight && !night)) return false
+    /** Whether a notification from [pkg] saying [text] should be hidden, with the limits [on] right now. */
+    fun hides(pkg: String, text: String, on: Set<Long>): Boolean {
+        if (!enabled || (app != null && app != pkg) || (during != null && during !in on)) return false
         // No words: everything from the app.
         if (words.isEmpty()) return true
         val mentioned = words.any { word ->
@@ -35,7 +36,7 @@ data class NotificationFilter(
 
     fun toJson(): JSONObject = JSONObject()
         .put("id", id).put("app", app).put("words", JSONArray(words))
-        .put("allowOnly", allowOnly).put("onlyAtNight", onlyAtNight).put("enabled", enabled)
+        .put("allowOnly", allowOnly).put("during", during ?: 0).put("enabled", enabled)
 
     companion object {
         fun fromJson(o: JSONObject): NotificationFilter? = runCatching {
@@ -43,7 +44,7 @@ data class NotificationFilter(
             NotificationFilter(
                 o.getLong("id"), o.optString("app").ifEmpty { null },
                 (0 until words.length()).map { words.getString(it) },
-                o.optBoolean("allowOnly"), o.optBoolean("onlyAtNight"), o.optBoolean("enabled", true),
+                o.optBoolean("allowOnly"), o.optLong("during").takeIf { it != 0L }, o.optBoolean("enabled", true),
             )
         }.getOrNull()
 
@@ -69,11 +70,6 @@ class NotificationFilters private constructor(context: Context) {
 
     var filters: List<NotificationFilter> = readFilters()
         private set
-
-    /** During Sleep time, notifications from locked apps wait until it ends. */
-    var holdDuringSleep: Boolean
-        get() = sp.getBoolean("hold_during_sleep", true)
-        set(value) = sp.edit().putBoolean("hold_during_sleep", value).apply()
 
     private fun readFilters(): List<NotificationFilter> {
         val array = runCatching { JSONArray(sp.getString("filters", "[]")) }.getOrDefault(JSONArray())

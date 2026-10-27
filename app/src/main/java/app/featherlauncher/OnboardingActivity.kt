@@ -195,7 +195,7 @@ class OnboardingActivity : Activity() {
     private fun done() = page(
         art = symbol(R.drawable.ic_check),
         title = "You're all set",
-        body = "More is waiting in Settings when you want it: Sleep time, notification filters, key shortcuts, dark icons and wallpapers.",
+        body = "More is waiting in Settings when you want it: app limits, notification filters, key shortcuts, dark icons and wallpapers.",
         primary = "Start" to ::finishOnboarding,
         dots = true,
     )

@@ -40,14 +40,6 @@ class NotificationSettings(private val s: SettingsActivity) {
         content.addView(Components.group(s, p, rows))
         content.addView(Components.footnote(s, p, "Hide notifications from an app, or only the ones that mention certain words."))
 
-        content.addView(s.heading(p, "Sleep time"))
-        content.addView(s.spacer())
-        content.addView(Components.group(s, p, listOf(
-            Components.toggleRow(s, p, R.drawable.ic_moon, "Hold notifications from locked apps", store.holdDuringSleep) {
-                store.holdDuringSleep = it
-            },
-        )))
-        content.addView(Components.footnote(s, p, "They come back on their own when Sleep time ends."))
 
         val count = store.history.size
         content.addView(s.heading(p, "History"))
@@ -73,7 +65,7 @@ class NotificationSettings(private val s: SettingsActivity) {
         }
         return what + when {
             !f.enabled -> " · Off"
-            f.onlyAtNight -> " · During Sleep time"
+            f.during != null -> limitName(f.during)?.let { " · During $it" } ?: ""
             else -> ""
         }
     }
@@ -113,11 +105,22 @@ class NotificationSettings(private val s: SettingsActivity) {
             })
         }
 
-        content.addView(s.heading(p, "When"))
-        content.addView(s.spacer())
-        content.addView(Components.segmented(s, p, listOf("Always", "During Sleep time"), if (f.onlyAtNight) 1 else 0) {
-            update(f.copy(onlyAtNight = it == 1))
-        })
+        // Always, or only while one of the app limits is on.
+        val limits = AppLimits.get(s).limits
+        if (limits.isNotEmpty()) {
+            content.addView(s.heading(p, "When"))
+            content.addView(s.spacer())
+            content.addView(Components.group(s, p, listOf(
+                Components.row(s, p, R.drawable.ic_time, "Hides them", f.during?.let(::limitName)?.let { "During $it" } ?: "Always",
+                    chevron = true, inset = Ui.SPACE_L) {
+                    Components.choiceSheet(s, p, s.overlays, "Hides them",
+                        listOf("Always" to null) + limits.map { "During ${it.name}" to null },
+                        limits.indexOfFirst { it.id == f.during } + 1) { i ->
+                        update(f.copy(during = if (i == 0) null else limits[i - 1].id))
+                    }
+                },
+            )))
+        }
 
         if (!s.filterIsNew) {
             content.addView(s.spacer())
@@ -168,8 +171,11 @@ class NotificationSettings(private val s: SettingsActivity) {
             f.allowOnly -> "Notifications from $from that don't mention ${f.words.joinToString(" or ") { "“$it”" }}"
             else -> "Notifications from $from that mention ${f.words.joinToString(" or ") { "“$it”" }}"
         }
-        return "$which will be hidden${if (f.onlyAtNight) " during Sleep time" else ""}. You can still read them under History."
+        val during = f.during?.let(::limitName)?.let { " during $it" } ?: ""
+        return "$which will be hidden$during. You can still read them under History."
     }
+
+    private fun limitName(id: Long): String? = AppLimits.get(s).find(id)?.name
 
     private fun pickApp(current: String?, onPick: (String?) -> Unit) {
         val apps = s.visibleApps.distinctBy { it.packageName }.sortedBy { it.label.lowercase() }

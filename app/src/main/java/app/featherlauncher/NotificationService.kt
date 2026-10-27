@@ -8,7 +8,7 @@ import android.service.notification.StatusBarNotification
 
 /**
  * Sees every notification as it arrives. Ones a filter matches are dismissed and kept in the
- * history; ones from apps locked by Sleep time are held back until it ends. What's left is
+ * history; ones from apps an app limit has locked are held back until it ends, if it holds them. What's left is
  * counted for the badges on app icons.
  */
 class NotificationService : NotificationListenerService() {
@@ -46,21 +46,22 @@ class NotificationService : NotificationListenerService() {
         val title = extras.getCharSequence(Notification.EXTRA_TITLE)?.toString().orEmpty()
         val text = (extras.getCharSequence(Notification.EXTRA_BIG_TEXT) ?: extras.getCharSequence(Notification.EXTRA_TEXT))?.toString().orEmpty()
 
-        val sleep = SleepTime.get(this)
+        val limits = AppLimits.get(this)
         val filters = NotificationFilters.get(this)
         val now = System.currentTimeMillis()
 
-        // Calls, music and other ongoing ones are left to MediaGuard during Sleep time.
-        if (!sbn.isOngoing && filters.holdDuringSleep && sleep.isLocked(sbn.packageName, now)) {
-            val until = sleep.nightEnd(now) ?: return
-            // Snoozed, not dismissed: it comes back by itself when Sleep time ends.
+        // From an app a limit has locked, held until the limit ends, if it holds them. Calls,
+        // music and other ongoing ones are left to MediaGuard.
+        val until = if (sbn.isOngoing) null else limits.holdNotificationsUntil(sbn.packageName, now)
+        if (until != null) {
+            // Snoozed, not dismissed: it comes back by itself when the limit ends.
             snoozeNotification(sbn.key, until - now)
-            filters.remember(HiddenNotification(sbn.packageName, title, text, now, "Held until ${SleepTime.formatTime(this, until)}"))
+            filters.remember(HiddenNotification(sbn.packageName, title, text, now, "Held until ${AppLimits.formatTime(this, until)}"))
             return
         }
 
-        val night = sleep.isNight(now)
-        val filter = filters.filters.firstOrNull { it.hides(sbn.packageName, "$title\n$text", night) } ?: return
+        val on = limits.limits.filter { it.isOn(now) }.map { it.id }.toSet()
+        val filter = filters.filters.firstOrNull { it.hides(sbn.packageName, "$title\n$text", on) } ?: return
         if (sbn.isClearable) {
             cancelNotification(sbn.key)
         } else {

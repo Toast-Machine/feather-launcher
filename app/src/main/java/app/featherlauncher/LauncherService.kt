@@ -13,7 +13,7 @@ import android.view.accessibility.AccessibilityEvent
 
 /**
  * The launcher's accessibility service. It sees which app comes to the front however it was
- * opened (the launcher, recent apps, a notification, a link), so Sleep time can cover locked
+ * opened (the launcher, recent apps, a notification, a link), so app limits can cover locked
  * apps, and it gets hardware keys before the phone's own shortcuts do.
  */
 class LauncherService : AccessibilityService() {
@@ -213,14 +213,14 @@ class LauncherService : AccessibilityService() {
         main.removeCallbacks(recheck)
         val pkg = current ?: return
         if (pkg == packageName) return
-        val sleep = SleepTime.get(this)
+        val limits = AppLimits.get(this)
         val now = System.currentTimeMillis()
-        if (sleep.isLocked(pkg, now)) {
-            startActivity(SleepActivity.intent(this, pkg))
+        if (limits.isLocked(pkg, now)) {
+            startActivity(LimitActivity.intent(this, pkg))
             return
         }
-        if (pkg !in sleep.apps) return
-        sleep.nextChange(now, pkg)?.let { at -> main.postDelayed(recheck, (at - now).coerceAtLeast(0) + 500) }
+        if (pkg !in limits.allApps) return
+        limits.nextChange(now, pkg)?.let { at -> main.postDelayed(recheck, (at - now).coerceAtLeast(0) + 500) }
     }
 
     private fun isActivity(pkg: String, cls: String): Boolean = activities.getOrPut("$pkg/$cls") {

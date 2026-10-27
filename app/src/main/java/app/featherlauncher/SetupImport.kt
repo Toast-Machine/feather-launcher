@@ -88,7 +88,7 @@ class SetupImport : BroadcastReceiver() {
                 store.put(NotificationFilter(
                     System.currentTimeMillis() + i, o.optString("app").ifEmpty { null },
                     (0 until words.length()).map { words.getString(it) },
-                    o.optBoolean("allowOnly"), o.optBoolean("onlyAtNight"),
+                    o.optBoolean("allowOnly"), o.optLong("during").takeIf { it != 0L },
                 ))
             }
         }
