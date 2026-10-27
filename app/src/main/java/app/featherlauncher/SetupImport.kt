@@ -56,6 +56,28 @@ class SetupImport : BroadcastReceiver() {
             out.writeText(lines.joinToString("\n"))
             return setResult(0, out.path, null)
         }
+        // The Jewish calendar for a span of days, for checking it against another source:
+        // --es calendar "yyyy-mm-dd,days" writes calendar.csv (date, place, kind, value) to the app's files folder.
+        intent.getStringExtra("calendar")?.let { spec ->
+            val (from, count) = spec.split(',')
+            val first = java.time.LocalDate.parse(from).toEpochDay()
+            val lines = ArrayList<String>()
+            for (day in first until first + count.toInt()) {
+                val date = java.time.LocalDate.ofEpochDay(day)
+                for (israel in listOf(false, true)) {
+                    val where = if (israel) "il" else "da"
+                    JewishCalendar.holidays(day, israel).forEach { lines += "$date,$where,holiday,$it" }
+                    if (JewishCalendar.weekday(day) == java.util.Calendar.SATURDAY) {
+                        lines += "$date,$where,parsha,${JewishCalendar.parsha(day, israel) ?: "-"}"
+                    }
+                }
+                JewishCalendar.omer(day)?.let { lines += "$date,da,omer,$it" }
+                JewishCalendar.dafYomi(day)?.let { lines += "$date,da,daf,$it" }
+            }
+            val out = java.io.File(context.getExternalFilesDir(null), "calendar.csv")
+            out.writeText(lines.joinToString("\n"))
+            return setResult(0, out.path, null)
+        }
         // A sheet of every app's icon, normal and dark side by side, for checking dark icons.
         if (intent.hasExtra("iconsheet")) {
             val pm = context.packageManager
