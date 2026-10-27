@@ -74,6 +74,28 @@ object Ui {
 
     /** A gray that shows on both light and dark surfaces. */
     const val FOCUS_NEUTRAL = 0xFF8C929B.toInt()
+
+    /**
+     * Makes [header] take [scrolled] while the page's content is scrolled under it, and [rest]
+     * at the top, fading between them. Returns what to call as the page scrolls.
+     */
+    fun scrollTint(header: View, rest: Int, scrolled: Int): (Boolean) -> Unit {
+        header.setBackgroundColor(rest)
+        var under = false
+        var fade: android.animation.ValueAnimator? = null
+        return { now ->
+            if (now != under) {
+                under = now
+                fade?.cancel()
+                val from = (header.background as? android.graphics.drawable.ColorDrawable)?.color ?: rest
+                fade = android.animation.ValueAnimator.ofArgb(from, if (now) scrolled else rest).apply {
+                    duration = 150
+                    addUpdateListener { header.setBackgroundColor(it.animatedValue as Int) }
+                    start()
+                }
+            }
+        }
+    }
 }
 
 enum class TextStyle(val sp: Float, val bold: Boolean, val caps: Boolean = false, val spacing: Float = 0f) {

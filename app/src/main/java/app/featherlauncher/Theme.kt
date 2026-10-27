@@ -59,6 +59,8 @@ class Palette(
     // Pop-ups sit over apps of every color, so they stay nearly neutral: just a hint of the hue.
     private val tint = saturation.coerceIn(0.03f, 0.08f)
     val surface = if (dark) hsl(hue, tint, 0.15f) else hsl(hue, tint + 0.05f, 0.96f)
+    /** A page header with content scrolled under it: a step deeper than the page, as Android's own top bars do. */
+    val surfaceScrolled = if (dark) hsl(hue, tint, 0.185f) else hsl(hue, tint + 0.03f, 0.93f)
     /** Buttons, rows and fields inside a surface. */
     val surfaceHigh = if (dark) hsl(hue, tint * 0.9f, 0.22f) else hsl(hue, tint, 0.905f)
     /** The dock, tab bar and search bar: a lighter, softer tone than the app list, nearly solid. */

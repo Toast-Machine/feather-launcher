@@ -161,11 +161,10 @@ class SettingsActivity : Activity() {
             WindowInsetsController.APPEARANCE_LIGHT_STATUS_BARS or WindowInsetsController.APPEARANCE_LIGHT_NAVIGATION_BARS,
         )
 
-        val page = LinearLayout(this).apply {
-            orientation = LinearLayout.VERTICAL
-            setPadding(0, insets.top, 0, 0)
-        }
-        page.addView(header(p))
+        val page = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
+        val header = header(p)
+        page.addView(header)
+        val tint = Ui.scrollTint(header, p.surface, p.surfaceScrolled)
         content = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
             setPadding(0, 0, 0, insets.bottom + dp(Ui.SPACE_XL))
@@ -173,6 +172,7 @@ class SettingsActivity : Activity() {
         scroll = ScrollView(this).apply {
             isVerticalScrollBarEnabled = false
             addView(content)
+            setOnScrollChangeListener { _, _, y, _, _ -> tint(y > 0) }
         }
         page.addView(scroll, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, 0, 1f))
         root.addView(page, FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT))
@@ -194,11 +194,12 @@ class SettingsActivity : Activity() {
         scroll.post { scroll.scrollTo(0, scrollY) }
     }
 
+    /** The back arrow and the page's title. It reaches up behind the status bar, so its tint does too. */
     private fun header(p: Palette) = LinearLayout(this).apply {
         orientation = LinearLayout.HORIZONTAL
         gravity = Gravity.CENTER_VERTICAL
-        minimumHeight = dp(64)
-        setPadding(dp(Ui.SPACE_S), 0, dp(Ui.SPACE_L), 0)
+        minimumHeight = dp(64) + insets.top
+        setPadding(dp(Ui.SPACE_S), insets.top, dp(Ui.SPACE_L), 0)
         addView(ImageView(this@SettingsActivity).apply {
             setImageResource(R.drawable.ic_arrow_back)
             imageTintList = android.content.res.ColorStateList.valueOf(p.text)

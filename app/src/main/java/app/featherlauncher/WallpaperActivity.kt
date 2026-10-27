@@ -128,11 +128,10 @@ class WallpaperActivity : Activity() {
     private fun build() {
         val p = palette
         root.removeAllViews()
-        val page = LinearLayout(this).apply {
-            orientation = LinearLayout.VERTICAL
-            setPadding(0, insets.top, 0, 0)
-        }
-        page.addView(header(p))
+        val page = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
+        val header = header(p)
+        page.addView(header)
+        val tint = Ui.scrollTint(header, p.surface, p.surfaceScrolled)
         pairTarget?.let { page.addView(pairBanner(p, it)) }
         adapter = Adapter()
         page.addView(ListView(this).apply {
@@ -146,6 +145,7 @@ class WallpaperActivity : Activity() {
             setOnScrollListener(object : AbsListView.OnScrollListener {
                 override fun onScrollStateChanged(view: AbsListView, state: Int) = Unit
                 override fun onScroll(view: AbsListView, first: Int, visible: Int, total: Int) {
+                    tint(first > 0 || (view.getChildAt(0)?.top ?: 0) < 0)
                     // More photos as the end comes near.
                     if (first + visible >= total - 2) loadMore()
                 }
@@ -155,11 +155,12 @@ class WallpaperActivity : Activity() {
         preview?.let { root.addView(it.view) }
     }
 
+    /** The back arrow and the title. It reaches up behind the status bar, so its tint does too. */
     private fun header(p: Palette) = LinearLayout(this).apply {
         orientation = LinearLayout.HORIZONTAL
         gravity = Gravity.CENTER_VERTICAL
-        minimumHeight = dp(64)
-        setPadding(dp(Ui.SPACE_S), 0, dp(Ui.SPACE_L), 0)
+        minimumHeight = dp(64) + insets.top
+        setPadding(dp(Ui.SPACE_S), insets.top, dp(Ui.SPACE_L), 0)
         addView(ImageView(this@WallpaperActivity).apply {
             setImageResource(R.drawable.ic_arrow_back)
             imageTintList = ColorStateList.valueOf(p.text)

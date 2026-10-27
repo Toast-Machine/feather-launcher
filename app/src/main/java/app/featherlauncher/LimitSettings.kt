@@ -179,15 +179,27 @@ class LimitSettings(private val s: SettingsActivity) {
                 style(TextStyle.Label, p.danger)
                 background = Ui.pressable(s, Ui.RADIUS_PILL)
                 isFocusable = true
-                setOnClickListener {
-                    guarded {
-                        limits.remove(limit.id)
-                        s.open(SettingsActivity.Page.LIMITS)
-                    }
-                }
+                setOnClickListener { guarded { confirmDelete(p, limit) } }
             }, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, s.dp(48)))
         })
         if (locked) freezeFrom(frozen)
+    }
+
+    private fun confirmDelete(p: Palette, limit: AppLimit) {
+        val column = LinearLayout(s).apply {
+            orientation = LinearLayout.VERTICAL
+            setPadding(s.dp(Ui.SPACE_XL), 0, s.dp(Ui.SPACE_XL), s.dp(Ui.SPACE_L))
+            addView(TextView(s).apply {
+                text = "Its apps won't be locked by it anymore."
+                style(TextStyle.Body, p.textSecondary)
+            })
+            addView(Components.pillButton(s, "Delete", p.danger, p.onAccent) {
+                s.overlays.dismiss()
+                limits.remove(limit.id)
+                s.open(SettingsActivity.Page.LIMITS)
+            }, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, s.dp(48)).apply { topMargin = s.dp(Ui.SPACE_L) })
+        }
+        s.overlays.showSheet("Delete ${limit.name}?", column)
     }
 
     /** Limits need the accessibility service to cover apps however they're opened. */
