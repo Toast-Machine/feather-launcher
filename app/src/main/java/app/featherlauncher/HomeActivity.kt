@@ -396,7 +396,8 @@ class HomeActivity : Activity(), HomeScreen.Host {
             badge = { prefs.badgeCount(it.packageName) },
             onClick = { entry, view -> choose(entry, view) },
             onLongClick = { entry, view ->
-                if (pick == null) appDrag.arm(entry, view)
+                // Only a finger's hold can turn into a drag; held with the keypad, the next touch would pick it up.
+                if (pick == null && view.isInTouchMode) appDrag.arm(entry, view)
                 appMenu(entry, view)
             },
         )
@@ -713,12 +714,12 @@ class HomeActivity : Activity(), HomeScreen.Host {
     /** What the list was last showing; a refresh of the same thing keeps the scroll and highlight. */
     private var shownKey = ""
 
-    private fun updateResults() {
+    private fun updateResults(keepFocus: Boolean = true) {
         if (!::adapter.isInitialized) return
         val key = "$searching|$showingHidden|$category|$chipCategory|${search.text}|${prefs.drawerCategories}"
         // Results arrive in stages (contacts, shortcuts, files); each refresh rebuilds the rows,
         // so the highlighted item is found again afterwards instead of being lost.
-        val focused = currentFocus?.takeIf { isInside(it, list) }
+        val focused = currentFocus?.takeIf { keepFocus && isInside(it, list) }
         val keep = focused?.let { f ->
             var row: View = f
             while (row.parent !== list) row = row.parent as? View ?: return@let null
@@ -967,7 +968,7 @@ class HomeActivity : Activity(), HomeScreen.Host {
                 }
                 setOnLongClickListener {
                     it.performHapticFeedback(HapticFeedbackConstants.LONG_PRESS)
-                    tabDrag.arm(c.id, it)
+                    if (it.isInTouchMode) tabDrag.arm(c.id, it)
                     categoryMenu(c, it)
                     true
                 }
@@ -2086,23 +2087,43 @@ class HomeActivity : Activity(), HomeScreen.Host {
             done = {
                 val onScreen = order.iterator()
                 categories.setOrder(id, apps.map { if (it in home) onScreen.next() else it })
-                // The highlight waits on the invisible spot while the list is rebuilt: left on the app,
-                // the rebuild would put it back on the app's old row (on another app) for a moment.
-                focusPark.requestFocus()
-                updateResults()
-                settle()
-                // The list is rebuilt in the new order; the highlight stays on the app that moved.
-                list.post {
-                    for (i in 0 until list.childCount) {
-                        val row = list.getChildAt(i) as? ViewGroup ?: continue
-                        (0 until row.childCount).map(row::getChildAt).plus(row)
-                            .firstOrNull { (it.tag as? AppEntry)?.key == entry.key }?.let { it.requestFocusFromTouch(); return@post }
+                // The list is rebuilt in the new order, and the highlight put on the app that moved
+                // before that's drawn, so it never shows anywhere else, or nowhere, in between.
+                updateResults(keepFocus = false)
+                list.viewTreeObserver.addOnPreDrawListener(object : android.view.ViewTreeObserver.OnPreDrawListener {
+                    override fun onPreDraw(): Boolean {
+                        list.viewTreeObserver.removeOnPreDrawListener(this)
+                        settle()
+                        for (i in 0 until list.childCount) {
+                            val row = list.getChildAt(i) as? ViewGroup ?: continue
+                            (0 until row.childCount).map(row::getChildAt).plus(row)
+                                .firstOrNull { (it.tag as? AppEntry)?.key == entry.key }?.let {
+                                    // Straight on: no highlight fading out of one tile and into another.
+                                    val rings = tileViewsIn(list).mapNotNull { t ->
+                                        (t.foreground as? android.graphics.drawable.LayerDrawable)?.getDrawable(1) as? android.graphics.drawable.StateListDrawable
+                                    }
+                                    rings.forEach { r -> r.setEnterFadeDuration(0); r.setExitFadeDuration(0) }
+                                    it.requestFocus()
+                                    list.jumpDrawablesToCurrentState()
+                                    // The touch ripple's own focus tint starts its fade on the first draw; end it there too.
+                                    it.postOnAnimation { it.jumpDrawablesToCurrentState() }
+                                    list.post { rings.forEach { r -> r.setEnterFadeDuration(90); r.setExitFadeDuration(90) } }
+                                    return true
+                                }
+                        }
+                        return true
                     }
-                }
+                })
             },
             undo = { settle() },
         )
         toast("Move it with the arrows, then press OK")
+    }
+
+    /** Every app tile showing in [list]. */
+    private fun tileViewsIn(list: ListView): List<View> = (0 until list.childCount).flatMap { i ->
+        val row = list.getChildAt(i) as? ViewGroup ?: return@flatMap emptyList()
+        (0 until row.childCount).map(row::getChildAt).filter { it.tag is AppEntry } + listOfNotNull(row.takeIf { it.tag is AppEntry })
     }
 
     private fun sheetRow(icon: Int, label: String, color: Int = palette.text, onClick: () -> Unit): View =
