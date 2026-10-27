@@ -15,7 +15,10 @@ Plain Kotlin and platform Views, no AndroidX and no third-party libraries, so it
 ## What it does
 
 **Home screen and app list**
-- Pages, a dock, folders, widgets, and a built-in clock with the Hebrew date, the next zman and your next calendar event.
+- Pages, a dock, folders and widgets. Drag a widget over another and they swap places.
+- A clock with the date, the Hebrew date and parsha, and under it the weather and what's coming up next.
+- Widgets in Android's own style, colored from your wallpaper: Agenda, Weather, Now playing and Zmanim.
+- A Jewish calendar (Yom Tov, fasts, Rosh Chodesh, the parsha, the Omer and Daf Yomi) and zmanim for your location.
 - An app list grouped into categories (with tabs) or all at once (with category chips). Drag apps to reorder them or move them between categories.
 - Hidden apps, kept on their own page behind an optional PIN.
 - A red badge with the number of notifications an app has, as on iPhone (folders add up their apps'), and a dot on apps you've installed but haven't opened yet.
@@ -27,13 +30,13 @@ Plain Kotlin and platform Views, no AndroidX and no third-party libraries, so it
 - Type a number on the home screen to dial it; the Call key places the call.
 
 **Made for keypads**
-- Every screen works with the arrow keys and OK, with a clear highlight.
+- Every screen works with the arrow keys and OK, with a clear highlight. Hold OK on anything for its menu, and move icons, widgets, categories and apps with the arrows.
 - Hold a number to open its app. Hold Up for search, Down for the app list, Left and Right for pages and categories.
 - Key shortcuts: press, hold, double press or two keys together, in all apps, the home screen or one app. Open apps, call people, toggle the flashlight, switch keyboards and more.
 
 **Calmer phone**
-- **Sleep time:** at night, chosen apps lock however they're opened. Opening one needs a short wait, then it's open for a few minutes; its audio stops when time is up.
-- **Notification filters:** hide notifications by app and by words or patterns, always or only at night, with a history of what was hidden.
+- **App limits:** block chosen apps or make them wait before opening, all day or between two times on the days you pick, however they're opened. Changing limits can need a wait, a PIN or a restart.
+- **Notification filters:** hide notifications by app and by words or patterns, always or during an app limit, with a history of what was hidden.
 
 ## Screenshots
 
@@ -44,8 +47,8 @@ Plain Kotlin and platform Views, no AndroidX and no third-party libraries, so it
 
 | Getting things done | | |
 |---|---|---|
-| <img src="docs/screenshots/search.png" width="240" alt="Search"> | <img src="docs/screenshots/folder.png" width="240" alt="Folder"> | <img src="docs/screenshots/sleep-time.png" width="240" alt="Sleep time"> |
-| Smart Search: apps, contacts, shortcuts, settings, files | Folders | Sleep time |
+| <img src="docs/screenshots/search.png" width="240" alt="Search"> | <img src="docs/screenshots/folder.png" width="240" alt="Folder"> | <img src="docs/screenshots/app-limits.png" width="240" alt="App limits"> |
+| Smart Search: apps, contacts, shortcuts, settings, files | Folders | App limits |
 
 | Make it yours | | |
 |---|---|---|
@@ -65,7 +68,7 @@ Download the APK from the releases page and install it, or build it yourself:
 adb install -r app/build/outputs/apk/release/app-release.apk
 ```
 
-The first time it opens, a short welcome sets it as your home screen and lets you choose how apps are arranged. Other permissions are only asked for when you turn on the feature that needs them (accessibility for Sleep time and key shortcuts, notification access for filters, contacts for search). Everything is optional.
+The first time it opens, a short welcome sets it as your home screen and lets you choose how apps are arranged. Other permissions are only asked for when you turn on the feature that needs them (accessibility for App limits and key shortcuts, notification access for filters, contacts for search). Everything is optional.
 
 Requires Android 13 or later.
 
@@ -77,7 +80,8 @@ To publish a release:
 
 1. Raise `versionCode` and `versionName` in `app/build.gradle.kts`.
 2. Build with `./gradlew :app:assembleRelease`, signed with the release key (`setup/keystore.properties`). Every release must use the same key, or phones can't update to it.
-3. Create a GitHub release tagged `v` plus the version name (`v1.1`) and attach the APK as `FeatherLauncher-1.1.apk`. The app shows the release notes on its update screen, so write them for people using the app.
+3. Create a GitHub release tagged `v` plus the version name (`v1.1`) and attach the APK as `FeatherLauncher-1.1.apk`.
+4. Write the release notes as a changelog of what this version changed, not install steps (those are here): a sentence on what the release is about, then short plain items under **New**, **Changed** and **Fixed**, saying where to find new things (Settings → App limits), and a **Full changelog** link comparing with the last version. The app shows these notes on its update screen.
 
 ## Bringing in a setup
 
@@ -108,13 +112,14 @@ Only adb can send it. Every part is optional: `categories` and `hidden` replace 
 | `SmartSearch`, `Search`, `Contacts`, `Shortcuts` | Search, with T9 |
 | `Overlays`, `Components`, `Ui`, `Theme` | The design system: menus, sheets, rows, spacing, type and colors |
 | `SettingsActivity` and `*Settings` | Settings pages |
-| `LauncherService` | Accessibility service: Sleep time and key shortcuts |
-| `SleepTime`, `SleepActivity`, `MediaGuard` | Sleep time |
+| `LauncherService` | Accessibility service: App limits and key shortcuts |
+| `AppLimits`, `LimitActivity`, `LimitSettings`, `MediaGuard` | App limits |
 | `KeyShortcuts`, `KeyActionRunner` | Key shortcuts |
 | `NotificationService`, `NotificationFilters` | Notification filters |
 | `NotificationBadges`, `IconBadges` | Notification counts on app icons, and the other marks drawn on icons |
 | `Updates` | Updates from GitHub releases |
-| `ClockInfo`, `Zmanim` | The clock's extra lines |
+| `ClockInfo`, `Glance`, `Zmanim`, `JewishCalendar`, `SecondCalendar` | The clock's lines, zmanim and calendars |
+| `Widgets`, `WidgetView`, `FeatherWidgets`, `WidgetStyle`, `Weather` | Other apps' widgets, the widget list, and Feather's own widgets |
 | `WallpaperActivity`, `DarkMode` | Wallpapers and dark mode |
 | `Setup`, `SetupImport` | First-run checklist, and loading a setup over adb |
 
