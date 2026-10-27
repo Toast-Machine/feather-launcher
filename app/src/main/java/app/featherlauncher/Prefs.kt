@@ -37,8 +37,6 @@ class Prefs(context: Context) {
     var widgets: List<WidgetSpec> = readWidgets()
         private set
 
-    private var shortcuts: Map<Int, String> = emptyMap()
-
     init {
         reload()
     }
@@ -46,10 +44,8 @@ class Prefs(context: Context) {
     /** Re-reads what another screen (settings) may have changed. */
     fun reload() {
         hidden = sp.getStringSet("hidden", emptySet())!!.toSet()
-        shortcuts = (0..9).mapNotNull { d -> sp.getString("shortcut_$d", null)?.let { d to it } }.toMap()
     }
 
-    val shortcutMap: Map<Int, String> get() = shortcuts
 
     /** App list as a grid of icons (true) or a list of names. */
     var drawerGrid: Boolean
@@ -95,23 +91,6 @@ class Prefs(context: Context) {
     fun setHidden(key: String, hide: Boolean) {
         hidden = if (hide) hidden + key else hidden - key
         sp.edit().putStringSet("hidden", hidden).apply()
-    }
-
-    fun shortcut(digit: Int): String? = shortcuts[digit]
-
-    fun shortcutDigitFor(key: String): Int? = shortcuts.entries.firstOrNull { it.value == key }?.key
-
-    fun setShortcut(digit: Int, key: String?) {
-        // One digit per app, so assigning a new digit frees the old one.
-        val updated = shortcuts.filterValues { it != key }.toMutableMap()
-        if (key == null) updated.remove(digit) else updated[digit] = key
-        shortcuts = updated
-        sp.edit().apply {
-            for (d in 0..9) {
-                val k = updated[d]
-                if (k == null) remove("shortcut_$d") else putString("shortcut_$d", k)
-            }
-        }.apply()
     }
 
     private fun readWidgets(): List<WidgetSpec> =

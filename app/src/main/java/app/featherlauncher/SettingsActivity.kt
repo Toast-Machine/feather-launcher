@@ -45,6 +45,16 @@ class SettingsActivity : Activity() {
     internal var draft: ShortcutDraft? = null
     /** Set while a sheet waits for a key to be pressed; gets the key, or two pressed together. */
     internal var keyCapture: ((List<Int>) -> Unit)? = null
+        set(value) {
+            field = value
+            // Android hands Back to back handlers, not as a key; while a key is being chosen, this
+            // one takes it so Back can be chosen too (on a phone without a power button, double
+            // pressing it can lock the screen).
+            if (value != null) onBackInvokedDispatcher.registerOnBackInvokedCallback(
+                android.window.OnBackInvokedDispatcher.PRIORITY_OVERLAY, captureBack)
+            else onBackInvokedDispatcher.unregisterOnBackInvokedCallback(captureBack)
+        }
+    private val captureBack = android.window.OnBackInvokedCallback { keyCapture?.invoke(listOf(KeyEvent.KEYCODE_BACK)) }
     /** Keys down during a capture, in the order they were pressed. */
     private val captured = ArrayList<Int>()
     private var onContactPicked: ((number: String, name: String?) -> Unit)? = null
@@ -226,7 +236,7 @@ class SettingsActivity : Activity() {
         }
         val sleep = SleepTime.get(this)
         val hiddenCount = prefs.hidden.size
-        val keyCount = prefs.shortcutMap.size
+        val keyCount = KeyShortcuts.get(this).list.count { it.isDigit }
         content.addView(spacer())
         content.addView(Components.group(this, p, listOf(
             pageRow(p, R.drawable.ic_palette, Page.APPEARANCE,

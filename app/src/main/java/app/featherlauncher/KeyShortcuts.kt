@@ -13,8 +13,10 @@ enum class Press(val label: String, val verb: String) {
 }
 
 /** Something a shortcut can do. [needs] says what has to be picked to finish setting it up. */
-enum class ActionType(val label: String, val icon: Int, val needs: Needs = Needs.NOTHING) {
+enum class ActionType(val label: String, val icon: Int, val needs: Needs = Needs.NOTHING, val listed: Boolean = true) {
     APP("Open an app", R.drawable.ic_app_list, Needs.APP),
+    /** One of an app's own actions (Messages' "New conversation"), chosen after the app under Open an app. */
+    APP_ACTION("Open an app action", R.drawable.ic_app_list, Needs.APP, listed = false),
     CALL("Call someone", R.drawable.ic_phone_call, Needs.CONTACT),
     FLASHLIGHT("Flashlight on or off", R.drawable.ic_flashlight),
     APP_LIST("App list", R.drawable.ic_app_list),
@@ -35,13 +37,17 @@ enum class ActionType(val label: String, val icon: Int, val needs: Needs = Needs
     enum class Needs { NOTHING, APP, CONTACT }
 }
 
-/** An [ActionType] and what was picked for it: an app's key, or a phone number and name. */
-data class KeyAction(val type: ActionType, val value: String? = null, val name: String? = null) {
-    fun toJson(): JSONObject = JSONObject().put("type", type.name).put("value", value).put("name", name)
+/**
+ * An [ActionType] and what was picked for it: an app's key, or a phone number and name. For an
+ * app action, the app's key, the action's name and its [id].
+ */
+data class KeyAction(val type: ActionType, val value: String? = null, val name: String? = null, val id: String? = null) {
+    fun toJson(): JSONObject = JSONObject().put("type", type.name).put("value", value).put("name", name).put("id", id)
 
     companion object {
         fun fromJson(o: JSONObject): KeyAction? = runCatching {
-            KeyAction(ActionType.valueOf(o.getString("type")), o.optString("value").ifEmpty { null }, o.optString("name").ifEmpty { null })
+            KeyAction(ActionType.valueOf(o.getString("type")), o.optString("value").ifEmpty { null },
+                o.optString("name").ifEmpty { null }, o.optString("id").ifEmpty { null })
         }.getOrNull()
     }
 }
@@ -62,6 +68,9 @@ data class KeyShortcut(
     val app: String? = null,
 ) {
     val isCombo get() = keyCode2 != null
+
+    /** Holding a number on the home screen, which has its own list in settings. */
+    val isDigit get() = keyCode in KeyEvent.KEYCODE_0..KeyEvent.KEYCODE_9 && keyCode2 == null && press == Press.LONG && scope == Scope.HOME
 
     /** Whether it works with [pkg] in front ([atHome]: the home screen itself). */
     fun appliesTo(pkg: String?, atHome: Boolean) = when (scope) {
@@ -93,11 +102,7 @@ class KeyShortcuts private constructor(context: Context) {
 
     private fun read(): List<KeyShortcut> {
         val array = runCatching { JSONArray(sp.getString("shortcuts", "[]")) }.getOrDefault(JSONArray())
-        val saved = (0 until array.length()).mapNotNull { KeyShortcut.fromJson(array.getJSONObject(it)) }
-        // Held arrows on the home screen used to be shortcuts made for you; they're built in now.
-        if (!sp.contains("defaults") || sp.getInt("defaults", 0) >= 3) return saved
-        sp.edit().putInt("defaults", 3).apply()
-        return (saved - FORMER_DEFAULTS.toSet()).also(::save)
+        return (0 until array.length()).mapNotNull { KeyShortcut.fromJson(array.getJSONObject(it)) }
     }
 
     private fun save(next: List<KeyShortcut>) {
@@ -110,6 +115,25 @@ class KeyShortcuts private constructor(context: Context) {
         save(list.filter { it != replacing && !sameTrigger(it, shortcut) } + shortcut)
 
     fun remove(shortcut: KeyShortcut) = save(list - shortcut)
+
+    /**
+     * Holding a number on the home screen is a shortcut like any other (hold, home screen only),
+     * set from its own list on the settings page rather than the shortcut editor.
+     */
+    fun digit(digit: Int): KeyShortcut? = list.firstOrNull { it.isDigit && it.keyCode == KeyEvent.KEYCODE_0 + digit }
+
+    /** Sets what holding [digit] does; null clears it. An app opens from one number only. */
+    fun setDigit(digit: Int, action: KeyAction?) {
+        val code = KeyEvent.KEYCODE_0 + digit
+        val kept = list.filter { sc ->
+            !(sc.isDigit && (sc.keyCode == code || action?.type == ActionType.APP && sc.action == action))
+        }
+        save(if (action == null) kept else kept + KeyShortcut(code, Press.LONG, action, Scope.HOME))
+    }
+
+    /** The number held to open the app with [appKey], if there is one. */
+    fun digitFor(appKey: String): Int? = list.firstOrNull { it.isDigit && it.action.type == ActionType.APP && it.action.value == appKey }
+        ?.let { it.keyCode - KeyEvent.KEYCODE_0 }
 
     /** Adds shortcuts from a setup file, replacing any set off the same way. */
     fun import(shortcuts: List<KeyShortcut>) = shortcuts.forEach { put(it) }
@@ -141,13 +165,6 @@ class KeyShortcuts private constructor(context: Context) {
         fun get(context: Context): KeyShortcuts =
             instance ?: synchronized(this) { instance ?: KeyShortcuts(context.applicationContext).also { instance = it } }
 
-        /** The ready-made shortcuts of the first versions, for removing them (see [read]). */
-        private val FORMER_DEFAULTS = listOf(
-            KeyShortcut(KeyEvent.KEYCODE_DPAD_DOWN, Press.LONG, KeyAction(ActionType.APP_LIST), scope = Scope.HOME),
-            KeyShortcut(KeyEvent.KEYCODE_DPAD_UP, Press.LONG, KeyAction(ActionType.SEARCH), scope = Scope.HOME),
-            KeyShortcut(KeyEvent.KEYCODE_DPAD_RIGHT, Press.LONG, KeyAction(ActionType.NEXT_PAGE), scope = Scope.HOME),
-            KeyShortcut(KeyEvent.KEYCODE_DPAD_LEFT, Press.LONG, KeyAction(ActionType.PREVIOUS_PAGE), scope = Scope.HOME),
-        )
 
         /** Keys a shortcut can't use: numbers have their own section, and Power must keep working. */
         fun canUse(keyCode: Int) = keyCode !in KeyEvent.KEYCODE_0..KeyEvent.KEYCODE_9 &&
@@ -196,6 +213,7 @@ class KeyShortcuts private constructor(context: Context) {
         /** "Open Chrome", "Call Mom", "Flashlight on or off". */
         fun describe(action: KeyAction, appLabel: (String) -> String?): String = when (action.type) {
             ActionType.APP -> action.value?.let(appLabel)?.let { "Open $it" } ?: "Open an app"
+            ActionType.APP_ACTION -> listOfNotNull(action.value?.let(appLabel), action.name).joinToString(": ")
             ActionType.CALL -> action.name?.let { "Call $it" } ?: action.value?.let { "Call $it" } ?: "Call someone"
             else -> action.type.label
         }

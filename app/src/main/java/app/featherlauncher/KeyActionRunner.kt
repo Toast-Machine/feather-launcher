@@ -26,6 +26,12 @@ object KeyActionRunner {
                 start(context, Intent(Intent.ACTION_MAIN).addCategory(Intent.CATEGORY_LAUNCHER).setComponent(component)
                     .addFlags(Intent.FLAG_ACTIVITY_RESET_TASK_IF_NEEDED))
             }
+            ActionType.APP_ACTION -> {
+                val pkg = ComponentName.unflattenFromString(action.value ?: return)?.packageName ?: return
+                if (!Shortcuts(context).start(pkg, action.id ?: return)) {
+                    Toast.makeText(context, "That action isn't available anymore", Toast.LENGTH_SHORT).show()
+                }
+            }
             ActionType.CALL -> {
                 val number = action.value ?: return
                 val canCall = context.checkSelfPermission(Manifest.permission.CALL_PHONE) == PackageManager.PERMISSION_GRANTED

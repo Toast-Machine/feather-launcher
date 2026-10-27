@@ -389,7 +389,7 @@ class HomeActivity : Activity(), HomeScreen.Host {
             onContact = ::openContact,
             onDial = ::call,
             icon = { repo.icon(it) },
-            digitFor = { prefs.shortcutDigitFor(it.key) },
+            digitFor = { KeyShortcuts.get(this).digitFor(it.key) },
             isAsleep = { sleep.isLocked(it.packageName) },
             isNew = { newApps.isNew(it) },
             badge = { prefs.badgeCount(it.packageName) },
@@ -1610,14 +1610,17 @@ class HomeActivity : Activity(), HomeScreen.Host {
     /** A quick press of a number on the home screen: search, starting with that number. */
     fun pressDigit(digit: Int) = openSearch(digit.toString(), fromKeypad = true)
 
-    /** A held number: open its app, or offer to choose one. */
+    /** A held number: what it's set to do, or, when it isn't set, offer to choose an app for it. */
     fun holdDigit(digit: Int) {
-        val entry = repo.find(prefs.shortcut(digit))
-        if (entry != null) {
-            launch(entry, null)
-        } else {
-            openSearch(fromKeypad = true, hint = "Choose an app for $digit") {
-                prefs.setShortcut(digit, it.key)
+        val keys = KeyShortcuts.get(this)
+        val action = keys.digit(digit)?.action
+        val app = action?.takeIf { it.type == ActionType.APP }?.value?.let(repo::find)
+        when {
+            // Opened the usual way, so Sleep time and recent apps see it.
+            app != null -> launch(app, null)
+            action != null && action.type != ActionType.APP -> KeyActionRunner.run(this, action, LauncherService.running)
+            else -> openSearch(fromKeypad = true, hint = "Choose an app for $digit") {
+                keys.setDigit(digit, KeyAction(ActionType.APP, it.key))
                 toast("Hold $digit to open ${it.label}")
             }
         }
@@ -1917,7 +1920,6 @@ class HomeActivity : Activity(), HomeScreen.Host {
 
     private fun appMenu(entry: AppEntry, row: View) {
         val hidden = entry.key in prefs.hidden
-        val digit = prefs.shortcutDigitFor(entry.key)
         overlays.showMenu(
             entry.label,
             listOf(

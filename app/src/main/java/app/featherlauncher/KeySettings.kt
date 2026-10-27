@@ -69,7 +69,7 @@ class KeySettings(private val s: SettingsActivity) {
 
         content.addView(s.heading(p, "Shortcuts"))
         content.addView(s.spacer())
-        val rows = shortcuts.list.sortedWith(compareBy({ KeyShortcuts.keyName(it.keyCode) }, { it.press.ordinal })).map { sc ->
+        val rows = shortcuts.list.filter { !it.isDigit }.sortedWith(compareBy({ KeyShortcuts.keyName(it.keyCode) }, { it.press.ordinal })).map { sc ->
             Components.row(s, p, sc.action.type.icon, KeyShortcuts.describe(sc),
                 subtitle = KeyShortcuts.describe(sc.action, ::appLabel) + when (sc.scope) {
                     Scope.ALL -> ""
@@ -84,11 +84,13 @@ class KeySettings(private val s: SettingsActivity) {
         content.addView(s.heading(p, "Number keys"))
         content.addView(s.spacer())
         content.addView(Components.group(s, p, listOf(1, 2, 3, 4, 5, 6, 7, 8, 9, 0).map { digit -> digitRow(p, digit) }))
-        content.addView(Components.footnote(s, p, "Hold a number on the home screen to open its app. A quick press starts a search."))
+        content.addView(Components.footnote(s, p, "Hold a number on the home screen to open an app or do anything a shortcut can. A quick press starts a search."))
     }
 
     private fun digitRow(p: Palette, digit: Int) = LinearLayout(s).apply {
-        val entry = s.repo.find(prefs.shortcut(digit))
+        val action = shortcuts.digit(digit)?.action
+        // Apps and app actions show the app's icon; anything else, the action's own.
+        val entry = action?.takeIf { it.type == ActionType.APP || it.type == ActionType.APP_ACTION }?.value?.let(s.repo::find)
         orientation = LinearLayout.HORIZONTAL
         gravity = Gravity.CENTER_VERTICAL
         minimumHeight = s.dp(Components.ROW_HEIGHT)
@@ -96,18 +98,30 @@ class KeySettings(private val s: SettingsActivity) {
         background = Ui.pressable(s, 0)
         isFocusable = true
         addView(keyCap(p, digit.toString()), LinearLayout.LayoutParams(s.dp(30), s.dp(30)))
-        addView(ImageView(s).apply { if (entry != null) setImageBitmap(s.repo.icon(entry)) },
-            LinearLayout.LayoutParams(s.dp(if (entry != null) 28 else 0), s.dp(28)).apply { marginStart = s.dp(Ui.SPACE_L) })
+        addView(ImageView(s).apply {
+            when {
+                entry != null -> setImageBitmap(s.repo.icon(entry))
+                action != null -> {
+                    setImageResource(action.type.icon)
+                    imageTintList = ColorStateList.valueOf(p.textSecondary)
+                    setPadding(s.dp(3), s.dp(3), s.dp(3), s.dp(3))
+                }
+            }
+        }, LinearLayout.LayoutParams(s.dp(if (action != null) 28 else 0), s.dp(28)).apply { marginStart = s.dp(Ui.SPACE_L) })
         addView(TextView(s).apply {
-            text = entry?.label ?: "Not set"
-            style(TextStyle.Body, if (entry != null) p.text else p.textTertiary)
+            text = when {
+                action == null -> "Not set"
+                action.type == ActionType.APP -> entry?.label ?: "Not set"
+                else -> KeyShortcuts.describe(action, ::appLabel)
+            }
+            style(TextStyle.Body, if (action != null) p.text else p.textTertiary)
         }, LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f).apply {
-            marginStart = s.dp(if (entry != null) Ui.SPACE_M else Ui.SPACE_L)
+            marginStart = s.dp(if (action != null) Ui.SPACE_M else Ui.SPACE_L)
         })
         addView(chevron(p), LinearLayout.LayoutParams(s.dp(22), s.dp(22)))
         setOnClickListener {
-            pickApp("Hold $digit to open", prefs.shortcut(digit), allowNone = true) { key ->
-                prefs.setShortcut(digit, key)
+            pickAction("Hold $digit to", action, allowNone = true) { picked ->
+                shortcuts.setDigit(digit, picked)
                 s.build()
             }
         }
@@ -145,7 +159,10 @@ class KeySettings(private val s: SettingsActivity) {
                 chevron = true, inset = Ui.SPACE_L) { captureKey(draft) },
             Components.row(s, p, draft.action?.type?.icon ?: R.drawable.ic_hotkey, "Does",
                 draft.action?.let { KeyShortcuts.describe(it, ::appLabel) } ?: "Choose", chevron = true, inset = Ui.SPACE_L) {
-                pickAction(draft)
+                pickAction("What it does", draft.action, allowNone = false) { picked ->
+                    draft.action = picked
+                    s.build()
+                }
             },
         )))
 
@@ -308,35 +325,62 @@ class KeySettings(private val s: SettingsActivity) {
         })
     }
 
-    private fun pickAction(draft: ShortcutDraft) {
+    /** What a shortcut or a held number does; [allowNone] adds a way to clear it (null). */
+    private fun pickAction(title: String, current: KeyAction?, allowNone: Boolean, onPick: (KeyAction?) -> Unit) {
         val p = s.palette
-        val types = ActionType.entries
-        Components.choiceSheet(s, p, s.overlays, "What it does",
-            types.map { t ->
+        val types = ActionType.entries.filter { it.listed }
+        val offset = if (allowNone) 1 else 0
+        // An app action counts as Open an app, which is where it's chosen.
+        val currentType = if (current?.type == ActionType.APP_ACTION) ActionType.APP else current?.type
+        val selected = types.indexOf(currentType).let { if (it < 0) if (allowNone) 0 else -1 else it + offset }
+        Components.choiceSheet(s, p, s.overlays, title,
+            (if (allowNone) listOf("Nothing" to null) else emptyList()) + types.map { t ->
                 t.label to ImageView(s).apply {
                     setImageResource(t.icon)
                     imageTintList = ColorStateList.valueOf(p.textSecondary)
                 }
             },
-            types.indexOf(draft.action?.type)) { i ->
-            val type = types[i]
+            selected) { i ->
+            if (allowNone && i == 0) return@choiceSheet onPick(null)
+            val type = types[i - offset]
             when (type.needs) {
-                ActionType.Needs.NOTHING -> {
-                    draft.action = KeyAction(type)
-                    s.build()
-                }
+                ActionType.Needs.NOTHING -> onPick(KeyAction(type))
                 ActionType.Needs.APP -> s.root.postDelayed({
-                    pickApp("Open an app", draft.action?.takeIf { it.type == ActionType.APP }?.value, allowNone = false) { key ->
-                        draft.action = KeyAction(ActionType.APP, key)
-                        s.build()
+                    val currentApp = current?.takeIf { it.type == ActionType.APP || it.type == ActionType.APP_ACTION }?.value
+                    pickApp("Open an app", currentApp, allowNone = false) { key ->
+                        val entry = key?.let(s.repo::find) ?: return@pickApp
+                        pickAppAction(entry, current, onPick)
                     }
                 }, 160)
-                ActionType.Needs.CONTACT -> s.pickContact { number, name ->
-                    draft.action = KeyAction(ActionType.CALL, number, name)
-                    s.build()
-                }
+                ActionType.Needs.CONTACT -> s.pickContact { number, name -> onPick(KeyAction(ActionType.CALL, number, name)) }
             }
         }
+    }
+
+    /**
+     * Opening [entry] itself or one of its own actions (Messages' "New conversation", a diary
+     * app's barcode scanner). Apps without actions just open.
+     */
+    private fun pickAppAction(entry: AppEntry, current: KeyAction?, onPick: (KeyAction?) -> Unit) {
+        val actions = Shortcuts(s).list(entry)
+        val open = KeyAction(ActionType.APP, entry.key)
+        if (actions.isEmpty()) return onPick(open)
+        val p = s.palette
+        val selected = when {
+            current?.type == ActionType.APP_ACTION && current.value == entry.key -> actions.indexOfFirst { it.id == current.id } + 1
+            else -> 0
+        }
+        s.root.postDelayed({
+            Components.choiceSheet(s, p, s.overlays, entry.label,
+                listOf("Open ${entry.label}" to ImageView(s).apply { setImageBitmap(s.repo.icon(entry)) }) + actions.map { info ->
+                    (info.shortLabel ?: info.longLabel ?: "").toString() to ImageView(s).apply { setImageDrawable(Shortcuts(s).icon(info)) }
+                },
+                selected) { i ->
+                if (i == 0) return@choiceSheet onPick(open)
+                val info = actions[i - 1]
+                onPick(KeyAction(ActionType.APP_ACTION, entry.key, (info.shortLabel ?: info.longLabel ?: "").toString(), info.id))
+            }
+        }, 160)
     }
 
     private fun pickApp(title: String, current: String?, allowNone: Boolean, onPick: (String?) -> Unit) {
