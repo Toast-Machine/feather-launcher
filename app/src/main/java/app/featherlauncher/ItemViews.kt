@@ -87,16 +87,16 @@ class AppIconView(context: Context, val item: HomeItem) : LinearLayout(context) 
 class ClockWidget(context: Context, val item: HomeItem) : LinearLayout(context) {
     private val time = TextClock(context)
     private val date = TextView(context)
+    /** This week: the parsha, the Omer, Daf Yomi. */
+    private val week = TextView(context)
+    /** Up to two things coming up. */
     private val details = LinearLayout(context)
-    private val zman = detail(R.drawable.ic_time)
-    private val event = detail(R.drawable.ic_calendar)
-    private val info = ClockInfo(context)
+    private val glance = Glance(context)
     private var place: ClockInfo.Place? = null
-    private var nextEvent: ClockInfo.Event? = null
+    private var textSp = 24f
 
-    /** Tapping the zman opens the day's list; tapping the event opens it. */
-    var onZman: ((ClockInfo.Place) -> Unit)? = null
-    var onEvent: ((ClockInfo.Event) -> Unit)? = null
+    /** Tapping something coming up: the day's zmanim, the event, the alarms. */
+    var onTap: ((Glance.Item, ClockInfo.Place?) -> Unit)? = null
 
     private val tick = object : android.content.BroadcastReceiver() {
         override fun onReceive(c: Context, intent: android.content.Intent) = refresh()
@@ -123,16 +123,20 @@ class ClockWidget(context: Context, val item: HomeItem) : LinearLayout(context) 
             setShadowLayer(dp(6).toFloat(), 0f, 0f, 0x66000000)
             setPadding(dp(SHADOW_ROOM), dp(SHADOW_ROOM), dp(SHADOW_ROOM), dp(SHADOW_ROOM))
         }
+        week.apply {
+            setTextColor(0xE6FFFFFF.toInt())
+            includeFontPadding = false
+            setShadowLayer(dp(6).toFloat(), 0f, 0f, 0x66000000)
+            maxLines = 1
+            ellipsize = android.text.TextUtils.TruncateAt.END
+        }
         details.orientation = HORIZONTAL
-        details.addView(zman)
-        details.addView(event, LayoutParams(LayoutParams.WRAP_CONTENT, LayoutParams.WRAP_CONTENT).apply { marginStart = dp(14) })
-        zman.setOnClickListener { place?.let { onZman?.invoke(it) } }
-        event.setOnClickListener { nextEvent?.let { onEvent?.invoke(it) } }
         val room = -dp(SHADOW_ROOM)
         addView(time, LayoutParams(LayoutParams.WRAP_CONTENT, LayoutParams.WRAP_CONTENT).apply { setMargins(room, room, room, room) })
         addView(date, LayoutParams(LayoutParams.WRAP_CONTENT, LayoutParams.WRAP_CONTENT).apply {
             setMargins(room, dp(6) + 2 * room, room, room)
         })
+        addView(week, LayoutParams(LayoutParams.WRAP_CONTENT, LayoutParams.WRAP_CONTENT).apply { topMargin = dp(6) })
         addView(details, LayoutParams(LayoutParams.WRAP_CONTENT, LayoutParams.WRAP_CONTENT).apply { topMargin = dp(8) })
     }
 
@@ -168,25 +172,20 @@ class ClockWidget(context: Context, val item: HomeItem) : LinearLayout(context) 
 
     /** Works out the date and details again; runs every minute. */
     fun refresh() {
-        val prefs = Prefs(context)
-        val now = System.currentTimeMillis()
-        place = info.place()
-        date.text = info.dateLine(now, place)
-        val next = place?.takeIf { prefs.clockZman }?.let { info.nextZman(now, it) }
-        zman.text = next?.let { z ->
-            val format = android.text.format.DateFormat.getTimeFormat(context).apply { timeZone = place!!.zone }
-            "${z.name} ${format.format(java.util.Date(z.time))}"
+        val lines = glance.lines(System.currentTimeMillis()) { if (isAttachedToWindow) refresh() }
+        place = lines.place
+        date.text = lines.date
+        week.text = lines.week
+        week.visibility = if (lines.week != null) VISIBLE else GONE
+        details.removeAllViews()
+        lines.coming.forEachIndexed { i, item ->
+            details.addView(detail(item.icon).apply {
+                text = item.text
+                setTextSize(TypedValue.COMPLEX_UNIT_SP, textSp * 0.62f)
+                setOnClickListener { onTap?.invoke(item, place) }
+            }, LayoutParams(LayoutParams.WRAP_CONTENT, LayoutParams.WRAP_CONTENT).apply { if (i > 0) marginStart = dp(14) })
         }
-        zman.visibility = if (next != null) VISIBLE else GONE
-        nextEvent = if (prefs.clockEvent) info.nextEvent(now) else null
-        event.text = nextEvent?.let { e ->
-            val minutes = (e.begin - now) / 60_000
-            if (minutes < 60) "${e.title} in ${minutes.coerceAtLeast(1)} min"
-            else "${e.title} ${android.text.format.DateFormat.getTimeFormat(context).format(java.util.Date(e.begin))}"
-        }
-        event.visibility = if (nextEvent != null) VISIBLE else GONE
-        (event.layoutParams as LayoutParams).marginStart = if (next != null) dp(14) else 0
-        details.visibility = if (next != null || nextEvent != null) VISIBLE else GONE
+        details.visibility = if (lines.coming.isNotEmpty()) VISIBLE else GONE
     }
 
     fun apply(options: ClockOptions) {
@@ -197,19 +196,27 @@ class ClockWidget(context: Context, val item: HomeItem) : LinearLayout(context) 
         }
         time.setTextSize(TypedValue.COMPLEX_UNIT_SP, timeSp)
         date.setTextSize(TypedValue.COMPLEX_UNIT_SP, dateSp)
-        zman.setTextSize(TypedValue.COMPLEX_UNIT_SP, dateSp * 0.62f)
-        event.setTextSize(TypedValue.COMPLEX_UNIT_SP, dateSp * 0.62f)
+        week.setTextSize(TypedValue.COMPLEX_UNIT_SP, dateSp * 0.62f)
+        textSp = dateSp
+        time.visibility = if (item.ref == AT_A_GLANCE) GONE else VISIBLE
         date.visibility = if (options.showDate) VISIBLE else GONE
         val horizontal = if (options.alignStart) Gravity.START else Gravity.CENTER_HORIZONTAL
         gravity = horizontal or Gravity.CENTER_VERTICAL
         setPadding(dp(if (options.alignStart) 20 else 0), 0, 0, 0)
         (time.layoutParams as LayoutParams).gravity = horizontal
         (date.layoutParams as LayoutParams).gravity = horizontal
+        (week.layoutParams as LayoutParams).gravity = horizontal
         (details.layoutParams as LayoutParams).gravity = horizontal
+        refresh()
         requestLayout()
     }
 
     val dateView: TextView get() = date
+
+    companion object {
+        /** The [HomeItem.ref] of the At a glance widget: the clock without the time. */
+        const val AT_A_GLANCE = "glance"
+    }
 }
 
 /** Padding around the clock's text so its shadow isn't clipped. */

@@ -38,7 +38,8 @@ class Widgets(
 ) {
     /** A widget was bound (and set up, if it needed it) and should be placed on the home screen. */
     var onAdded: ((appWidgetId: Int, spanX: Int, spanY: Int) -> Unit)? = null
-    var onClockPicked: (() -> Unit)? = null
+    /** The built-in clock was picked; true for At a glance, the clock without the time. */
+    var onClockPicked: ((Boolean) -> Unit)? = null
 
     private val manager = AppWidgetManager.getInstance(activity)
     private val density = activity.resources.displayMetrics.density
@@ -101,6 +102,7 @@ class Widgets(
         val rows = ArrayList<PickerRow>()
         rows += PickerRow.Header(null, "Feather Launcher")
         rows += PickerRow.Clock
+        rows += PickerRow.Glance
         manager.installedProviders
             .groupBy { it.provider.packageName }
             .map { (pkg, infos) ->
@@ -128,9 +130,9 @@ class Widgets(
                     overlays.dismiss()
                     bind(row.info)
                 }
-                PickerRow.Clock -> {
+                PickerRow.Clock, PickerRow.Glance -> {
                     overlays.dismiss()
-                    onClockPicked?.invoke()
+                    onClockPicked?.invoke(row == PickerRow.Glance)
                 }
                 else -> Unit
             }
@@ -142,6 +144,7 @@ class Widgets(
         class Header(val packageName: String?, val app: String) : PickerRow()
         class Widget(val info: AppWidgetProviderInfo, val name: String) : PickerRow()
         object Clock : PickerRow()
+        object Glance : PickerRow()
     }
 
     private inner class PickerAdapter(private val rows: List<PickerRow>) : BaseAdapter() {
@@ -154,7 +157,7 @@ class Widgets(
         override fun getItemViewType(position: Int) = when (rows[position]) {
             is PickerRow.Header -> 0
             is PickerRow.Widget -> 1
-            PickerRow.Clock -> 2
+            PickerRow.Clock, PickerRow.Glance -> 2
         }
         override fun isEnabled(position: Int) = rows[position] !is PickerRow.Header
 
@@ -177,14 +180,18 @@ class Widgets(
                     (view.getChildAt(1) as TextView).text = row.app
                     view
                 }
-                PickerRow.Clock -> {
+                PickerRow.Clock, PickerRow.Glance -> {
                     val view = convertView as? FrameLayout ?: widgetCard(p)
                     val parts = cardParts(view)
+                    val glance = row == PickerRow.Glance
                     parts.preview.setImageDrawable(null)
                     parts.preview.visibility = View.GONE
                     parts.sample.visibility = View.VISIBLE
-                    parts.name.text = "Clock"
-                    parts.size.text = "4 × 2"
+                    // At a glance's stand-in is its date line instead of the time.
+                    parts.sample.text = if (glance) "Tue, Oct 27 · 16 Cheshvan" else "12:30"
+                    parts.sample.setTextSize(TypedValue.COMPLEX_UNIT_SP, if (glance) 20f else 44f)
+                    parts.name.text = if (glance) "At a glance" else "Clock"
+                    parts.size.text = if (glance) "4 × 1" else "4 × 2"
                     view
                 }
                 is PickerRow.Widget -> {

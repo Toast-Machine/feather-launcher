@@ -87,20 +87,40 @@ class CalendarSettings(private val s: SettingsActivity) {
         }
         content.addView(Components.group(s, p, rows))
 
-        content.addView(s.heading(p, "Show on the clock"))
+        // What the clock and At a glance show under the date. Each only shows when it matters.
+        content.addView(s.heading(p, "At a glance"))
         content.addView(s.spacer())
-        content.addView(Components.group(s, p, listOf(
-            Components.toggleRow(s, p, R.drawable.ic_sunrise, if (zmanim) "Next zman" else "Next sunrise or sunset", prefs.clockZman) {
-                prefs.clockZman = it
-                s.build()
-            },
-            Components.toggleRow(s, p, R.drawable.ic_calendar, "Next event", prefs.clockEvent) {
-                prefs.clockEvent = it
-                s.build()
-            },
+        fun toggle(icon: Int, label: String, on: Boolean, set: (Boolean) -> Unit) = Components.toggleRow(s, p, icon, label, on) {
+            set(it)
+            s.build()
+        }
+        val jewish = prefs.secondCalendar == SecondCalendar.HEBREW
+        content.addView(Components.group(s, p, listOfNotNull(
+            toggle(R.drawable.ic_sunrise, "Weather", prefs.glanceWeather) { prefs.glanceWeather = it },
+            if (jewish) toggle(R.drawable.ic_calendar, "Holidays", prefs.glanceHolidays) { prefs.glanceHolidays = it } else null,
+            if (jewish) toggle(R.drawable.ic_calendar, "Parsha of the week", prefs.glanceParsha) { prefs.glanceParsha = it } else null,
+            if (jewish) toggle(R.drawable.ic_calendar, "Omer", prefs.glanceOmer) { prefs.glanceOmer = it } else null,
+            if (jewish) toggle(R.drawable.ic_calendar, "Daf Yomi", prefs.glanceDaf) { prefs.glanceDaf = it } else null,
         )))
-        content.addView(Components.footnote(s, p, "Tap the time on the clock for all of today's, or the event to open it."))
+        content.addView(Components.footnote(s, p, if (jewish)
+            "Next to the date. The Omer shows during the Omer, and holidays on the day."
+            else "The temperature, next to the date."))
+        content.addView(s.spacer())
+        content.addView(Components.group(s, p, listOfNotNull(
+            toggle(R.drawable.ic_calendar, "Next event", prefs.clockEvent) { prefs.clockEvent = it },
+            if (jewish) toggle(R.drawable.ic_sunset, "Candle lighting", prefs.glanceCandles) { prefs.glanceCandles = it } else null,
+            toggle(R.drawable.ic_phone_call, "Missed calls and messages", prefs.glanceMissed) { prefs.glanceMissed = it },
+            toggle(R.drawable.ic_time, "Tonight's alarm", prefs.glanceAlarm) { prefs.glanceAlarm = it },
+            if (jewish) toggle(R.drawable.ic_calendar, "Coming holidays", prefs.glanceUpcoming) { prefs.glanceUpcoming = it } else null,
+            toggle(R.drawable.ic_time, if (zmanim) "Next zman" else "Next sunrise or sunset", prefs.clockZman) { prefs.clockZman = it },
+        )))
+        content.addView(Components.footnote(s, p, buildString {
+            append("Up to two of these show under the date, the most pressing first.")
+            if (jewish) append(" Candle lighting shows on Friday and Erev Yom Tov.")
+            append(" The alarm shows in the evening.")
+        }))
         if (prefs.clockEvent && !granted(Manifest.permission.READ_CALENDAR)) needs(p, Setup.items.first { it.title == "Calendar" })
+        if (prefs.glanceMissed && !NotificationService.isEnabled(s)) needs(p, Setup.NOTIFICATIONS)
     }
 
     /** Where the phone is, or a city searched for by name. */

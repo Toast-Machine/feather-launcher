@@ -194,9 +194,18 @@ class HomeScreen(
                 ContentUris.appendId(uri, System.currentTimeMillis())
                 host.startSafely(Intent(Intent.ACTION_VIEW, uri.build()))
             }
-            onZman = { place -> ZmanimSheet.show(activity, palette(), overlays, place) }
-            onEvent = { e ->
-                host.startSafely(Intent(Intent.ACTION_VIEW, ContentUris.withAppendedId(CalendarContract.Events.CONTENT_URI, e.id)))
+            onTap = { glanceItem, place ->
+                when (glanceItem.tap) {
+                    Glance.Tap.ZMANIM -> place?.let { ZmanimSheet.show(activity, palette(), overlays, it) }
+                    Glance.Tap.EVENT -> glanceItem.event?.let { e ->
+                        host.startSafely(Intent(Intent.ACTION_VIEW, ContentUris.withAppendedId(CalendarContract.Events.CONTENT_URI, e.id)))
+                    }
+                    Glance.Tap.ALARMS -> host.startSafely(Intent(AlarmClock.ACTION_SHOW_ALARMS))
+                    Glance.Tap.CALLS -> host.startSafely(Intent(Intent.ACTION_VIEW).setType(android.provider.CallLog.Calls.CONTENT_TYPE))
+                    // The phone's messages app.
+                    Glance.Tap.MESSAGES -> android.provider.Telephony.Sms.getDefaultSmsPackage(activity)
+                        ?.let { activity.packageManager.getLaunchIntentForPackage(it) }?.let(host::startSafely)
+                }
             }
             setOnLongClickListener { onItemLongPress(item, it); true }
             dateView.setOnLongClickListener { onItemLongPress(item, this); true }
@@ -241,7 +250,9 @@ class HomeScreen(
 
     fun addWidget(appWidgetId: Int, spanX: Int, spanY: Int) = addItem(spanX, spanY, HomeItem.Type.WIDGET, appWidgetId.toString())
 
-    fun addClock() = addItem(Workspace.COLS, 2, HomeItem.Type.CLOCK, "")
+    /** The clock, or At a glance: the same lines without the time, in a shorter space. */
+    fun addClock(glance: Boolean) =
+        if (glance) addItem(Workspace.COLS, 1, HomeItem.Type.CLOCK, ClockWidget.AT_A_GLANCE) else addItem(Workspace.COLS, 2, HomeItem.Type.CLOCK, "")
 
     private fun addItem(w: Int, h: Int, type: HomeItem.Type, ref: String) {
         val order = listOf(pages.currentPage) + (0 until workspace.pageCount).filter { it != pages.currentPage }
@@ -313,8 +324,8 @@ class HomeScreen(
                 MenuItem("Rename", R.drawable.ic_edit) { rename(item, FOLDER_NAME) },
                 MenuItem("Remove", R.drawable.ic_close, danger = true) { remove(item) },
             ), anchor, folderIcon(item))
-            HomeItem.Type.CLOCK -> overlays.showMenu("Clock", listOf(
-                MenuItem("Clock settings", R.drawable.ic_settings) { clockSettings(item) },
+            HomeItem.Type.CLOCK -> overlays.showMenu(clockName(item), listOf(
+                MenuItem("${clockName(item)} settings", R.drawable.ic_settings) { clockSettings(item) },
                 MenuItem("Resize", R.drawable.ic_height) { startResize(item) },
                 MenuItem("Remove", R.drawable.ic_close, danger = true) { remove(item) },
             ), anchor)
@@ -529,6 +540,8 @@ class HomeScreen(
         setOnClickListener { onClick() }
     }
 
+    private fun clockName(item: HomeItem) = if (item.ref == ClockWidget.AT_A_GLANCE) "At a glance" else "Clock"
+
     private fun clockSettings(item: HomeItem) {
         val p = palette()
         val options = prefs.clockOptions(item.id)
@@ -559,7 +572,7 @@ class HomeScreen(
             overlays.dismiss()
             activity.startActivity(Intent(activity, SettingsActivity::class.java).putExtra(SettingsActivity.EXTRA_PAGE, SettingsActivity.Page.CALENDAR.name))
         })
-        overlays.showSheet("Clock", column)
+        overlays.showSheet(clockName(item), column)
     }
 
     private fun sectionLabel(text: String, p: Palette) = TextView(activity).apply {
@@ -1119,7 +1132,7 @@ class HomeScreen(
         val p = palette()
         val actions = mutableListOf<MenuItem>()
         when (item.type) {
-            HomeItem.Type.CLOCK -> actions += MenuItem("Clock settings", R.drawable.ic_settings) { clockSettings(item) }
+            HomeItem.Type.CLOCK -> actions += MenuItem("${clockName(item)} settings", R.drawable.ic_settings) { clockSettings(item) }
             HomeItem.Type.WIDGET -> if (widgets.canReconfigure(item.ref.toInt())) {
                 actions += MenuItem("Settings", R.drawable.ic_settings) { widgets.reconfigure(item.ref.toInt()) }
             }

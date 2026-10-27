@@ -145,6 +145,44 @@ class Prefs(context: Context) {
         get() = sp.getBoolean("daily_zmanim", true)
         set(value) = sp.edit().putBoolean("daily_zmanim", value).apply()
 
+    // At a glance: each part can be turned off; each only shows when it matters.
+
+    var glanceHolidays: Boolean
+        get() = sp.getBoolean("glance_holidays", true)
+        set(value) = sp.edit().putBoolean("glance_holidays", value).apply()
+
+    var glanceParsha: Boolean
+        get() = sp.getBoolean("glance_parsha", true)
+        set(value) = sp.edit().putBoolean("glance_parsha", value).apply()
+
+    var glanceOmer: Boolean
+        get() = sp.getBoolean("glance_omer", true)
+        set(value) = sp.edit().putBoolean("glance_omer", value).apply()
+
+    var glanceDaf: Boolean
+        get() = sp.getBoolean("glance_daf", false)
+        set(value) = sp.edit().putBoolean("glance_daf", value).apply()
+
+    var glanceCandles: Boolean
+        get() = sp.getBoolean("glance_candles", true)
+        set(value) = sp.edit().putBoolean("glance_candles", value).apply()
+
+    var glanceUpcoming: Boolean
+        get() = sp.getBoolean("glance_upcoming", true)
+        set(value) = sp.edit().putBoolean("glance_upcoming", value).apply()
+
+    var glanceWeather: Boolean
+        get() = sp.getBoolean("glance_weather", true)
+        set(value) = sp.edit().putBoolean("glance_weather", value).apply()
+
+    var glanceAlarm: Boolean
+        get() = sp.getBoolean("glance_alarm", true)
+        set(value) = sp.edit().putBoolean("glance_alarm", value).apply()
+
+    var glanceMissed: Boolean
+        get() = sp.getBoolean("glance_missed", true)
+        set(value) = sp.edit().putBoolean("glance_missed", value).apply()
+
     var clockZman: Boolean
         get() = sp.getBoolean("clock_zman", true)
         set(value) = sp.edit().putBoolean("clock_zman", value).apply()
