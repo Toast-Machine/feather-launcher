@@ -13,13 +13,16 @@ import android.widget.LinearLayout
 import android.widget.Space
 import android.widget.TextView
 
+/** What tapping a contact (or one of its buttons) does. */
+enum class ContactAction { OPEN, CALL, TEXT, EMAIL }
+
 /**
  * The app list's rows: section titles, rows of icon tiles (grid), or one app per row (list).
  * Each app tile is focusable on its own, so the keypad moves tile to tile.
  */
 class DrawerAdapter(
     private val context: Context,
-    private val onContact: (Contacts.Contact, call: Boolean) -> Unit = { _, _ -> },
+    private val onContact: (Contacts.Contact, ContactAction) -> Unit = { _, _ -> },
     /** Calls a number typed into search. */
     private val onDial: (String) -> Unit = {},
     private val icon: (AppEntry) -> Bitmap?,
@@ -254,7 +257,6 @@ class DrawerAdapter(
         }
     }
 
-    /** A contact: picture or initial, name and number, and a call button. */
     /** The typed number in large type, like a dial pad, with a Call button. The Call key does the same. */
     private fun dial(number: String, p: Palette): View = LinearLayout(context).apply {
         orientation = LinearLayout.HORIZONTAL
@@ -288,6 +290,7 @@ class DrawerAdapter(
         setOnClickListener { onDial(number) }
     }
 
+    /** A contact: picture or initial, name and number, and buttons to email (if they have an address), text and call. */
     private fun person(contact: Contacts.Contact, p: Palette): View {
         val size = dp(44)
         val avatar: View = if (contact.photo != null) {
@@ -328,19 +331,27 @@ class DrawerAdapter(
                     text = contact.number
                     style(TextStyle.Secondary, p.onWallSecondary)
                     setPadding(0, dp(4), 0, 0)
+                    maxLines = 1
+                    ellipsize = TextUtils.TruncateAt.END
                 })
             }, LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f).apply { marginStart = dp(Ui.SPACE_L) })
-            addView(ImageView(context).apply {
-                setImageResource(R.drawable.ic_cat_phone)
-                imageTintList = android.content.res.ColorStateList.valueOf(p.onWall)
-                scaleType = ImageView.ScaleType.CENTER
-                background = Ui.pressable(context, Ui.RADIUS_PILL, focusColor = p.onWall)
-                isFocusable = true
-                contentDescription = "Call ${contact.name}"
-                setOnClickListener { onContact(contact, true) }
-            }, LinearLayout.LayoutParams(dp(48), dp(48)))
-            setOnClickListener { onContact(contact, false) }
+            // Call stays at the far right, where it's always been; the others line up before it.
+            if (contact.email != null) addView(contactButton(R.drawable.ic_cat_mail, "Email ${contact.name}", p) { onContact(contact, ContactAction.EMAIL) })
+            addView(contactButton(R.drawable.ic_message, "Text ${contact.name}", p) { onContact(contact, ContactAction.TEXT) })
+            addView(contactButton(R.drawable.ic_cat_phone, "Call ${contact.name}", p) { onContact(contact, ContactAction.CALL) })
+            setOnClickListener { onContact(contact, ContactAction.OPEN) }
         }
+    }
+
+    private fun contactButton(icon: Int, description: String, p: Palette, onClick: () -> Unit) = ImageView(context).apply {
+        setImageResource(icon)
+        imageTintList = android.content.res.ColorStateList.valueOf(p.onWall)
+        scaleType = ImageView.ScaleType.CENTER
+        background = Ui.pressable(context, Ui.RADIUS_PILL, focusColor = p.onWall)
+        isFocusable = true
+        contentDescription = description
+        layoutParams = LinearLayout.LayoutParams(dp(48), dp(48))
+        setOnClickListener { onClick() }
     }
 
     private fun dp(value: Int) = Ui.dp(context, value)

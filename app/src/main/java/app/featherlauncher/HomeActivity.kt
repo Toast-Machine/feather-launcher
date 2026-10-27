@@ -371,7 +371,7 @@ class HomeActivity : Activity(), HomeScreen.Host {
     private fun setUpDrawer() {
         adapter = DrawerAdapter(
             this,
-            onContact = { contact, call -> openContact(contact, call) },
+            onContact = ::openContact,
             onDial = ::call,
             icon = { repo.icon(it) },
             digitFor = { prefs.shortcutDigitFor(it.key) },
@@ -1392,9 +1392,13 @@ class HomeActivity : Activity(), HomeScreen.Host {
         })
     }
 
-    private fun openContact(contact: Contacts.Contact, call: Boolean) {
-        if (call) return call(contact.number)
-        startSafely(Intent(Intent.ACTION_VIEW, android.content.ContentUris.withAppendedId(android.provider.ContactsContract.Contacts.CONTENT_URI, contact.id)))
+    private fun openContact(contact: Contacts.Contact, action: ContactAction) {
+        when (action) {
+            ContactAction.CALL -> call(contact.number)
+            ContactAction.TEXT -> startSafely(Intent(Intent.ACTION_SENDTO, Uri.fromParts("smsto", contact.number, null)))
+            ContactAction.EMAIL -> contact.email?.let { startSafely(Intent(Intent.ACTION_SENDTO, Uri.fromParts("mailto", it, null))) }
+            ContactAction.OPEN -> startSafely(Intent(Intent.ACTION_VIEW, android.content.ContentUris.withAppendedId(android.provider.ContactsContract.Contacts.CONTENT_URI, contact.id)))
+        }
     }
 
     /** A number waiting for permission to call it. */
@@ -1474,7 +1478,8 @@ class HomeActivity : Activity(), HomeScreen.Host {
         }
         // The Call key calls the highlighted contact, or the number typed in search.
         if (event.keyCode == KeyEvent.KEYCODE_CALL && drawerOpen && searching && !overlays.isShowing) {
-            val contact = currentFocus?.tag as? Contacts.Contact
+            // On one of a contact's buttons, that contact.
+            val contact = generateSequence(currentFocus) { it.parent as? View }.firstNotNullOfOrNull { it.tag as? Contacts.Contact }
             val number = contact?.number ?: search.text.toString().trim().takeIf { it.matches(DIALABLE) }
             if (number != null) {
                 if (event.action == KeyEvent.ACTION_UP && !event.isCanceled) call(number)
@@ -1673,6 +1678,16 @@ class HomeActivity : Activity(), HomeScreen.Host {
         if (from === searchClear && direction == View.FOCUS_LEFT) {
             bar.requestFocusFromTouch()
             return
+        }
+        // A row with its own buttons (a contact): right steps onto them one by one, left comes back.
+        // Android's own search can't do this, since it only looks outside the highlighted row.
+        val row = (from as? ViewGroup)?.takeIf { it.isFocusable } ?: (from.parent as? ViewGroup)?.takeIf { it.isFocusable }
+        if (row != null) {
+            val stops = listOf<View>(row) + (0 until row.childCount).map(row::getChildAt).filter { it.isFocusable && it.visibility == View.VISIBLE }
+            if (stops.size > 1) {
+                stops.getOrNull(stops.indexOf(from) + if (direction == View.FOCUS_RIGHT) 1 else -1)?.requestFocusFromTouch()
+                return
+            }
         }
         val target = from.focusSearch(direction) ?: return
         val a = rectOf(from)

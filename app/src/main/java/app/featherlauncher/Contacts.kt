@@ -6,6 +6,7 @@ import android.content.pm.PackageManager
 import android.net.Uri
 import android.os.Handler
 import android.os.Looper
+import android.provider.ContactsContract.CommonDataKinds.Email
 import android.provider.ContactsContract.CommonDataKinds.Phone
 import java.util.concurrent.Executors
 
@@ -13,7 +14,7 @@ import java.util.concurrent.Executors
 class Contacts(private val context: Context) {
     /**
      * A person, shown and called at [number]: their primary number, or the one a search
-     * matched. [numbers] has all of them.
+     * matched. [numbers] has all of them. [email] is their main email address, if they have one.
      */
     class Contact(
         val id: Long,
@@ -22,6 +23,7 @@ class Contacts(private val context: Context) {
         val numbers: List<String>,
         val photo: Uri?,
         val starred: Boolean,
+        val email: String? = null,
     ) {
         val words = Search.words(name)
         val digitWords = words.map(Search::toDigits)
@@ -29,7 +31,7 @@ class Contacts(private val context: Context) {
         /** The number whose digits contain [digits], if any. */
         fun numberMatching(digits: String) = numbers.firstOrNull { n -> digits in n.filter { it.isDigit() } }
 
-        fun withNumber(n: String) = Contact(id, name, n, numbers, photo, starred)
+        fun withNumber(n: String) = Contact(id, name, n, numbers, photo, starred, email)
     }
 
     var all: List<Contact> = emptyList()
@@ -67,12 +69,25 @@ class Contacts(private val context: Context) {
                     }
                 }
             }
+            // One email per person, the primary one if it's marked.
+            val emails = HashMap<Long, String>()
+            runCatching {
+                context.contentResolver.query(
+                    Email.CONTENT_URI, arrayOf(Email.CONTACT_ID, Email.ADDRESS, Email.IS_SUPER_PRIMARY), null, null, null,
+                )?.use { c ->
+                    while (c.moveToNext()) {
+                        val address = c.getString(1)?.takeIf { it.isNotBlank() } ?: continue
+                        val id = c.getLong(0)
+                        if (id !in emails || c.getInt(2) == 1) emails[id] = address
+                    }
+                }
+            }
             main.post {
                 val next = numbers.map { (id, list) ->
                     val (name, photo, starred) = details.getValue(id)
-                    Contact(id, name, list.first(), list, photo, starred)
+                    Contact(id, name, list.first(), list, photo, starred, emails[id])
                 }
-                val changed = next.map { it.id to it.numbers } != all.map { it.id to it.numbers }
+                val changed = next.map { Triple(it.id, it.numbers, it.email) } != all.map { Triple(it.id, it.numbers, it.email) }
                 all = next
                 loading = false
                 if (changed) onLoaded?.invoke()
