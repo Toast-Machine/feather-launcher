@@ -69,8 +69,8 @@ data class KeyShortcut(
 ) {
     val isCombo get() = keyCode2 != null
 
-    /** Holding a number on the home screen, which has its own list in settings. */
-    val isDigit get() = keyCode in KeyEvent.KEYCODE_0..KeyEvent.KEYCODE_9 && keyCode2 == null && press == Press.LONG && scope == Scope.HOME
+    /** Holding a number, which has its own list in settings. */
+    val isDigit get() = keyCode in KeyEvent.KEYCODE_0..KeyEvent.KEYCODE_9 && keyCode2 == null && press == Press.LONG
 
     /** Whether it works with [pkg] in front ([atHome]: the home screen itself). */
     fun appliesTo(pkg: String?, atHome: Boolean) = when (scope) {
@@ -117,8 +117,8 @@ class KeyShortcuts private constructor(context: Context) {
     fun remove(shortcut: KeyShortcut) = save(list - shortcut)
 
     /**
-     * Holding a number on the home screen is a shortcut like any other (hold, home screen only),
-     * set from its own list on the settings page rather than the shortcut editor.
+     * Holding a number is a shortcut like any other (hold, in all apps), set from its own list on
+     * the settings page rather than the shortcut editor.
      */
     fun digit(digit: Int): KeyShortcut? = list.firstOrNull { it.isDigit && it.keyCode == KeyEvent.KEYCODE_0 + digit }
 
@@ -128,7 +128,7 @@ class KeyShortcuts private constructor(context: Context) {
         val kept = list.filter { sc ->
             !(sc.isDigit && (sc.keyCode == code || action?.type == ActionType.APP && sc.action == action))
         }
-        save(if (action == null) kept else kept + KeyShortcut(code, Press.LONG, action, Scope.HOME))
+        save(if (action == null) kept else kept + KeyShortcut(code, Press.LONG, action))
     }
 
     /** The number held to open the app with [appKey], if there is one. */

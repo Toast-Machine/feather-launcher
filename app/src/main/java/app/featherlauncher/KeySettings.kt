@@ -84,7 +84,7 @@ class KeySettings(private val s: SettingsActivity) {
         content.addView(s.heading(p, "Number keys"))
         content.addView(s.spacer())
         content.addView(Components.group(s, p, listOf(1, 2, 3, 4, 5, 6, 7, 8, 9, 0).map { digit -> digitRow(p, digit) }))
-        content.addView(Components.footnote(s, p, "Hold a number on the home screen to open an app or do anything a shortcut can. A quick press starts a search."))
+        content.addView(Components.footnote(s, p, "Hold a number to open an app or do anything a shortcut can, in any app except while typing. On the home screen, a quick press starts a search."))
     }
 
     private fun digitRow(p: Palette, digit: Int) = LinearLayout(s).apply {

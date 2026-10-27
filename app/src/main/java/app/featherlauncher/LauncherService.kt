@@ -103,9 +103,18 @@ class LauncherService : AccessibilityService() {
 
         val digit = if (code in KeyEvent.KEYCODE_0..KeyEvent.KEYCODE_9) code - KeyEvent.KEYCODE_0 else null
         if (digit != null) {
-            if (home == null) return false
+            if (home != null) {
+                owned += code
+                press(code, onHold = { HomeActivity.running?.holdDigit(digit) }, onPress = { HomeActivity.running?.pressDigit(digit) })
+                return true
+            }
+            // In other apps, a number that's set does its thing when held, instead of the phone's
+            // speed dial. Not while typing, where the keyboard needs every press. A quick press
+            // can't be handed back to the app, so it's lost; few apps use numbers outside text.
+            val action = KeyShortcuts.get(this).digit(digit)?.action ?: return false
+            if (typing()) return false
             owned += code
-            press(code, onHold = { HomeActivity.running?.holdDigit(digit) }, onPress = { HomeActivity.running?.pressDigit(digit) })
+            press(code, onHold = { run(action) }, onPress = {})
             return true
         }
         if (!KeyShortcuts.canUse(code)) return false
@@ -190,6 +199,12 @@ class LauncherService : AccessibilityService() {
     }
 
     private fun run(action: KeyAction) = KeyActionRunner.run(this, action, this)
+
+    /** Whether a text box is being typed in, in whichever app is in front. */
+    private fun typing(): Boolean {
+        if (inputMethod?.currentInputStarted != true) return false
+        return (inputMethod?.currentInputEditorInfo?.inputType ?: 0) != android.text.InputType.TYPE_NULL
+    }
 
     // endregion
 
