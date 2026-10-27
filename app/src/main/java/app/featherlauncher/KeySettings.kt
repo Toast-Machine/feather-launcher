@@ -64,6 +64,8 @@ class KeySettings(private val s: SettingsActivity) {
                 }
             },
         )))
+        content.addView(Components.footnote(s, p,
+            "On the keypad, hold Up on the home screen for Smart Search, Down for the app list, and Left or Right to change pages."))
 
         content.addView(s.heading(p, "Shortcuts"))
         content.addView(s.spacer())

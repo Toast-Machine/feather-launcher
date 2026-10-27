@@ -1496,29 +1496,13 @@ class HomeActivity : Activity(), HomeScreen.Host {
 
     override fun dispatchKeyEvent(event: KeyEvent): Boolean {
         if (pinKey(event)) return true
-        // Holding an arrow in an open panel: back the way it came (up out of the app list, down
-        // out of search), or the next or previous category. A press still just moves.
-        if (panelArrow(event)) return true
+        // A held arrow does something (see holdAction); a press still just moves.
+        if (heldArrow(event)) return true
         // OK on the search bar opens the first result, as Enter does in the text box.
         if (event.keyCode in listOf(KeyEvent.KEYCODE_DPAD_CENTER, KeyEvent.KEYCODE_ENTER) &&
             currentFocus?.id == R.id.search_bar && drawerOpen && !overlays.isShowing) {
             if (event.action == KeyEvent.ACTION_UP) adapter.primary?.let { choose(it, null) }
             return true
-        }
-        // Arrow keys move in straight lines, on the home screen and in the app list.
-        val direction = directionOf(event.keyCode)
-        if (direction != null && !overlays.isShowing) {
-            val handled = if (drawerOpen) {
-                direction == View.FOCUS_UP || direction == View.FOCUS_DOWN
-            } else {
-                true
-            }
-            if (handled) {
-                if (event.action == KeyEvent.ACTION_DOWN) {
-                    if (drawerOpen) moveInList(direction == View.FOCUS_DOWN) else homeScreen.moveFocus(direction)
-                }
-                return true
-            }
         }
         // The Call key calls the highlighted contact, or the number typed in search.
         if (event.keyCode == KeyEvent.KEYCODE_CALL && drawerOpen && searching && !overlays.isShowing) {
@@ -1618,6 +1602,11 @@ class HomeActivity : Activity(), HomeScreen.Host {
         dispatchKeyEvent(KeyEvent(now, now, KeyEvent.ACTION_UP, code, 0))
     }
 
+    /** A key the service held back that turned out to be held: its built-in hold action, if any. */
+    fun holdKey(code: Int) {
+        holdAction(code)?.invoke()
+    }
+
     /** A quick press of a number on the home screen: search, starting with that number. */
     fun pressDigit(digit: Int) = openSearch(digit.toString(), fromKeypad = true)
 
@@ -1645,11 +1634,24 @@ class HomeActivity : Activity(), HomeScreen.Host {
 
     /** An arrow whose hold already acted; the rest of that press (repeats, release) is swallowed. */
     private var heldKey = 0
-    /** An arrow just pressed in a panel, waiting to see whether it's a tap or a hold. */
+    /** An arrow just pressed, waiting to see whether it's a tap or a hold. */
     private var pendingKey = 0
 
-    /** What holding [code] does in the open panel right now, or null if it has no hold action. */
+    /**
+     * What holding [code] does right now, or null if it has no hold action. These are built in,
+     * not shortcuts, so the whole launcher works from the keypad without the accessibility
+     * service: on the home screen, up opens Smart Search, down the app list, and left and right
+     * flip pages; in a panel, it goes back the way it came (up out of the app list, down out of
+     * search), or to the next or previous category.
+     */
     private fun holdAction(code: Int): (() -> Unit)? {
+        if (!drawerOpen) return when (code) {
+            KeyEvent.KEYCODE_DPAD_UP -> { { openSearch(fromKeypad = true) } }
+            KeyEvent.KEYCODE_DPAD_DOWN -> ::openAppsFromKeypad
+            KeyEvent.KEYCODE_DPAD_RIGHT -> { { flipPage(1) } }
+            KeyEvent.KEYCODE_DPAD_LEFT -> { { flipPage(-1) } }
+            else -> null
+        }
         val categoriesShown = !searching && !showingHidden && prefs.drawerCategories
         return when {
             code == KeyEvent.KEYCODE_DPAD_UP && !searching -> ::closeFromHold
@@ -1663,15 +1665,15 @@ class HomeActivity : Activity(), HomeScreen.Host {
     private fun closeFromHold() = hideDrawer()
 
     /**
-     * Arrows in an open panel: a tap moves when the key is let go; a hold does the hold action
-     * if there is one, and otherwise nothing (holding is for actions, tapping for moving). The
-     * rest of a hold's key presses are swallowed, even once the panel has closed, so they don't
-     * move a highlight on the home screen.
+     * Arrows on the home screen and in panels: a tap moves when the key is let go; a hold does
+     * the hold action if there is one, and otherwise nothing (holding is for actions, tapping for
+     * moving). The rest of a hold's key presses are swallowed, even once a panel has opened or
+     * closed, so they don't move a highlight there.
      *
      * After a touch, Android takes the first arrow press for itself (to wake the highlight), so a
      * hold is also recognized from its repeats alone.
      */
-    private fun panelArrow(event: KeyEvent): Boolean {
+    private fun heldArrow(event: KeyEvent): Boolean {
         val code = event.keyCode
         val direction = directionOf(code) ?: return false
         val down = event.action == KeyEvent.ACTION_DOWN
@@ -1681,7 +1683,7 @@ class HomeActivity : Activity(), HomeScreen.Host {
             if (!down) heldKey = 0
             return true
         }
-        if (!drawerOpen || overlays.isShowing) {
+        if (overlays.isShowing) {
             if (pendingKey == code) pendingKey = 0
             return false
         }
@@ -1702,8 +1704,11 @@ class HomeActivity : Activity(), HomeScreen.Host {
         if (pendingKey == code || pendingKey == 0) {
             pendingKey = 0
             // A tap: the usual move, now that it's clear it wasn't a hold.
-            if (direction == View.FOCUS_UP || direction == View.FOCUS_DOWN) moveInList(direction == View.FOCUS_DOWN)
-            else moveSideways(direction)
+            when {
+                !drawerOpen -> homeScreen.moveFocus(direction)
+                direction == View.FOCUS_UP || direction == View.FOCUS_DOWN -> moveInList(direction == View.FOCUS_DOWN)
+                else -> moveSideways(direction)
+            }
         }
         return true
     }
@@ -1779,13 +1784,17 @@ class HomeActivity : Activity(), HomeScreen.Host {
                 overlays.dismiss()
                 if (drawerOpen && !searching) return true
                 if (drawerOpen) hideDrawer(animate = false)
-                openDrawer()
-                // Opened from the keypad: the highlight starts on the first app, ready for the arrows.
-                list.post { firstListRow()?.let { focusRow(it, 0, true) } }
+                openAppsFromKeypad()
             }
             else -> return false
         }
         return true
+    }
+
+    /** The app list, with the highlight on the first app, ready for the arrows. */
+    private fun openAppsFromKeypad() {
+        openDrawer()
+        list.post { firstListRow()?.let { focusRow(it, 0, true) } }
     }
 
     /** Holding right or left on the home screen flips pages. */

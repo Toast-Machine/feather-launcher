@@ -129,7 +129,8 @@ class LauncherService : AccessibilityService() {
             return true
         }
         press(code,
-            onHold = long?.let { { run(it.action) } },
+            // Without a hold shortcut, holding an arrow at home keeps its built-in action.
+            onHold = long?.let { { run(it.action) } } ?: home?.let { { it.holdKey(code) } },
             onPress = { single(code, short, waitForSecond = double != null) })
         return true
     }

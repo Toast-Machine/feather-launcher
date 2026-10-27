@@ -92,14 +92,12 @@ class KeyShortcuts private constructor(context: Context) {
         private set
 
     private fun read(): List<KeyShortcut> {
-        if (!sp.contains("shortcuts")) return DEFAULTS.also(::save).also { sp.edit().putInt("defaults", DEFAULTS_VERSION).apply() }
         val array = runCatching { JSONArray(sp.getString("shortcuts", "[]")) }.getOrDefault(JSONArray())
         val saved = (0 until array.length()).mapNotNull { KeyShortcut.fromJson(array.getJSONObject(it)) }
-        if (sp.getInt("defaults", 1) >= DEFAULTS_VERSION) return saved
-        // New ready-made ones, unless the same key and press already does something else.
-        val added = saved + DEFAULTS.filter { d -> saved.none { sameTrigger(it, d) } && d !in saved }
-        sp.edit().putInt("defaults", DEFAULTS_VERSION).apply()
-        return added.also(::save)
+        // Held arrows on the home screen used to be shortcuts made for you; they're built in now.
+        if (!sp.contains("defaults") || sp.getInt("defaults", 0) >= 3) return saved
+        sp.edit().putInt("defaults", 3).apply()
+        return (saved - FORMER_DEFAULTS.toSet()).also(::save)
     }
 
     private fun save(next: List<KeyShortcut>) {
@@ -143,19 +141,13 @@ class KeyShortcuts private constructor(context: Context) {
         fun get(context: Context): KeyShortcuts =
             instance ?: synchronized(this) { instance ?: KeyShortcuts(context.applicationContext).also { instance = it } }
 
-        /**
-         * Ready-made shortcuts: arrows held on the home screen open search (up) and the app list
-         * (down), and flip pages (left, right). Changed or deleted like any other.
-         */
-        private val DEFAULTS = listOf(
+        /** The ready-made shortcuts of the first versions, for removing them (see [read]). */
+        private val FORMER_DEFAULTS = listOf(
             KeyShortcut(KeyEvent.KEYCODE_DPAD_DOWN, Press.LONG, KeyAction(ActionType.APP_LIST), scope = Scope.HOME),
             KeyShortcut(KeyEvent.KEYCODE_DPAD_UP, Press.LONG, KeyAction(ActionType.SEARCH), scope = Scope.HOME),
             KeyShortcut(KeyEvent.KEYCODE_DPAD_RIGHT, Press.LONG, KeyAction(ActionType.NEXT_PAGE), scope = Scope.HOME),
             KeyShortcut(KeyEvent.KEYCODE_DPAD_LEFT, Press.LONG, KeyAction(ActionType.PREVIOUS_PAGE), scope = Scope.HOME),
         )
-
-        /** Bumped when ready-made shortcuts are added, so existing setups get the new ones too. */
-        private const val DEFAULTS_VERSION = 2
 
         /** Keys a shortcut can't use: numbers have their own section, and Power must keep working. */
         fun canUse(keyCode: Int) = keyCode !in KeyEvent.KEYCODE_0..KeyEvent.KEYCODE_9 &&
