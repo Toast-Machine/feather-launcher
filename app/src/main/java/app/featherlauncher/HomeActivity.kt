@@ -128,7 +128,7 @@ class HomeActivity : Activity(), HomeScreen.Host {
         )
         homeScreen.pages.onEmptyLongPress = { x, y -> homeMenu(Rect(x.toInt(), y.toInt(), x.toInt(), y.toInt())) }
         widgets.onAdded = homeScreen::addWidget
-        widgets.onClockPicked = homeScreen::addClock
+        widgets.onFeatherPicked = homeScreen::addFeather
         repo.onChanged = ::onAppsChanged
         updateResults()
         applyTheme()

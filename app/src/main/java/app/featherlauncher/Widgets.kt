@@ -38,8 +38,8 @@ class Widgets(
 ) {
     /** A widget was bound (and set up, if it needed it) and should be placed on the home screen. */
     var onAdded: ((appWidgetId: Int, spanX: Int, spanY: Int) -> Unit)? = null
-    /** The built-in clock was picked; true for At a glance, the clock without the time. */
-    var onClockPicked: ((Boolean) -> Unit)? = null
+    /** One of Feather's own widgets was picked. */
+    var onFeatherPicked: ((FeatherKind) -> Unit)? = null
 
     private val manager = AppWidgetManager.getInstance(activity)
     private val density = activity.resources.displayMetrics.density
@@ -95,14 +95,13 @@ class Widgets(
 
     // region Picker
 
-    /** Opens the widget picker: the built-in clock first, then widgets grouped by app, each with its preview. */
+    /** Opens the widget picker: Feather's own widgets first, then widgets grouped by app, each with its preview. */
     fun pick() {
         val pm = activity.packageManager
         val collator = Collator.getInstance()
         val rows = ArrayList<PickerRow>()
         rows += PickerRow.Header(null, "Feather Launcher")
-        rows += PickerRow.Clock
-        rows += PickerRow.Glance
+        FeatherKind.entries.forEach { rows += PickerRow.Feather(it) }
         manager.installedProviders
             .groupBy { it.provider.packageName }
             .map { (pkg, infos) ->
@@ -130,9 +129,9 @@ class Widgets(
                     overlays.dismiss()
                     bind(row.info)
                 }
-                PickerRow.Clock, PickerRow.Glance -> {
+                is PickerRow.Feather -> {
                     overlays.dismiss()
-                    onClockPicked?.invoke(row == PickerRow.Glance)
+                    onFeatherPicked?.invoke(row.kind)
                 }
                 else -> Unit
             }
@@ -143,8 +142,7 @@ class Widgets(
     private sealed class PickerRow {
         class Header(val packageName: String?, val app: String) : PickerRow()
         class Widget(val info: AppWidgetProviderInfo, val name: String) : PickerRow()
-        object Clock : PickerRow()
-        object Glance : PickerRow()
+        class Feather(val kind: FeatherKind) : PickerRow()
     }
 
     private inner class PickerAdapter(private val rows: List<PickerRow>) : BaseAdapter() {
@@ -157,7 +155,7 @@ class Widgets(
         override fun getItemViewType(position: Int) = when (rows[position]) {
             is PickerRow.Header -> 0
             is PickerRow.Widget -> 1
-            PickerRow.Clock, PickerRow.Glance -> 2
+            is PickerRow.Feather -> 2
         }
         override fun isEnabled(position: Int) = rows[position] !is PickerRow.Header
 
@@ -180,18 +178,17 @@ class Widgets(
                     (view.getChildAt(1) as TextView).text = row.app
                     view
                 }
-                PickerRow.Clock, PickerRow.Glance -> {
+                is PickerRow.Feather -> {
                     val view = convertView as? FrameLayout ?: widgetCard(p)
                     val parts = cardParts(view)
-                    val glance = row == PickerRow.Glance
                     parts.preview.setImageDrawable(null)
                     parts.preview.visibility = View.GONE
                     parts.sample.visibility = View.VISIBLE
-                    // At a glance's stand-in is its date line instead of the time.
-                    parts.sample.text = if (glance) "Tue, Oct 27 · 16 Cheshvan" else "12:30"
-                    parts.sample.setTextSize(TypedValue.COMPLEX_UNIT_SP, if (glance) 20f else 44f)
-                    parts.name.text = if (glance) "At a glance" else "Clock"
-                    parts.size.text = if (glance) "4 × 1" else "4 × 2"
+                    // A few words in place of a picture; the clock's is its time, in large type.
+                    parts.sample.text = row.kind.sample
+                    parts.sample.setTextSize(TypedValue.COMPLEX_UNIT_SP, if (row.kind == FeatherKind.CLOCK) 44f else 22f)
+                    parts.name.text = row.kind.label
+                    parts.size.text = "${row.kind.w} × ${row.kind.h}"
                     view
                 }
                 is PickerRow.Widget -> {

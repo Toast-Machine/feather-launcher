@@ -6,9 +6,9 @@ import java.util.Calendar
 import java.util.Date
 
 /**
- * At a glance: what the clock shows under the time. A date line (the date, the second
- * calendar's, today's holiday, the weather), a line about this week (the parsha, the Omer,
- * Daf Yomi), and up to two things coming up, the most pressing first. Each part can be turned
+ * At a glance: what the clock shows under the time. The date; a quieter line with the second
+ * calendar's date, today's holiday, the parsha, the Omer and Daf Yomi; then the weather and up
+ * to two things coming up, the most pressing first. Each part can be turned
  * off in Calendar and times, and each only shows when it matters. The Jewish parts are there
  * with the Hebrew calendar.
  */
@@ -19,7 +19,7 @@ class Glance(private val context: Context) {
     /** One thing coming up; lower [rank] is more pressing. */
     class Item(val icon: Int, val text: String, val tap: Tap, val rank: Int, val event: ClockInfo.Event? = null)
 
-    class Lines(val date: String, val week: String?, val coming: List<Item>, val place: ClockInfo.Place?)
+    class Lines(val date: String, val detail: String?, val weather: Weather.Now?, val coming: List<Item>, val place: ClockInfo.Place?)
 
     private val info = ClockInfo(context)
 
@@ -35,11 +35,12 @@ class Glance(private val context: Context) {
         // The Jewish day turns over at shkiah.
         val jewishDay = if (sunset != null && now >= sunset) today + 1 else today
 
-        val date = mutableListOf(info.dateLine(now, place))
-        if (jewish && prefs.glanceHolidays) date += JewishCalendar.holidays(jewishDay, israel)
-        if (prefs.glanceWeather && place != null) Weather.at(place, weatherLoaded)?.let { date += "${it.temperature}°" }
+        val date = android.text.format.DateFormat.format("EEEE, MMMM d", now).toString()
+        val weather = if (prefs.glanceWeather && place != null) Weather.at(place, weatherLoaded) else null
 
         val week = mutableListOf<String>()
+        prefs.secondCalendar.format(now, sunset)?.let { week += it }
+        if (jewish && prefs.glanceHolidays) week += JewishCalendar.holidays(jewishDay, israel)
         if (jewish) {
             if (prefs.glanceParsha) JewishCalendar.parshaOfWeek(jewishDay, israel)?.let { week += "Parshas $it" }
             if (prefs.glanceOmer) JewishCalendar.omer(jewishDay)?.let { week += JewishCalendar.omerText(it) }
@@ -93,8 +94,7 @@ class Glance(private val context: Context) {
             coming += Item(R.drawable.ic_time, "${z.name} ${placeTime.format(Date(z.time))}", Tap.ZMANIM, 7)
         }
 
-        return Lines(date.joinToString(" · "), week.joinToString(" · ").ifEmpty { null },
-            coming.sortedBy { it.rank }.take(2), place)
+        return Lines(date, week.joinToString(" · ").ifEmpty { null }, weather, coming.sortedBy { it.rank }.take(2), place)
     }
 
     /** The next holiday in the coming week that isn't today's: "Tomorrow: Purim", "Pesach in 3 days". */

@@ -148,7 +148,7 @@ class CalendarSettings(private val s: SettingsActivity) {
     }
 
     private fun searchCity() {
-        s.overlays.showInput("Search for a city", "", "City or town") { query ->
+        s.overlays.showInput("Search for a city", "", "City or town", action = "Search") { query ->
             if (query.isBlank()) return@showInput
             val main = Handler(Looper.getMainLooper())
             Thread {

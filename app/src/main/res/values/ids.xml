@@ -1,3 +1,5 @@
 <resources>
     <item name="sheet" type="id" />
+    <!-- A row FitColumn left out for lack of room, to try again next time. -->
+    <item name="fit_hidden" type="id" />
 </resources>

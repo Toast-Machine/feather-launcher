@@ -140,6 +140,7 @@ class HomeScreen(
         for (item in workspace.items) {
             val view = views[item.id] ?: createView(item)?.also { views[item.id] = it } ?: continue
             (view as? ClockWidget)?.refresh()
+            (view as? CardWidget)?.refresh()
             if (view is AppIconView) {
                 val showLabel = !item.inDock && prefs.showLabels
                 if (item.type == HomeItem.Type.FOLDER) {
@@ -185,7 +186,25 @@ class HomeScreen(
             setOnClickListener { openFolder(item) }
             setOnLongClickListener { onItemLongPress(item, it); true }
         }
-        HomeItem.Type.CLOCK -> ClockWidget(activity, item).apply {
+        // Feather's widgets on cards; the clock and At a glance below.
+        HomeItem.Type.CLOCK -> CardWidget.create(activity, item)?.apply {
+            when (this) {
+                is AgendaWidget -> {
+                    onEvent = { e -> host.startSafely(Intent(Intent.ACTION_VIEW, ContentUris.withAppendedId(CalendarContract.Events.CONTENT_URI, e.id))) }
+                    onCalendar = {
+                        val uri = CalendarContract.CONTENT_URI.buildUpon().appendPath("time")
+                        ContentUris.appendId(uri, System.currentTimeMillis())
+                        host.startSafely(Intent(Intent.ACTION_VIEW, uri.build()))
+                    }
+                    onAllow = {
+                        activity.startActivity(Intent(activity, SettingsActivity::class.java)
+                            .putExtra(SettingsActivity.EXTRA_PAGE, SettingsActivity.Page.CALENDAR.name))
+                    }
+                }
+                is ZmanimWidget -> onOpen = { place -> ZmanimSheet.show(activity, palette(), overlays, place) }
+            }
+            setOnLongClickListener { onItemLongPress(item, it); true }
+        } ?: ClockWidget(activity, item).apply {
             apply(prefs.clockOptions(item.id))
             foreground = Ui.focusRing(activity, Ui.RADIUS_L, 0xFFFFFFFF.toInt())
             setOnClickListener { host.startSafely(Intent(AlarmClock.ACTION_SHOW_ALARMS)) }
@@ -251,8 +270,13 @@ class HomeScreen(
     fun addWidget(appWidgetId: Int, spanX: Int, spanY: Int) = addItem(spanX, spanY, HomeItem.Type.WIDGET, appWidgetId.toString())
 
     /** The clock, or At a glance: the same lines without the time, in a shorter space. */
-    fun addClock(glance: Boolean) =
-        if (glance) addItem(Workspace.COLS, 1, HomeItem.Type.CLOCK, ClockWidget.AT_A_GLANCE) else addItem(Workspace.COLS, 2, HomeItem.Type.CLOCK, "")
+    fun addFeather(kind: FeatherKind) {
+        addItem(kind.w, kind.h, HomeItem.Type.CLOCK, kind.ref)
+        // A World clock needs its city, a Countdown what it counts to.
+        val added = workspace.items.lastOrNull { it.type == HomeItem.Type.CLOCK && it.ref == kind.ref } ?: return
+        if (kind == FeatherKind.WORLD) activity.window.decorView.postDelayed({ chooseCity(added) }, 400)
+        if (kind == FeatherKind.COUNTDOWN) activity.window.decorView.postDelayed({ countdownSheet(added) }, 400)
+    }
 
     private fun addItem(w: Int, h: Int, type: HomeItem.Type, ref: String) {
         val order = listOf(pages.currentPage) + (0 until workspace.pageCount).filter { it != pages.currentPage }
@@ -324,8 +348,8 @@ class HomeScreen(
                 MenuItem("Rename", R.drawable.ic_edit) { rename(item, FOLDER_NAME) },
                 MenuItem("Remove", R.drawable.ic_close, danger = true) { remove(item) },
             ), anchor, folderIcon(item))
-            HomeItem.Type.CLOCK -> overlays.showMenu(clockName(item), listOf(
-                MenuItem("${clockName(item)} settings", R.drawable.ic_settings) { clockSettings(item) },
+            HomeItem.Type.CLOCK -> overlays.showMenu(clockName(item), listOfNotNull(
+                featherSettings(item),
                 MenuItem("Resize", R.drawable.ic_height) { startResize(item) },
                 MenuItem("Remove", R.drawable.ic_close, danger = true) { remove(item) },
             ), anchor)
@@ -540,7 +564,80 @@ class HomeScreen(
         setOnClickListener { onClick() }
     }
 
-    private fun clockName(item: HomeItem) = if (item.ref == ClockWidget.AT_A_GLANCE) "At a glance" else "Clock"
+    private fun clockName(item: HomeItem) = FeatherKind.of(item).label
+
+    /** What a Feather widget's settings are, if it has any. */
+    private fun featherSettings(item: HomeItem): MenuItem? = when (FeatherKind.of(item)) {
+        FeatherKind.CLOCK, FeatherKind.GLANCE -> MenuItem("${clockName(item)} settings", R.drawable.ic_settings) { clockSettings(item) }
+        FeatherKind.WORLD -> MenuItem("Choose city", R.drawable.ic_location) { chooseCity(item) }
+        FeatherKind.COUNTDOWN -> MenuItem("Count to…", R.drawable.ic_hourglass) { countdownSheet(item) }
+        else -> null
+    }
+
+    /** A World clock's city, searched for by name. */
+    private fun chooseCity(item: HomeItem) {
+        overlays.showInput("City for the world clock", "", "City or town", action = "Search") { query ->
+            if (query.isBlank()) return@showInput
+            Thread {
+                val found = ClockInfo.search(query)
+                activity.runOnUiThread {
+                    if (found.isNullOrEmpty()) {
+                        android.widget.Toast.makeText(activity, if (found == null) "Couldn't search. Check that you're online." else "No places called \"$query\"",
+                            android.widget.Toast.LENGTH_SHORT).show()
+                        return@runOnUiThread
+                    }
+                    val p = palette()
+                    val column = LinearLayout(activity).apply {
+                        orientation = LinearLayout.VERTICAL
+                        setPadding(0, 0, 0, dp(Ui.SPACE_M))
+                        found.forEach { place ->
+                            addView(Components.row(activity, p, R.drawable.ic_location, place.name, subtitle = place.area) {
+                                prefs.setWidgetPlace(item.id, place)
+                                overlays.dismiss()
+                                (views[item.id] as? CardWidget)?.refresh()
+                            })
+                        }
+                    }
+                    overlays.showSheet("Choose a place", column)
+                }
+            }.start()
+        }
+    }
+
+    /** What a Countdown counts to: the next Shabbos or Yom Tov, or a date and a name. */
+    private fun countdownSheet(item: HomeItem) {
+        val p = palette()
+        val jewish = prefs.secondCalendar == SecondCalendar.HEBREW
+        fun save(target: org.json.JSONObject) {
+            prefs.setCountdown(item.id, target)
+            overlays.dismiss()
+            (views[item.id] as? CardWidget)?.refresh()
+        }
+        val column = LinearLayout(activity).apply {
+            orientation = LinearLayout.VERTICAL
+            setPadding(0, 0, 0, dp(Ui.SPACE_M))
+            if (jewish) {
+                addView(Components.row(activity, p, R.drawable.ic_sunset, "Next Shabbos", subtitle = "Until candle lighting") {
+                    save(org.json.JSONObject().put("kind", "shabbos"))
+                })
+                addView(Components.row(activity, p, R.drawable.ic_calendar, "Next Yom Tov", subtitle = "Until candle lighting") {
+                    save(org.json.JSONObject().put("kind", "yomtov"))
+                })
+            }
+            addView(Components.row(activity, p, R.drawable.ic_edit, "A date", subtitle = "Choose the day and what to call it") {
+                overlays.dismiss()
+                val now = java.util.Calendar.getInstance()
+                android.app.DatePickerDialog(activity, { _, y, m, d ->
+                    val day = java.util.Calendar.getInstance().apply { clear(); set(y, m, d) }.timeInMillis
+                    overlays.showInput("What's on that day?", "", "Name") { title ->
+                        prefs.setCountdown(item.id, org.json.JSONObject().put("title", title.ifBlank { "the day" }).put("time", day))
+                        (views[item.id] as? CardWidget)?.refresh()
+                    }
+                }, now.get(java.util.Calendar.YEAR), now.get(java.util.Calendar.MONTH), now.get(java.util.Calendar.DAY_OF_MONTH)).show()
+            })
+        }
+        overlays.showSheet("Count to", column)
+    }
 
     private fun clockSettings(item: HomeItem) {
         val p = palette()
@@ -1132,7 +1229,7 @@ class HomeScreen(
         val p = palette()
         val actions = mutableListOf<MenuItem>()
         when (item.type) {
-            HomeItem.Type.CLOCK -> actions += MenuItem("${clockName(item)} settings", R.drawable.ic_settings) { clockSettings(item) }
+            HomeItem.Type.CLOCK -> featherSettings(item)?.let { actions += it }
             HomeItem.Type.WIDGET -> if (widgets.canReconfigure(item.ref.toInt())) {
                 actions += MenuItem("Settings", R.drawable.ic_settings) { widgets.reconfigure(item.ref.toInt()) }
             }

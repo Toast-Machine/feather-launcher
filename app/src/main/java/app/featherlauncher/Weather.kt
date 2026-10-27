@@ -12,7 +12,13 @@ import java.util.Locale
  * In Fahrenheit where that's what people use, Celsius everywhere else.
  */
 object Weather {
-    class Now(val temperature: Int, val high: Int, val low: Int, val description: String)
+    class Now(
+        val temperature: Int, val high: Int, val low: Int, val description: String, val sky: Sky, val night: Boolean,
+        /** The coming hours and days, for the Weather widget. */
+        val hours: List<Hour> = emptyList(), val days: List<Day> = emptyList(),
+    )
+    class Hour(val time: Long, val temperature: Int, val sky: Sky, val night: Boolean)
+    class Day(val time: Long, val high: Int, val low: Int, val sky: Sky)
 
     private const val FRESH = 30 * 60_000L
     private val main = Handler(Looper.getMainLooper())
@@ -46,7 +52,8 @@ object Weather {
     private fun fetch(place: ClockInfo.Place): Now {
         val unit = if (fahrenheit) "&temperature_unit=fahrenheit" else ""
         val url = "https://api.open-meteo.com/v1/forecast?latitude=${place.lat}&longitude=${place.lon}" +
-            "&current=temperature_2m,weather_code&daily=temperature_2m_max,temperature_2m_min&forecast_days=1&timezone=auto$unit"
+            "&current=temperature_2m,weather_code,is_day&hourly=temperature_2m,weather_code,is_day" +
+            "&daily=temperature_2m_max,temperature_2m_min,weather_code&forecast_days=5&timezone=auto&timeformat=unixtime$unit"
         val text = (URL(url).openConnection() as HttpURLConnection).run {
             connectTimeout = 10_000
             readTimeout = 15_000
@@ -55,12 +62,37 @@ object Weather {
         val o = JSONObject(text)
         val current = o.getJSONObject("current")
         val daily = o.getJSONObject("daily")
+        val code = current.getInt("weather_code")
+        val hourly = o.getJSONObject("hourly")
+        val now = System.currentTimeMillis() / 1000
+        val hours = (0 until hourly.getJSONArray("time").length())
+            .filter { hourly.getJSONArray("time").getLong(it) > now }
+            .take(24)
+            .map { i ->
+                Hour(hourly.getJSONArray("time").getLong(i) * 1000, Math.round(hourly.getJSONArray("temperature_2m").getDouble(i)).toInt(),
+                    sky(hourly.getJSONArray("weather_code").getInt(i)), hourly.getJSONArray("is_day").getInt(i) == 0)
+            }
+        val days = (0 until daily.getJSONArray("time").length()).map { i ->
+            Day(daily.getJSONArray("time").getLong(i) * 1000, Math.round(daily.getJSONArray("temperature_2m_max").getDouble(i)).toInt(),
+                Math.round(daily.getJSONArray("temperature_2m_min").getDouble(i)).toInt(), sky(daily.getJSONArray("weather_code").getInt(i)))
+        }
         return Now(
             Math.round(current.getDouble("temperature_2m")).toInt(),
             Math.round(daily.getJSONArray("temperature_2m_max").getDouble(0)).toInt(),
             Math.round(daily.getJSONArray("temperature_2m_min").getDouble(0)).toInt(),
-            describe(current.getInt("weather_code")),
+            describe(code), sky(code), current.optInt("is_day", 1) == 0, hours, days,
         )
+    }
+
+    private fun sky(code: Int) = when (code) {
+        0 -> Sky.CLEAR
+        1, 2 -> Sky.PARTLY
+        3 -> Sky.CLOUDY
+        45, 48 -> Sky.FOG
+        in 71..77, 85, 86 -> Sky.SNOW
+        in 95..99 -> Sky.STORM
+        in 51..67, in 80..82 -> Sky.RAIN
+        else -> Sky.CLOUDY
     }
 
     /** The WMO weather codes Open-Meteo uses, in a word or two. */

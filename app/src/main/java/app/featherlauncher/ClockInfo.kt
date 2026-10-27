@@ -29,7 +29,7 @@ class ClockInfo(private val context: Context) {
             }.getOrNull()
         }
     }
-    class Event(val id: Long, val title: String, val begin: Long)
+    class Event(val id: Long, val title: String, val begin: Long, val allDay: Boolean = false)
 
     private val prefs = Prefs(context)
 
@@ -53,6 +53,29 @@ class ClockInfo(private val context: Context) {
         val date = android.text.format.DateFormat.format("EEE, MMMM d", now).toString()
         val sunset = place?.let { Zmanim.sun(now, it, Zmanim.SUNRISE, false) }
         return listOfNotNull(date, prefs.secondCalendar.format(now, sunset)).joinToString(" · ")
+    }
+
+    /** Events from [from] to [to], soonest first, all-day ones included; empty without calendar access. */
+    fun events(from: Long, to: Long, limit: Int): List<Event> {
+        if (context.checkSelfPermission(Manifest.permission.READ_CALENDAR) != PackageManager.PERMISSION_GRANTED) return emptyList()
+        val uri = CalendarContract.Instances.CONTENT_URI.buildUpon().also {
+            ContentUris.appendId(it, from)
+            ContentUris.appendId(it, to)
+        }.build()
+        return runCatching {
+            context.contentResolver.query(uri,
+                arrayOf(CalendarContract.Instances.EVENT_ID, CalendarContract.Instances.TITLE, CalendarContract.Instances.BEGIN,
+                    CalendarContract.Instances.END, CalendarContract.Instances.ALL_DAY),
+                "${CalendarContract.Instances.END} > ? AND ${CalendarContract.Instances.VISIBLE} = 1",
+                arrayOf(from.toString()), "${CalendarContract.Instances.ALL_DAY} DESC, ${CalendarContract.Instances.BEGIN} ASC",
+            )?.use { c ->
+                val list = ArrayList<Event>()
+                while (c.moveToNext() && list.size < limit) {
+                    list += Event(c.getLong(0), c.getString(1).orEmpty().ifEmpty { "Event" }, c.getLong(2), c.getInt(4) == 1)
+                }
+                list
+            }.orEmpty()
+        }.getOrDefault(emptyList())
     }
 
     /** The next timed event in the coming day, if calendar access was given. */

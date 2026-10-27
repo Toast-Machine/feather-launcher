@@ -295,12 +295,12 @@ class Overlays(private val root: FrameLayout, private val palette: () -> Palette
         show(card, scrimAlpha = 0x80)
     }
 
-    /** A sheet with one text field and a Save button, for naming things. */
+    /** A sheet with one text field and a Save button (or [action]), for naming things or searching. */
     /** Like [showInput], but saving an empty field is allowed (it clears the value). */
     fun showInputAllowingEmpty(title: String, value: String, hint: String, onSave: (String) -> Unit) =
         showInput(title, value, hint, allowEmpty = true, onSave = onSave)
 
-    fun showInput(title: String, value: String, hint: String, allowEmpty: Boolean = false, onSave: (String) -> Unit) {
+    fun showInput(title: String, value: String, hint: String, allowEmpty: Boolean = false, action: String = "Save", onSave: (String) -> Unit) {
         val p = palette()
         val ctx = root.context
         val field = android.widget.EditText(ctx).apply {
@@ -327,7 +327,7 @@ class Overlays(private val root: FrameLayout, private val palette: () -> Palette
             addView(field, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(50)))
             addView(LinearLayout(ctx).apply {
                 gravity = Gravity.END
-                addView(Components.pillButton(ctx, "Save", p.accent, p.onAccent) { save() },
+                addView(Components.pillButton(ctx, action, p.accent, p.onAccent) { save() },
                     LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, dp(42)))
             }, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply {
                 topMargin = dp(Ui.SPACE_M)
