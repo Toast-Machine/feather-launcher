@@ -135,9 +135,15 @@ class Prefs(context: Context) {
 
     // The clock's extra lines, and how zmanim are worked out.
 
-    var clockHebrewDate: Boolean
-        get() = sp.getBoolean("clock_hebrew", true)
-        set(value) = sp.edit().putBoolean("clock_hebrew", value).apply()
+    /** The calendar whose date shows next to the usual one. */
+    var secondCalendar: SecondCalendar
+        get() = runCatching { SecondCalendar.valueOf(sp.getString("second_calendar", null)!!) }.getOrDefault(SecondCalendar.HEBREW)
+        set(value) = sp.edit().putString("second_calendar", value.name).apply()
+
+    /** Jewish zmanim (true), or just sunrise and sunset. */
+    var dailyZmanim: Boolean
+        get() = sp.getBoolean("daily_zmanim", true)
+        set(value) = sp.edit().putBoolean("daily_zmanim", value).apply()
 
     var clockZman: Boolean
         get() = sp.getBoolean("clock_zman", true)
@@ -156,10 +162,10 @@ class Prefs(context: Context) {
         get() = sp.getInt("candle_minutes", 18)
         set(value) = sp.edit().putInt("candle_minutes", value).apply()
 
-    /** A chosen city for zmanim, or null to use where the phone is. */
-    var zmanCity: String?
-        get() = sp.getString("zman_city", null)
-        set(value) = sp.edit().putString("zman_city", value).apply()
+    /** A chosen city, or null to use where the phone is. Everything that needs a place uses this one. */
+    var chosenPlace: ClockInfo.Place?
+        get() = sp.getString("place", null)?.let { ClockInfo.Place.fromJson(it) }
+        set(value) = sp.edit().putString("place", value?.toJson()).apply()
 
     /** The phone's last known position, kept for when it can't be found. */
     var lastPlace: Pair<Double, Double>?

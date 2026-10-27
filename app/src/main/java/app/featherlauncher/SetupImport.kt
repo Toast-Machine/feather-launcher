@@ -42,6 +42,20 @@ class SetupImport : BroadcastReceiver() {
             Backup.restore(context, text)
             return
         }
+        // Zmanim for a span of days, for checking them against another source:
+        // --es zmanim "lat,lon,zone,yyyy-mm-dd,days[,mga]" writes zmanim.csv to the app's files folder.
+        intent.getStringExtra("zmanim")?.let { spec ->
+            val parts = spec.split(',')
+            val place = ClockInfo.Place("Check", parts[0].toDouble(), parts[1].toDouble(), java.util.TimeZone.getTimeZone(parts[2]))
+            val start = java.text.SimpleDateFormat("yyyy-MM-dd").apply { timeZone = place.zone }.parse(parts[3])!!.time + 12 * 3600_000L
+            val time = java.text.SimpleDateFormat("yyyy-MM-dd HH:mm:ss").apply { timeZone = place.zone }
+            val lines = (0 until parts[4].toInt()).flatMap { d ->
+                Zmanim.forDay(start + d * 86_400_000L, place, parts.getOrNull(5) == "mga", 18).map { "${it.name},${time.format(java.util.Date(it.time))}" }
+            }
+            val out = java.io.File(context.getExternalFilesDir(null), "zmanim.csv")
+            out.writeText(lines.joinToString("\n"))
+            return setResult(0, out.path, null)
+        }
         // A sheet of every app's icon, normal and dark side by side, for checking dark icons.
         if (intent.hasExtra("iconsheet")) {
             val pm = context.packageManager

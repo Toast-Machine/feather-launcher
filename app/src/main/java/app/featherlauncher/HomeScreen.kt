@@ -555,9 +555,9 @@ class HomeScreen(
         })
         // What the clock shows besides the time is the same for every clock, so it's in Settings.
         column.addView(android.view.View(activity), LinearLayout.LayoutParams(1, dp(Ui.SPACE_M)))
-        column.addView(Components.row(activity, p, R.drawable.ic_calendar, "Hebrew date, zmanim and events", chevron = true) {
+        column.addView(Components.row(activity, p, R.drawable.ic_calendar, "Calendar and times", chevron = true) {
             overlays.dismiss()
-            activity.startActivity(Intent(activity, SettingsActivity::class.java).putExtra(SettingsActivity.EXTRA_PAGE, SettingsActivity.Page.CLOCK.name))
+            activity.startActivity(Intent(activity, SettingsActivity::class.java).putExtra(SettingsActivity.EXTRA_PAGE, SettingsActivity.Page.CALENDAR.name))
         })
         overlays.showSheet("Clock", column)
     }

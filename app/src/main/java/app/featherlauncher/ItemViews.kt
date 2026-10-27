@@ -173,7 +173,10 @@ class ClockWidget(context: Context, val item: HomeItem) : LinearLayout(context) 
         place = info.place()
         date.text = info.dateLine(now, place)
         val next = place?.takeIf { prefs.clockZman }?.let { info.nextZman(now, it) }
-        zman.text = next?.let { "${it.name} ${android.text.format.DateFormat.getTimeFormat(context).format(java.util.Date(it.time))}" }
+        zman.text = next?.let { z ->
+            val format = android.text.format.DateFormat.getTimeFormat(context).apply { timeZone = place!!.zone }
+            "${z.name} ${format.format(java.util.Date(z.time))}"
+        }
         zman.visibility = if (next != null) VISIBLE else GONE
         nextEvent = if (prefs.clockEvent) info.nextEvent(now) else null
         event.text = nextEvent?.let { e ->

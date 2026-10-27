@@ -34,7 +34,7 @@ class SettingsActivity : Activity() {
 
     /** Each feature has its own page; the main page links to them. */
     enum class Page(val title: String) {
-        MAIN("Settings"), APPEARANCE("Appearance"), APP_LIST("App list"), CLOCK("Clock"), KEYS("Gestures and keys"),
+        MAIN("Settings"), APPEARANCE("Appearance"), APP_LIST("App list"), CALENDAR("Calendar and times"), KEYS("Gestures and keys"),
         LIMITS("App limits"), LIMIT("App limit"), NOTIFICATIONS("Notifications"), HIDDEN("Hidden apps"), SHORTCUT("Shortcut"),
         FILTER("Filter"), NOTIFICATION_HISTORY("Hidden notifications"),
     }
@@ -187,7 +187,7 @@ class SettingsActivity : Activity() {
             Page.FILTER -> NotificationSettings(this).buildFilter(p)
             Page.NOTIFICATION_HISTORY -> NotificationSettings(this).buildHistory(p)
             Page.HIDDEN -> hidden(p)
-            Page.CLOCK -> ClockSettings(this).build(p)
+            Page.CALENDAR -> CalendarSettings(this).build(p)
             Page.LIMITS -> LimitSettings(this).build(p)
             Page.LIMIT -> LimitSettings(this).buildLimit(p)
         }
@@ -258,9 +258,11 @@ class SettingsActivity : Activity() {
                 "${prefs.themeMode.label} · ${if (prefs.accentColor == 0) "Wallpaper colors" else "Custom color"}"),
             pageRow(p, R.drawable.ic_app_list, Page.APP_LIST,
                 "${if (prefs.drawerCategories) "Categories" else "All apps"} · ${if (prefs.drawerGrid) "Grid" else "List"}"),
-            pageRow(p, R.drawable.ic_time, Page.CLOCK, listOfNotNull(
-                "Hebrew date".takeIf { prefs.clockHebrewDate }, "Zmanim".takeIf { prefs.clockZman }, "Events".takeIf { prefs.clockEvent },
-            ).joinToString(" · ").ifEmpty { "Time and date" }),
+            pageRow(p, R.drawable.ic_calendar, Page.CALENDAR, listOfNotNull(
+                prefs.chosenPlace?.name ?: "Current location",
+                prefs.secondCalendar.takeIf { it != SecondCalendar.NONE }?.let { "${it.label} date" },
+                if (prefs.dailyZmanim) "Zmanim" else "Sunrise and sunset",
+            ).joinToString(" · ")),
         )))
         content.addView(spacer())
         content.addView(Components.group(this, p, listOf(

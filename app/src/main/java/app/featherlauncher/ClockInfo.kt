@@ -6,17 +6,36 @@ import android.content.Context
 import android.content.pm.PackageManager
 import android.location.LocationManager
 import android.provider.CalendarContract
+import org.json.JSONObject
+import java.util.TimeZone
+import kotlin.math.abs
 
 /** What the clock shows under the time: the dates, the next zman and the next event. */
 class ClockInfo(private val context: Context) {
-    class Place(val name: String, val lat: Double, val lon: Double)
+    /** Where zmanim and the calendar are worked out for, in its own time zone. [area] is "New York, United States". */
+    class Place(val name: String, val lat: Double, val lon: Double, val zone: TimeZone = TimeZone.getDefault(), val area: String? = null) {
+        /** In Eretz Yisrael: one day of Yom Tov, and the parsha read there. */
+        val inIsrael get() = zone.id in ISRAEL_ZONES
+
+        fun toJson(): String = JSONObject().put("name", name).put("lat", lat).put("lon", lon).put("zone", zone.id).put("area", area).toString()
+
+        companion object {
+            private val ISRAEL_ZONES = setOf("Asia/Jerusalem", "Asia/Tel_Aviv", "Asia/Hebron")
+
+            fun fromJson(json: String): Place? = runCatching {
+                val o = JSONObject(json)
+                Place(o.getString("name"), o.getDouble("lat"), o.getDouble("lon"), TimeZone.getTimeZone(o.getString("zone")),
+                    o.optString("area").ifEmpty { null })
+            }.getOrNull()
+        }
+    }
     class Event(val id: Long, val title: String, val begin: Long)
 
     private val prefs = Prefs(context)
 
     /** The chosen city, else where the phone is (or last was); null if neither is known. */
     fun place(): Place? {
-        prefs.zmanCity?.let { name -> CITIES.firstOrNull { it.name == name }?.let { return it } }
+        prefs.chosenPlace?.let { return it }
         if (context.checkSelfPermission(Manifest.permission.ACCESS_COARSE_LOCATION) == PackageManager.PERMISSION_GRANTED) {
             val lm = context.getSystemService(LocationManager::class.java)
             val fix = lm.getProviders(true).mapNotNull { runCatching { lm.getLastKnownLocation(it) }.getOrNull() }.maxByOrNull { it.time }
@@ -25,16 +44,15 @@ class ClockInfo(private val context: Context) {
         return prefs.lastPlace?.let { (lat, lon) -> Place("Current location", lat, lon) }
     }
 
-    fun zmanim(day: Long, place: Place) = Zmanim.forDay(day, place.lat, place.lon, prefs.zmanMagenAvraham, prefs.candleMinutes)
+    fun zmanim(day: Long, place: Place) = Zmanim.forDay(day, place, prefs.zmanMagenAvraham, prefs.candleMinutes, sunOnly = !prefs.dailyZmanim)
 
-    fun nextZman(now: Long, place: Place) = Zmanim.next(now, place.lat, place.lon, prefs.zmanMagenAvraham, prefs.candleMinutes)
+    fun nextZman(now: Long, place: Place) = Zmanim.next(now, place, prefs.zmanMagenAvraham, prefs.candleMinutes, sunOnly = !prefs.dailyZmanim)
 
-    /** "Mon, October 26 · 25 Tishrei". */
+    /** "Mon, October 26 · 25 Tishrei", with the second calendar's date if one is chosen. */
     fun dateLine(now: Long, place: Place?): String {
         val date = android.text.format.DateFormat.format("EEE, MMMM d", now).toString()
-        if (!prefs.clockHebrewDate) return date
-        val sunset = place?.let { Zmanim.sun(now, it.lat, it.lon, 90.833, false) }
-        return "$date · ${Zmanim.hebrewDate(now, sunset)}"
+        val sunset = place?.let { Zmanim.sun(now, it, Zmanim.SUNRISE, false) }
+        return listOfNotNull(date, prefs.secondCalendar.format(now, sunset)).joinToString(" · ")
     }
 
     /** The next timed event in the coming day, if calendar access was given. */
@@ -56,22 +74,97 @@ class ClockInfo(private val context: Context) {
     companion object {
         private const val DAY = 24 * 60 * 60_000L
 
-        /** Places to pick for zmanim when the phone's location isn't wanted. */
-        val CITIES = listOf(
-            Place("New York", 40.7128, -74.0060),
-            Place("Brooklyn", 40.6782, -73.9442),
-            Place("Monsey", 41.1112, -74.0685),
-            Place("Lakewood", 40.0821, -74.2097),
-            Place("Five Towns", 40.6290, -73.7271),
-            Place("Teaneck", 40.8932, -74.0116),
-            Place("Baltimore", 39.2904, -76.6122),
-            Place("Miami", 25.7617, -80.1918),
-            Place("Chicago", 41.8781, -87.6298),
-            Place("Los Angeles", 34.0522, -118.2437),
-            Place("Toronto", 43.6532, -79.3832),
-            Place("London", 51.5074, -0.1278),
-            Place("Jerusalem", 31.7683, 35.2137),
-            Place("Bnei Brak", 32.0807, 34.8338),
+        /**
+         * Places matching [query]: Jewish communities first (from [COMMUNITIES], so they're found
+         * however they're spelled, even offline), then Open-Meteo's free place search (no account),
+         * with their time zones. Runs on the calling thread; null if nothing was found and the
+         * search couldn't be reached.
+         */
+        fun search(query: String): List<Place>? {
+            val key = simplify(query)
+            val known = COMMUNITIES.filter { (place, names) -> (names + place.name).any { simplify(it).startsWith(key) || key.length > 3 && simplify(it).contains(key) } }
+                .map { it.first }
+            val found = searchOnline(query)
+            if (found == null && known.isEmpty()) return null
+            // The same town from both lists shows once.
+            return known + found.orEmpty().filter { f -> known.none { k -> k.name == f.name && abs(k.lat - f.lat) < 0.2 && abs(k.lon - f.lon) < 0.2 } }
+        }
+
+        private fun simplify(name: String) = name.lowercase().filter { it.isLetterOrDigit() }
+
+        private fun searchOnline(query: String): List<Place>? = runCatching {
+            val url = "https://geocoding-api.open-meteo.com/v1/search?count=10&language=en&format=json&name=" +
+                java.net.URLEncoder.encode(query.trim(), "UTF-8")
+            val text = (java.net.URL(url).openConnection() as java.net.HttpURLConnection).run {
+                connectTimeout = 10_000
+                readTimeout = 15_000
+                inputStream.bufferedReader().use { it.readText() }
+            }
+            val results = JSONObject(text).optJSONArray("results") ?: return@runCatching emptyList()
+            (0 until results.length()).map { i ->
+                val o = results.getJSONObject(i)
+                val area = listOf(o.optString("admin1"), o.optString("country")).filter { it.isNotEmpty() && it != o.getString("name") }
+                Place(o.getString("name"), o.getDouble("latitude"), o.getDouble("longitude"),
+                    TimeZone.getTimeZone(o.optString("timezone").ifEmpty { "UTC" }), area.joinToString(", ").ifEmpty { null })
+            }
+        }.getOrNull()
+
+        private fun il(name: String, lat: Double, lon: Double, vararg also: String) =
+            Place(name, lat, lon, TimeZone.getTimeZone("Asia/Jerusalem"), "Israel") to also.toList()
+
+        private fun at(name: String, lat: Double, lon: Double, zone: String, area: String, vararg also: String) =
+            Place(name, lat, lon, TimeZone.getTimeZone(zone), area) to also.toList()
+
+        /** Jewish communities, with the other ways their names are written. */
+        val COMMUNITIES: List<Pair<Place, List<String>>> = listOf(
+            il("Jerusalem", 31.7683, 35.2137, "Yerushalayim", "Yerushalaim"),
+            il("Bnei Brak", 32.0807, 34.8338, "Bene Beraq", "Bnai Brak"),
+            il("Beitar Illit", 31.6969, 35.1153, "Betar Illit", "Beitar Ilit", "Betar"),
+            il("Modiin Illit", 31.9330, 35.0410, "Kiryat Sefer", "Kiryas Sefer", "Modi'in Illit"),
+            il("Beit Shemesh", 31.7470, 34.9881, "Bet Shemesh", "Ramat Beit Shemesh", "RBS"),
+            il("Elad", 32.0522, 34.9511, "El'ad"),
+            il("Tzfat", 32.9646, 35.4960, "Safed", "Tsfat", "Zefat"),
+            il("Haifa", 32.7940, 34.9896),
+            il("Netanya", 32.3215, 34.8532),
+            il("Petah Tikva", 32.0840, 34.8878, "Petach Tikva"),
+            il("Ashdod", 31.8014, 34.6435),
+            at("Brooklyn", 40.6782, -73.9442, "America/New_York", "New York, United States"),
+            at("Boro Park", 40.6340, -73.9910, "America/New_York", "Brooklyn, New York", "Borough Park"),
+            at("Williamsburg", 40.7081, -73.9571, "America/New_York", "Brooklyn, New York"),
+            at("Flatbush", 40.6409, -73.9624, "America/New_York", "Brooklyn, New York", "Midwood"),
+            at("Crown Heights", 40.6694, -73.9422, "America/New_York", "Brooklyn, New York"),
+            at("Kew Gardens Hills", 40.7300, -73.8230, "America/New_York", "Queens, New York", "Queens"),
+            at("Monsey", 41.1112, -74.0685, "America/New_York", "New York, United States"),
+            at("Kiryas Joel", 41.3420, -74.1677, "America/New_York", "New York, United States", "Kiryas Yoel", "Monroe"),
+            at("New Square", 41.1395, -74.0293, "America/New_York", "New York, United States", "Skver"),
+            at("Lakewood", 40.0821, -74.2097, "America/New_York", "New Jersey, United States"),
+            at("Jackson", 40.0979, -74.3577, "America/New_York", "New Jersey, United States"),
+            at("Toms River", 39.9537, -74.1979, "America/New_York", "New Jersey, United States"),
+            at("Passaic", 40.8568, -74.1285, "America/New_York", "New Jersey, United States"),
+            at("Teaneck", 40.8932, -74.0116, "America/New_York", "New Jersey, United States"),
+            at("Five Towns", 40.6290, -73.7271, "America/New_York", "New York, United States", "Lawrence", "Cedarhurst", "Woodmere"),
+            at("Far Rockaway", 40.6054, -73.7551, "America/New_York", "New York, United States"),
+            at("Baltimore", 39.2904, -76.6122, "America/New_York", "Maryland, United States"),
+            at("Philadelphia", 39.9526, -75.1652, "America/New_York", "Pennsylvania, United States"),
+            at("Boston", 42.3601, -71.0589, "America/New_York", "Massachusetts, United States"),
+            at("Cleveland", 41.4993, -81.6944, "America/New_York", "Ohio, United States"),
+            at("Miami Beach", 25.7907, -80.1300, "America/New_York", "Florida, United States"),
+            at("Chicago", 41.8781, -87.6298, "America/Chicago", "Illinois, United States"),
+            at("Los Angeles", 34.0522, -118.2437, "America/Los_Angeles", "California, United States"),
+            at("Toronto", 43.6532, -79.3832, "America/Toronto", "Ontario, Canada"),
+            at("Montreal", 45.5019, -73.5674, "America/Toronto", "Quebec, Canada"),
+            at("Stamford Hill", 51.5700, -0.0730, "Europe/London", "London, United Kingdom"),
+            at("Golders Green", 51.5724, -0.1941, "Europe/London", "London, United Kingdom"),
+            at("Manchester", 53.4808, -2.2426, "Europe/London", "England, United Kingdom"),
+            at("Gateshead", 54.9527, -1.6034, "Europe/London", "England, United Kingdom"),
+            at("Antwerp", 51.2194, 4.4025, "Europe/Brussels", "Belgium", "Antwerpen"),
+            at("Paris", 48.8566, 2.3522, "Europe/Paris", "France"),
+            at("Zurich", 47.3769, 8.5417, "Europe/Zurich", "Switzerland"),
+            at("Johannesburg", -26.2041, 28.0473, "Africa/Johannesburg", "South Africa"),
+            at("Melbourne", -37.8136, 144.9631, "Australia/Melbourne", "Australia"),
+            at("Sydney", -33.8688, 151.2093, "Australia/Sydney", "Australia"),
+            at("Buenos Aires", -34.6037, -58.3816, "America/Argentina/Buenos_Aires", "Argentina"),
+            at("Mexico City", 19.4326, -99.1332, "America/Mexico_City", "Mexico"),
         )
     }
 }

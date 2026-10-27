@@ -14,7 +14,7 @@ object ZmanimSheet {
         val now = System.currentTimeMillis()
         val list = info.zmanim(now, place)
         val next = list.firstOrNull { it.time > now }
-        val format = android.text.format.DateFormat.getTimeFormat(ctx)
+        val format = android.text.format.DateFormat.getTimeFormat(ctx).apply { timeZone = place.zone }
         val column = LinearLayout(ctx).apply {
             orientation = LinearLayout.VERTICAL
             setPadding(0, 0, 0, Ui.dp(ctx, Ui.SPACE_M))
@@ -58,6 +58,6 @@ object ZmanimSheet {
             isVerticalScrollBarEnabled = false
             addView(column)
         }
-        overlays.showSheet("Zmanim", scroll, scrollable = scroll, fill = true)
+        overlays.showSheet(if (Prefs(ctx).dailyZmanim) "Zmanim" else "Today's times", scroll, scrollable = scroll, fill = true)
     }
 }
