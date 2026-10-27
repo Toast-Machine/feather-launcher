@@ -2,4 +2,8 @@
     <item name="sheet" type="id" />
     <!-- A row FitColumn left out for lack of room, to try again next time. -->
     <item name="fit_hidden" type="id" />
+    <!-- On a widget list row: the live preview a drag picks up. -->
+    <item name="widget_preview" type="id" />
+    <!-- How readily FitColumn leaves a row out when space is short. -->
+    <item name="fit_priority" type="id" />
 </resources>

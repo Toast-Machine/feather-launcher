@@ -21,7 +21,7 @@ object Weather {
     )
     /** [rain] is the chance of rain or snow that hour, in percent. */
     class Hour(val time: Long, val temperature: Int, val sky: Sky, val night: Boolean, val rain: Int = 0)
-    class Day(val time: Long, val high: Int, val low: Int, val sky: Sky)
+    class Day(val time: Long, val high: Int, val low: Int, val sky: Sky, val rain: Int = 0)
 
     private const val FRESH = 30 * 60_000L
     private val main = Handler(Looper.getMainLooper())
@@ -78,7 +78,8 @@ object Weather {
             }
         val days = (0 until daily.getJSONArray("time").length()).map { i ->
             Day(daily.getJSONArray("time").getLong(i) * 1000, Math.round(daily.getJSONArray("temperature_2m_max").getDouble(i)).toInt(),
-                Math.round(daily.getJSONArray("temperature_2m_min").getDouble(i)).toInt(), sky(daily.getJSONArray("weather_code").getInt(i)))
+                Math.round(daily.getJSONArray("temperature_2m_min").getDouble(i)).toInt(), sky(daily.getJSONArray("weather_code").getInt(i)),
+                daily.optJSONArray("precipitation_probability_max")?.optInt(i) ?: 0)
         }
         return Now(
             Math.round(current.getDouble("temperature_2m")).toInt(),

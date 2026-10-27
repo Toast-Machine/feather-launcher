@@ -277,13 +277,7 @@ class HomeScreen(
     fun addWidget(appWidgetId: Int, spanX: Int, spanY: Int) = addItem(spanX, spanY, HomeItem.Type.WIDGET, appWidgetId.toString())
 
     /** The clock, or At a glance: the same lines without the time, in a shorter space. */
-    fun addFeather(kind: FeatherKind) {
-        addItem(kind.w, kind.h, HomeItem.Type.CLOCK, kind.ref)
-        // A World clock needs its city, a Countdown what it counts to.
-        val added = workspace.items.lastOrNull { it.type == HomeItem.Type.CLOCK && it.ref == kind.ref } ?: return
-        if (kind == FeatherKind.WORLD) activity.window.decorView.postDelayed({ chooseCity(added) }, 400)
-        if (kind == FeatherKind.COUNTDOWN) activity.window.decorView.postDelayed({ countdownSheet(added) }, 400)
-    }
+    fun addFeather(kind: FeatherKind) = addItem(kind.w, kind.height(cellSizeDp().second), HomeItem.Type.CLOCK, kind.ref)
 
     private fun addItem(w: Int, h: Int, type: HomeItem.Type, ref: String) {
         val order = listOf(pages.currentPage) + (0 until workspace.pageCount).filter { it != pages.currentPage }
@@ -576,74 +570,7 @@ class HomeScreen(
     /** What a Feather widget's settings are, if it has any. */
     private fun featherSettings(item: HomeItem): MenuItem? = when (FeatherKind.of(item)) {
         FeatherKind.CLOCK -> MenuItem("${clockName(item)} settings", R.drawable.ic_settings) { clockSettings(item) }
-        FeatherKind.WORLD -> MenuItem("Choose city", R.drawable.ic_location) { chooseCity(item) }
-        FeatherKind.COUNTDOWN -> MenuItem("Count to…", R.drawable.ic_hourglass) { countdownSheet(item) }
         else -> null
-    }
-
-    /** A World clock's city, searched for by name. */
-    private fun chooseCity(item: HomeItem) {
-        overlays.showInput("City for the world clock", "", "City or town", action = "Search") { query ->
-            if (query.isBlank()) return@showInput
-            Thread {
-                val found = ClockInfo.search(query)
-                activity.runOnUiThread {
-                    if (found.isNullOrEmpty()) {
-                        android.widget.Toast.makeText(activity, if (found == null) "Couldn't search. Check that you're online." else "No places called \"$query\"",
-                            android.widget.Toast.LENGTH_SHORT).show()
-                        return@runOnUiThread
-                    }
-                    val p = palette()
-                    val column = LinearLayout(activity).apply {
-                        orientation = LinearLayout.VERTICAL
-                        setPadding(0, 0, 0, dp(Ui.SPACE_M))
-                        found.forEach { place ->
-                            addView(Components.row(activity, p, R.drawable.ic_location, place.name, subtitle = place.area) {
-                                prefs.setWidgetPlace(item.id, place)
-                                overlays.dismiss()
-                                (views[item.id] as? CardWidget)?.refresh()
-                            })
-                        }
-                    }
-                    overlays.showSheet("Choose a place", column)
-                }
-            }.start()
-        }
-    }
-
-    /** What a Countdown counts to: the next Shabbos or Yom Tov, or a date and a name. */
-    private fun countdownSheet(item: HomeItem) {
-        val p = palette()
-        val jewish = prefs.secondCalendar == SecondCalendar.HEBREW
-        fun save(target: org.json.JSONObject) {
-            prefs.setCountdown(item.id, target)
-            overlays.dismiss()
-            (views[item.id] as? CardWidget)?.refresh()
-        }
-        val column = LinearLayout(activity).apply {
-            orientation = LinearLayout.VERTICAL
-            setPadding(0, 0, 0, dp(Ui.SPACE_M))
-            if (jewish) {
-                addView(Components.row(activity, p, R.drawable.ic_sunset, "Next Shabbos", subtitle = "Until candle lighting") {
-                    save(org.json.JSONObject().put("kind", "shabbos"))
-                })
-                addView(Components.row(activity, p, R.drawable.ic_calendar, "Next Yom Tov", subtitle = "Until candle lighting") {
-                    save(org.json.JSONObject().put("kind", "yomtov"))
-                })
-            }
-            addView(Components.row(activity, p, R.drawable.ic_edit, "A date", subtitle = "Choose the day and what to call it") {
-                overlays.dismiss()
-                val now = java.util.Calendar.getInstance()
-                android.app.DatePickerDialog(activity, { _, y, m, d ->
-                    val day = java.util.Calendar.getInstance().apply { clear(); set(y, m, d) }.timeInMillis
-                    overlays.showInput("What's on that day?", "", "Name") { title ->
-                        prefs.setCountdown(item.id, org.json.JSONObject().put("title", title.ifBlank { "the day" }).put("time", day))
-                        (views[item.id] as? CardWidget)?.refresh()
-                    }
-                }, now.get(java.util.Calendar.YEAR), now.get(java.util.Calendar.MONTH), now.get(java.util.Calendar.DAY_OF_MONTH)).show()
-            })
-        }
-        overlays.showSheet("Count to", column)
     }
 
     private fun clockSettings(item: HomeItem) {
@@ -705,6 +632,9 @@ class HomeScreen(
         return false
     }
 
+    /** Lets a widget held in the widget list be dragged onto a page; [preview] is how it looks there. */
+    fun armWidget(kind: FeatherKind, preview: View) = drag.arm(DragSource(null, null, preview, kind = kind))
+
     /** Lets a long-pressed app in the app list be dragged onto the home screen. */
     fun armFromDrawer(entry: AppEntry, row: View) = drag.arm(DragSource(null, entry, row))
 
@@ -718,8 +648,11 @@ class HomeScreen(
     /** An icon is being (or about to be) dragged, or a widget resized: swipes must leave it alone. */
     val isBusy get() = drag.active || drag.isArmed || resize != null
 
-    /** What is being dragged: an item already on the home screen, or an app from the app list. */
-    private class DragSource(val item: HomeItem?, val entry: AppEntry?, val view: View, val folder: HomeItem? = null)
+    /**
+     * What is being dragged: an item already on the home screen, an app from the app list, or one
+     * of Feather's widgets from the widget list ([kind]), made where it's dropped.
+     */
+    private class DragSource(val item: HomeItem?, val entry: AppEntry?, val view: View, val folder: HomeItem? = null, val kind: FeatherKind? = null)
 
     private inner class Drag {
         var downX = 0f
@@ -761,11 +694,13 @@ class HomeScreen(
             return active
         }
 
-        private val w get() = source?.item?.w ?: 1
-        private val h get() = source?.item?.h ?: 1
+        private val w get() = source?.item?.w ?: source?.kind?.w ?: 1
+        private val h get() = source?.item?.h ?: source?.kind?.height(cellSizeDp().second) ?: 1
 
         private fun start(src: DragSource, ev: MotionEvent) {
             active = true
+            // A widget's picture is taken from the widget list before it closes.
+            val listShot = src.kind?.let { snapshot(src.view) to rectInRoot(src.view) }
             overlays.dismiss()
             finishResize()
             host.cancelViewTouches()
@@ -777,6 +712,9 @@ class HomeScreen(
                 bitmap = snapshot(shot)
                 origin = rectInRoot(shot)
                 src.view.visibility = View.INVISIBLE
+            } else if (listShot != null) {
+                bitmap = listShot.first
+                origin = listShot.second
             } else {
                 bitmap = repo.icon(src.entry!!) ?: return cancel()
                 if (src.folder != null) {
@@ -788,8 +726,9 @@ class HomeScreen(
                 }
             }
             // Hold the icon where the finger first pressed it, so it stays under the finger.
-            grabX = (if (src.item != null || src.folder != null) downX else ev.x) - origin.left
-            grabY = (if (src.item != null || src.folder != null) downY else ev.y) - origin.top
+            val fromPress = src.item != null || src.folder != null || src.kind != null
+            grabX = (if (fromPress) downX else ev.x) - origin.left
+            grabY = (if (fromPress) downY else ev.y) - origin.top
             dragView = ImageView(activity).apply {
                 setImageBitmap(bitmap)
                 elevation = dp(12).toFloat()
@@ -798,7 +737,7 @@ class HomeScreen(
                 root.addView(this, FrameLayout.LayoutParams(origin.width(), origin.height()))
                 animate().scaleX(1.08f).scaleY(1.08f).alpha(0.95f).setDuration(150).start()
             }
-            showEdgeZones(fromDrawer = src.item == null && src.folder == null)
+            showEdgeZones(fromDrawer = src.entry != null && src.folder == null)
         }
 
         private fun move(x: Float, y: Float) {
@@ -1160,7 +1099,9 @@ class HomeScreen(
                 return
             }
             clearReorder(commit = true)
-            val item = src.item ?: workspace.add(t.first, t.second, t.third, 1, 1, HomeItem.Type.APP, src.entry!!.key)
+            val item = src.item
+                ?: src.kind?.let { workspace.add(t.first, t.second, t.third, it.w, h, HomeItem.Type.CLOCK, it.ref) }
+                ?: workspace.add(t.first, t.second, t.third, 1, 1, HomeItem.Type.APP, src.entry!!.key)
             src.folder?.let { removeFromFolder(it, src.entry!!.key) }
             item.page = t.first
             item.x = t.second
@@ -1385,10 +1326,18 @@ class HomeScreen(
     private fun snapshot(view: View): Bitmap {
         val bitmap = Bitmap.createBitmap(view.width.coerceAtLeast(1), view.height.coerceAtLeast(1), Bitmap.Config.ARGB_8888)
         // Draw without the keypad highlight or press scale.
+        // A card widget's background is the card itself; others' is just the keypad highlight.
+        if (view is CardWidget) {
+            view.draw(Canvas(bitmap))
+            return bitmap
+        }
         val background = view.background
+        // Putting a background back resets the padding to the background's own; the view's stays.
+        val padding = intArrayOf(view.paddingLeft, view.paddingTop, view.paddingRight, view.paddingBottom)
         view.background = null
         view.draw(Canvas(bitmap))
         view.background = background
+        view.setPadding(padding[0], padding[1], padding[2], padding[3])
         return bitmap
     }
 

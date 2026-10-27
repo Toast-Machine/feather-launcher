@@ -120,16 +120,6 @@ class Prefs(context: Context) {
             .apply()
     }
 
-    /** A World clock widget's city. */
-    fun widgetPlace(id: Long): ClockInfo.Place? = sp.getString("widget_place_$id", null)?.let { ClockInfo.Place.fromJson(it) }
-
-    fun setWidgetPlace(id: Long, place: ClockInfo.Place) = sp.edit().putString("widget_place_$id", place.toJson()).apply()
-
-    /** What a Countdown widget counts to (see [CountdownWidget.target]). */
-    fun countdown(id: Long): org.json.JSONObject? = sp.getString("countdown_$id", null)?.let { runCatching { org.json.JSONObject(it) }.getOrNull() }
-
-    fun setCountdown(id: Long, target: org.json.JSONObject) = sp.edit().putString("countdown_$id", target.toString()).apply()
-
     /** The welcome has been shown (or the older first-run sheet was, for people updating). */
     var onboarded: Boolean
         get() = sp.getBoolean("onboarded", sp.getBoolean("setup_offered", false))

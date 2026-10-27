@@ -93,9 +93,12 @@ class ClockWidget(context: Context, val item: HomeItem) : FitColumn(context) {
     private val pills = FitRow(context).apply { gap = Ui.dp(context, 14) }
     private val glance = Glance(context)
     private var place: ClockInfo.Place? = null
-    private var pillSp = 13f
-    /** The time's size for the chosen [ClockOptions.Size], before it's made smaller to fit. */
-    private var timeSp = 80f
+    /** The text sizes, in pixels, worked out from the widget's width (see [sizeFor]). */
+    private var pillPx = 30f
+    private var sizedFor = 0
+    private var sizeFactor = 1f
+    /** The time's size, before it's made smaller to fit. */
+    private var timePx = 200f
 
     /** Tapping something coming up: the day's zmanim, the event, the alarms. */
     var onTap: ((Glance.Item, ClockInfo.Place?) -> Unit)? = null
@@ -136,12 +139,13 @@ class ClockWidget(context: Context, val item: HomeItem) : FitColumn(context) {
 
     /** In a tight space, a smaller time comes first; only then are lines left out. */
     override fun onMeasure(widthMeasureSpec: Int, heightMeasureSpec: Int) {
+        sizeFor(MeasureSpec.getSize(widthMeasureSpec) - paddingLeft - paddingRight)
         fitted?.takeIf { it.first == widthMeasureSpec && it.second == heightMeasureSpec }?.let {
-            time.setTextSize(TypedValue.COMPLEX_UNIT_SP, timeSp * it.third)
+            time.setTextSize(TypedValue.COMPLEX_UNIT_PX, timePx * it.third)
             return super.onMeasure(widthMeasureSpec, heightMeasureSpec)
         }
         for (scale in listOf(1f, 0.85f, 0.72f)) {
-            time.setTextSize(TypedValue.COMPLEX_UNIT_SP, timeSp * scale)
+            time.setTextSize(TypedValue.COMPLEX_UNIT_PX, timePx * scale)
             super.onMeasure(widthMeasureSpec, heightMeasureSpec)
             fitted = Triple(widthMeasureSpec, heightMeasureSpec, scale)
             val cut = (0 until childCount).map(::getChildAt).any { it.getTag(R.id.fit_hidden) == true && it.visibility == GONE }
@@ -173,12 +177,12 @@ class ClockWidget(context: Context, val item: HomeItem) : FitColumn(context) {
         detail.visibility = if (lines.detail != null) VISIBLE else GONE
         pills.removeAllViews()
         lines.weather?.let { w ->
-            pills.addView(WidgetStyle.pill(context, WeatherArt.icon(w.sky, w.night), "${w.temperature}°  ${w.description}", pillSp).apply {
+            pills.addView(WidgetStyle.pill(context, WeatherArt.icon(w.sky, w.night), "${w.temperature}°  ${w.description}", pillPx).apply {
                 setOnClickListener { onWeather?.invoke() }
             })
         }
         lines.coming.forEach { item ->
-            pills.addView(WidgetStyle.pill(context, WidgetStyle.icon(context, item.icon), item.text, pillSp).apply {
+            pills.addView(WidgetStyle.pill(context, WidgetStyle.icon(context, item.icon), item.text, pillPx).apply {
                 setOnClickListener { onTap?.invoke(item, place) }
             })
         }
@@ -187,18 +191,13 @@ class ClockWidget(context: Context, val item: HomeItem) : FitColumn(context) {
     }
 
     fun apply(options: ClockOptions) {
-        // The date, the quieter line and the pills step down from the time in fixed proportions.
-        val (largest, dateSp) = when (options.size) {
-            ClockOptions.Size.LARGE -> 80f to 19f
-            ClockOptions.Size.MEDIUM -> 64f to 17f
-            ClockOptions.Size.SMALL -> 48f to 15.5f
+        sizeFactor = when (options.size) {
+            ClockOptions.Size.LARGE -> 1f
+            ClockOptions.Size.MEDIUM -> 0.85f
+            ClockOptions.Size.SMALL -> 0.7f
         }
-        timeSp = largest
+        sizedFor = 0
         fitted = null
-        time.setTextSize(TypedValue.COMPLEX_UNIT_SP, largest)
-        date.setTextSize(TypedValue.COMPLEX_UNIT_SP, dateSp)
-        detail.setTextSize(TypedValue.COMPLEX_UNIT_SP, dateSp * 0.8f)
-        pillSp = dateSp * 0.7f
         time.visibility = if (options.showTime) VISIBLE else GONE
         date.visibility = if (options.showDate) VISIBLE else GONE
         val horizontal = if (options.alignStart) Gravity.START else Gravity.CENTER_HORIZONTAL
@@ -210,6 +209,23 @@ class ClockWidget(context: Context, val item: HomeItem) : FitColumn(context) {
         pills.alignStart = options.alignStart
         refresh()
         requestLayout()
+    }
+
+    /**
+     * Sizes the text from the widget's [width] in pixels, so it takes the same share of the screen
+     * on every phone, whatever its display size setting. The date, the quieter line and the
+     * pills step down from the time in fixed proportions.
+     */
+    private fun sizeFor(width: Int) {
+        if (width <= 0 || width == sizedFor) return
+        sizedFor = width
+        fitted = null
+        val unit = width / 100f * sizeFactor
+        timePx = 23f * unit
+        date.setTextSize(TypedValue.COMPLEX_UNIT_PX, 5.6f * unit)
+        detail.setTextSize(TypedValue.COMPLEX_UNIT_PX, 4.6f * unit)
+        pillPx = 4.2f * unit
+        for (i in 0 until pills.childCount) (pills.getChildAt(i) as? TextView)?.let { WidgetStyle.sizePill(it, pillPx) }
     }
 
     val dateView: TextView get() = date

@@ -40,6 +40,8 @@ class Widgets(
     var onAdded: ((appWidgetId: Int, spanX: Int, spanY: Int) -> Unit)? = null
     /** One of Feather's own widgets was picked. */
     var onFeatherPicked: ((FeatherKind) -> Unit)? = null
+    /** One of Feather's own widgets was held, to be dragged onto a page; the view is its preview. */
+    var onFeatherHeld: ((FeatherKind, View) -> Unit)? = null
 
     private val manager = AppWidgetManager.getInstance(activity)
     private val density = activity.resources.displayMetrics.density
@@ -136,6 +138,13 @@ class Widgets(
                 else -> Unit
             }
         }
+        list.setOnItemLongClickListener { _, view, position, _ ->
+            val row = rows[position] as? PickerRow.Feather ?: return@setOnItemLongClickListener false
+            val preview = (view.getTag(R.id.widget_preview) as? View) ?: return@setOnItemLongClickListener false
+            view.performHapticFeedback(android.view.HapticFeedbackConstants.LONG_PRESS)
+            onFeatherHeld?.invoke(row.kind, preview)
+            true
+        }
         overlays.showSheet("Widgets", list, scrollable = list, fill = true)
     }
 
@@ -226,6 +235,8 @@ class Widgets(
                 // A picture of the widget, not the widget itself: a tap picks it from the list.
                 override fun onInterceptTouchEvent(ev: android.view.MotionEvent) = true
             }.apply {
+                // Nothing in it takes the keypad highlight either; the list skips holding a row that has such things.
+                descendantFocusability = ViewGroup.FOCUS_BLOCK_DESCENDANTS
                 background = Ui.rounded(activity, p.drawer, Ui.RADIUS_M)
                 clipToOutline = true
                 setPadding(dp(Ui.SPACE_S), dp(Ui.SPACE_S), dp(Ui.SPACE_S), dp(Ui.SPACE_S))
@@ -233,7 +244,7 @@ class Widgets(
                 val (cellW, cellH) = cellSizeDp()
                 addView(sample(kind), FrameLayout.LayoutParams(
                     if (kind.w < Workspace.COLS) dp((cellW * kind.w).toInt()) else ViewGroup.LayoutParams.MATCH_PARENT,
-                    dp((cellH * kind.h).toInt()), Gravity.CENTER))
+                    dp((cellH * kind.height(cellH)).toInt()), Gravity.CENTER))
             }
             val card = LinearLayout(activity).apply {
                 orientation = LinearLayout.VERTICAL
@@ -247,7 +258,7 @@ class Widgets(
                     setPadding(dp(Ui.SPACE_XS), 0, dp(Ui.SPACE_XS), 0)
                     addView(TextView(activity).apply { style(TextStyle.Body, p.text); text = kind.label; maxLines = 1 },
                         LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f))
-                    addView(TextView(activity).apply { style(TextStyle.Caption, p.textTertiary); text = "${kind.w} × ${kind.h}" })
+                    addView(TextView(activity).apply { style(TextStyle.Caption, p.textTertiary); text = "${kind.w} × ${kind.height(cellSizeDp().second)}" })
                 }, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply {
                     topMargin = dp(Ui.SPACE_M)
                 })
@@ -260,17 +271,14 @@ class Widgets(
             return FrameLayout(activity).apply {
                 setPadding(dp(Ui.SPACE_S), dp(Ui.SPACE_XS), dp(Ui.SPACE_S), dp(Ui.SPACE_XS))
                 addView(card)
+                // What a drag picks up: the widget as it looks.
+                setTag(R.id.widget_preview, preview.getChildAt(0))
             }
         }
 
-        /** The widget itself, with an example city or countdown where it would otherwise ask for one. */
+        /** The widget itself. */
         private fun sample(kind: FeatherKind): View {
-            val item = HomeItem(PREVIEW_ID - kind.ordinal, 0, 0, 0, kind.w, kind.h, HomeItem.Type.CLOCK, kind.ref)
-            val prefs = Prefs(activity)
-            if (kind == FeatherKind.WORLD) ClockInfo.COMMUNITIES.firstOrNull()?.let { prefs.setWidgetPlace(item.id, it.first) }
-            if (kind == FeatherKind.COUNTDOWN) prefs.setCountdown(item.id,
-                if (prefs.secondCalendar == SecondCalendar.HEBREW) org.json.JSONObject().put("kind", "shabbos")
-                else org.json.JSONObject().put("title", "the trip").put("time", System.currentTimeMillis() + 12 * 86_400_000L))
+            val item = HomeItem(PREVIEW_ID - kind.ordinal, 0, 0, 0, kind.w, kind.height(cellSizeDp().second), HomeItem.Type.CLOCK, kind.ref)
             return CardWidget.create(activity, item) ?: ClockWidget(activity, item).apply {
                 apply(ClockOptions(ClockOptions.Size.MEDIUM, alignStart = false, showDate = true))
             }

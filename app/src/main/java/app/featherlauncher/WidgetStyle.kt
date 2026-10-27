@@ -71,17 +71,27 @@ object WidgetStyle {
         ellipsize = android.text.TextUtils.TruncateAt.END
     }
 
-    /** An icon and a few words straight on the wallpaper, for something to tap. */
-    fun pill(ctx: Context, icon: Drawable?, words: String, sp: Float) = text(ctx, sp, label).apply {
+    /** An icon and a few words straight on the wallpaper, for something to tap; [px] is the text size in pixels. */
+    fun pill(ctx: Context, icon: Drawable?, words: String, px: Float) = text(ctx, 14f, label).apply {
         val dp = { v: Int -> Ui.dp(ctx, v) }
         text = words
         gravity = Gravity.CENTER_VERTICAL
         foreground = Ui.pressable(ctx, Ui.RADIUS_PILL)
-        val size = (sp * 1.25f * ctx.resources.displayMetrics.scaledDensity).toInt()
-        icon?.mutate()?.setBounds(0, 0, size, size)
-        setCompoundDrawablesRelative(icon, null, null, null)
-        compoundDrawablePadding = dp(6)
+        setCompoundDrawablesRelative(icon?.mutate(), null, null, null)
         setPadding(dp(4), dp(4), dp(4), dp(4))
+        sizePill(this, px)
+    }
+
+    /** Sets a pill's text to [px] pixels, its icon a little larger. */
+    fun sizePill(pill: TextView, px: Float) {
+        pill.setTextSize(TypedValue.COMPLEX_UNIT_PX, px)
+        val size = (px * 1.25f).toInt()
+        // Set again after resizing: the text measures its icon when it's given one.
+        pill.compoundDrawablesRelative[0]?.let { icon ->
+            icon.setBounds(0, 0, size, size)
+            pill.setCompoundDrawablesRelative(icon, null, null, null)
+        }
+        pill.compoundDrawablePadding = (px * 0.4f).toInt()
     }
 
     /** One of the app's line icons, white for the wallpaper. */
@@ -130,9 +140,15 @@ class FitRow(context: Context) : ViewGroup(context) {
 
 /**
  * A column that leaves out its last rows when they don't fit, instead of letting them spill
- * over or get cut in half: on a small screen a card shows fewer rows, not broken ones.
+ * over or get cut in half: on a small screen a card shows fewer rows, not broken ones. A row
+ * marked with [dropFirst] goes before the others.
  */
 open class FitColumn(context: Context) : android.widget.LinearLayout(context) {
+    companion object {
+        /** Marks [view] to be left out before rows with a lower [priority] (0 by default). */
+        fun dropFirst(view: View, priority: Int = 1) = view.apply { setTag(R.id.fit_priority, priority) }
+    }
+
     init {
         orientation = VERTICAL
     }
@@ -144,7 +160,9 @@ open class FitColumn(context: Context) : android.widget.LinearLayout(context) {
         val room = MeasureSpec.getSize(heightMeasureSpec) - paddingTop - paddingBottom
         val width = MeasureSpec.makeMeasureSpec(measuredWidth - paddingLeft - paddingRight, MeasureSpec.AT_MOST)
         while (used(width) > room) {
-            val last = (childCount - 1 downTo 1).map(::getChildAt).firstOrNull { it.visibility == View.VISIBLE } ?: break
+            // The row with the highest [dropFirst] priority goes; among equals, the last.
+            val last = (childCount - 1 downTo 1).map(::getChildAt).filter { it.visibility == View.VISIBLE }
+                .maxByOrNull { it.getTag(R.id.fit_priority) as? Int ?: 0 } ?: break
             last.visibility = View.GONE
             last.setTag(R.id.fit_hidden, true)
         }
