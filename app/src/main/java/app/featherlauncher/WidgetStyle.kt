@@ -153,6 +153,27 @@ open class FitColumn(context: Context) : android.widget.LinearLayout(context) {
         orientation = VERTICAL
     }
 
+    /** Shares the room left over evenly above, between and below the rows. */
+    var spread = false
+        set(value) {
+            field = value
+            requestLayout()
+        }
+
+    override fun onLayout(changed: Boolean, l: Int, t: Int, r: Int, b: Int) {
+        if (!spread) return super.onLayout(changed, l, t, r, b)
+        val shown = (0 until childCount).map(::getChildAt).filter { it.visibility != View.GONE }
+        // Margins between rows give way to the even spacing.
+        val used = shown.sumOf { it.measuredHeight }
+        val gap = ((b - t - paddingTop - paddingBottom - used) / (shown.size + 1)).coerceAtLeast(0)
+        var y = paddingTop + gap
+        for (child in shown) {
+            val width = r - l - paddingLeft - paddingRight
+            child.layout(paddingLeft, y, paddingLeft + minOf(child.measuredWidth, width).let { if (child.layoutParams.width == LayoutParams.MATCH_PARENT) width else it }, y + child.measuredHeight)
+            y += child.measuredHeight + gap
+        }
+    }
+
     override fun onMeasure(widthMeasureSpec: Int, heightMeasureSpec: Int) {
         for (i in 0 until childCount) getChildAt(i).let { if (it.getTag(R.id.fit_hidden) == true) it.visibility = View.VISIBLE }
         super.onMeasure(widthMeasureSpec, heightMeasureSpec)

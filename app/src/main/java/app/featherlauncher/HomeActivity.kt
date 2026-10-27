@@ -2024,48 +2024,66 @@ class HomeActivity : Activity(), HomeScreen.Host {
         toast("Move it with the arrows, then press OK")
     }
 
-    /** Moves an app within its category with the arrows: left and right by one, up and down by a row. */
+    /**
+     * Moves an app within its category with the arrows: left and right by one, up and down by a
+     * row. The apps slide into their new places as it goes (nothing is rebuilt, so the highlight
+     * stays on it), and the order is saved on OK.
+     */
     private fun moveAppWithKeys(entry: AppEntry) {
         val id = category ?: return
-        fun apps() = categories.sorted(id, repo.apps.filter { it.key !in prefs.hidden && categories.of(it) == id }).map { it.key }
-        val before = apps()
+        val apps = categories.sorted(id, repo.apps.filter { it.key !in prefs.hidden && categories.of(it) == id }).map { it.key }
         val across = if (prefs.drawerGrid) DrawerAdapter.COLS else 1
-        fun lift() {
-            val position = adapter.rows.indexOfFirst { row ->
-                (row is DrawerAdapter.Row.Tiles && row.apps.any { it.key == entry.key }) ||
-                    (row is DrawerAdapter.Row.Line && row.app.key == entry.key)
-            }
-            if (position < 0) return
-            list.post {
-                focusRow(position, 0, true)
-                list.post {
-                    val row = list.getChildAt(position - list.firstVisiblePosition) as? ViewGroup ?: return@post
-                    val tile = (0 until row.childCount).map(row::getChildAt).firstOrNull { (it.tag as? AppEntry)?.key == entry.key } ?: row
-                    tile.requestFocusFromTouch()
-                    tile.scaleX = 1.1f
-                    tile.scaleY = 1.1f
-                }
-            }
+        // Every app tile on screen, and where each sits now: the slots they move between.
+        val tiles = HashMap<String, View>()
+        for (i in 0 until list.childCount) {
+            val row = list.getChildAt(i) as? ViewGroup ?: continue
+            for (j in 0 until row.childCount) row.getChildAt(j).let { t -> (t.tag as? AppEntry)?.let { tiles[it.key] = t } }
+            (row.tag as? AppEntry)?.let { tiles[it.key] = row }
+        }
+        val home = tiles.mapValues { (_, v) -> rectOf(v) }
+        // Only apps on screen move; the ones scrolled out of sight keep their places.
+        val order = apps.filter { it in home }.toMutableList()
+        val slots = order.map { home.getValue(it) }
+        val moving = tiles[entry.key] ?: return
+        moving.requestFocusFromTouch()
+        fun slide(animate: Boolean) = order.forEachIndexed { i, key ->
+            val view = tiles[key] ?: return@forEachIndexed
+            val from = home.getValue(key)
+            val dx = (slots[i].left - from.left).toFloat()
+            val dy = (slots[i].top - from.top).toFloat()
+            view.animate().cancel()
+            if (animate) view.animate().translationX(dx).translationY(dy).setDuration(180).setInterpolator(PANEL_EASING).start()
+            else { view.translationX = dx; view.translationY = dy }
+        }
+        fun settle() {
+            tiles.values.forEach { it.animate().cancel(); it.translationX = 0f; it.translationY = 0f }
         }
         keyMover = KeyMover(
             step = { dx, dy ->
-                val order = apps().toMutableList()
                 val from = order.indexOf(entry.key)
                 val to = from + dx + dy * across
-                if (from >= 0 && to != from && to in order.indices) {
+                if (to != from && to in order.indices) {
                     order.add(to, order.removeAt(from))
-                    categories.setOrder(id, order)
-                    updateResults()
-                    lift()
+                    slide(animate = true)
                 }
             },
-            done = { updateResults() },
-            undo = {
-                categories.setOrder(id, before)
+            done = {
+                val onScreen = order.iterator()
+                categories.setOrder(id, apps.map { if (it in home) onScreen.next() else it })
+                // Rebuilt while the app still sits in its new place, so the highlight is found there, not where it started.
                 updateResults()
+                settle()
+                // The list is rebuilt in the new order; the highlight stays on the app that moved.
+                list.post {
+                    for (i in 0 until list.childCount) {
+                        val row = list.getChildAt(i) as? ViewGroup ?: continue
+                        (0 until row.childCount).map(row::getChildAt).plus(row)
+                            .firstOrNull { (it.tag as? AppEntry)?.key == entry.key }?.let { it.requestFocusFromTouch(); return@post }
+                    }
+                }
             },
+            undo = { settle() },
         )
-        lift()
         toast("Move it with the arrows, then press OK")
     }
 

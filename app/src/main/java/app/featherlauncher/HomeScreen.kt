@@ -237,6 +237,14 @@ class HomeScreen(
             onLongPress = { onItemLongPress(item, this) }
             // Holding OK on it with the keypad (a touch hold is caught above).
             setOnLongClickListener { if (it.isInTouchMode) false else { onItemLongPress(item, it); true } }
+            // OK on it with the keypad opens its app: a widget's own buttons can't be reached with
+            // the keypad. (A tap goes to the widget's own buttons as usual.)
+            setOnClickListener {
+                if (it.isInTouchMode) return@setOnClickListener
+                val pkg = widgets.info(item.ref.toInt())?.provider?.packageName ?: return@setOnClickListener
+                repo.apps.firstOrNull { app -> app.packageName == pkg }?.let { app -> host.launch(app, it) }
+                    ?: activity.packageManager.getLaunchIntentForPackage(pkg)?.let(host::startSafely)
+            }
         }
     }
 
@@ -811,15 +819,16 @@ class HomeScreen(
             val r = cells.cellRect(Rect(x, y, x + w, y + h))
             // An icon sits above its name in the cell; a widget fills its cells.
             val lift = if (source?.item?.isWidget == true) 0f else cells.iconOffset
-            view.animate().x(origin.left + r.exactCenterX() - view.width / 2f).y(origin.top + r.exactCenterY() - lift - view.height / 2f)
+            // Just picked up, the picture isn't laid out yet: its size is still only in its layout params.
+            val vw = view.width.takeIf { it > 0 } ?: view.layoutParams.width
+            val vh = view.height.takeIf { it > 0 } ?: view.layoutParams.height
+            view.animate().x(origin.left + r.exactCenterX() - vw / 2f).y(origin.top + r.exactCenterY() - lift - vh / 2f)
                 .setDuration(150).setInterpolator(DecelerateInterpolator(2f)).start()
         }
 
         fun keyDrop() {
             if (keyCell == null) return
             keyCell = null
-            // No room where it is: it goes back, and so does the screen.
-            if (target == null) showHomePage()
             drop()
             source = null
         }
@@ -827,15 +836,19 @@ class HomeScreen(
         fun keyCancel() {
             if (keyCell == null) return
             keyCell = null
-            showHomePage()
             cancel()
             source = null
         }
 
-        /** Back to the page the item came from, to see it go back. */
-        private fun showHomePage() {
-            val page = source?.item?.page ?: return
-            if (page != Workspace.DOCK && page != pages.currentPage) pages.snapTo(page, animate = false)
+        /**
+         * Puts [item] back where it came from. From another page, the pages slide back to its
+         * own first, so it's clear where it went.
+         */
+        private fun goBack(item: HomeItem) {
+            if (item.page == Workspace.DOCK || item.page == pages.currentPage) return settleOn(item)
+            pages.snapTo(item.page)
+            updateLeftZone()
+            root.postDelayed({ settleOn(item) }, 320)
         }
 
         fun handle(ev: MotionEvent): Boolean {
@@ -1296,7 +1309,7 @@ class HomeScreen(
             if (t == null) {
                 clearReorder(commit = false)
                 // No room here: put it back where it was.
-                if (src.item != null) settleOn(src.item) else fadeOut()
+                if (src.item != null) goBack(src.item) else fadeOut()
                 return
             }
             clearReorder(commit = true)
@@ -1336,7 +1349,7 @@ class HomeScreen(
             hideEdgeZones()
             clearReorder(commit = false)
             setTarget(null)
-            source?.item?.let { settleOn(it) } ?: fadeOut()
+            source?.item?.let { goBack(it) } ?: fadeOut()
         }
 
         private fun finish() {

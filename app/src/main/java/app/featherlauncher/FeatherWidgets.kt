@@ -66,6 +66,48 @@ abstract class CardWidget(context: Context, val item: HomeItem) : FrameLayout(co
         setPadding(l, t, r, b)
     }
 
+    // Holding anywhere on the card picks it up, even on an event or a button, which would
+    // otherwise take the touch as their own.
+    private var downX = 0f
+    private var downY = 0f
+    private var held = false
+    private val slop = android.view.ViewConfiguration.get(context).scaledTouchSlop
+    private val hold = Runnable {
+        val now = android.os.SystemClock.uptimeMillis()
+        // The button or event under the finger lets go, so lifting it doesn't tap it.
+        android.view.MotionEvent.obtain(now, now, android.view.MotionEvent.ACTION_CANCEL, downX, downY, 0).let {
+            super.dispatchTouchEvent(it)
+            it.recycle()
+        }
+        performLongClick()
+    }
+
+    override fun dispatchTouchEvent(ev: android.view.MotionEvent): Boolean {
+        when (ev.actionMasked) {
+            android.view.MotionEvent.ACTION_DOWN -> {
+                downX = ev.x
+                downY = ev.y
+                held = false
+                removeCallbacks(hold)
+                postDelayed(hold, android.view.ViewConfiguration.getLongPressTimeout().toLong())
+            }
+            android.view.MotionEvent.ACTION_MOVE ->
+                if (kotlin.math.abs(ev.x - downX) > slop || kotlin.math.abs(ev.y - downY) > slop) removeCallbacks(hold)
+            android.view.MotionEvent.ACTION_UP, android.view.MotionEvent.ACTION_CANCEL -> removeCallbacks(hold)
+        }
+        // After the hold, the rest of the gesture is the drag's, not the card's.
+        if (held && ev.actionMasked != android.view.MotionEvent.ACTION_DOWN) return true
+        return super.dispatchTouchEvent(ev)
+    }
+
+    override fun performLongClick(): Boolean {
+        // The card's own hold and the one above can both fire; once is enough.
+        if (held) return true
+        held = isInTouchMode
+        removeCallbacks(hold)
+        return super.performLongClick()
+    }
+
     override fun onAttachedToWindow() {
         super.onAttachedToWindow()
         context.registerReceiver(tick, android.content.IntentFilter().apply {
@@ -127,8 +169,9 @@ abstract class CardWidget(context: Context, val item: HomeItem) : FrameLayout(co
 
 /**
  * Today, in two columns: on the left the date (the weekday, the day of the month large in the
- * accent color, and the Hebrew date with the Hebrew calendar); on the right the day's events,
- * each with its calendar's color, or tomorrow's first once today's are done.
+ * accent color, and the Hebrew date with the Hebrew calendar); on the right what's coming up,
+ * each event in its calendar's color: the rest of today, then the next two weeks under each
+ * day's name. The events scroll when there are more than fit.
  */
 @SuppressLint("ViewConstructor")
 class AgendaWidget(context: Context, item: HomeItem) : CardWidget(context, item) {
@@ -147,7 +190,19 @@ class AgendaWidget(context: Context, item: HomeItem) : CardWidget(context, item)
         val sunset = place?.let { Zmanim.sun(now, it, Zmanim.SUNRISE, false) }
         val second = Prefs(context).secondCalendar.format(now, sunset)
 
-        val events = FitColumn(context).apply { gravity = Gravity.CENTER_VERTICAL }
+        val events = LinearLayout(context).apply {
+            orientation = LinearLayout.VERTICAL
+            gravity = Gravity.CENTER_VERTICAL
+        }
+        // Centred while they fit; from the top, scrolling, when there are more.
+        val scroll = android.widget.ScrollView(context).apply {
+            isFillViewport = true
+            isVerticalScrollBarEnabled = false
+            overScrollMode = View.OVER_SCROLL_NEVER
+            isVerticalFadingEdgeEnabled = true
+            setFadingEdgeLength(dp(16))
+            addView(events, LayoutParams(LayoutParams.MATCH_PARENT, LayoutParams.WRAP_CONTENT))
+        }
         content.addView(LinearLayout(context).apply {
             orientation = LinearLayout.HORIZONTAL
             gravity = Gravity.CENTER_VERTICAL
@@ -171,7 +226,7 @@ class AgendaWidget(context: Context, item: HomeItem) : CardWidget(context, item)
                 LinearLayout.LayoutParams(dp(1), LinearLayout.LayoutParams.MATCH_PARENT).apply {
                     marginStart = dp(10); marginEnd = dp(14); topMargin = dp(6); bottomMargin = dp(6)
                 })
-            addView(events, LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.MATCH_PARENT, 1f))
+            addView(scroll, LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.MATCH_PARENT, 1f))
         }, LayoutParams(LayoutParams.MATCH_PARENT, LayoutParams.MATCH_PARENT))
 
         if (context.checkSelfPermission(android.Manifest.permission.READ_CALENDAR) != android.content.pm.PackageManager.PERMISSION_GRANTED) {
@@ -185,17 +240,38 @@ class AgendaWidget(context: Context, item: HomeItem) : CardWidget(context, item)
             add(Calendar.DAY_OF_YEAR, 1)
             set(Calendar.HOUR_OF_DAY, 0); set(Calendar.MINUTE, 0); set(Calendar.SECOND, 0); set(Calendar.MILLISECOND, 0)
         }.timeInMillis
-        val today = info.events(now, midnight, 4)
-        today.forEachIndexed { i, e -> events.addView(gapAbove(event(e, null), if (i == 0) 0 else 10)) }
-        if (today.isEmpty()) {
-            events.addView(WidgetStyle.cardText(context, 15f, WidgetStyle.title).apply { text = "Nothing more today" })
-            info.events(midnight, midnight + DAY, 1).firstOrNull()?.let { e -> events.addView(gapAbove(event(e, "Tomorrow"), 10)) }
-                ?: events.addView(gapAbove(quiet("Enjoy the rest of your day", 13f), 4))
+        val today = info.events(now, midnight, 20)
+        today.forEachIndexed { i, e -> events.addView(gapAbove(event(e), if (i == 0) 0 else 10)) }
+        if (today.isEmpty()) events.addView(WidgetStyle.cardText(context, 15f, WidgetStyle.title).apply { text = "Nothing more today" })
+        // The days after, each under its name, as far as two weeks ahead.
+        val later = info.events(midnight, midnight + 14 * DAY, 40).filter { it.begin >= midnight || it.allDay }
+        if (later.isEmpty() && today.isEmpty()) {
+            events.addView(gapAbove(quiet("Enjoy the rest of your day", 13f), 4))
+            return
+        }
+        var day = -1L
+        later.forEach { e ->
+            val start = dayOf(maxOf(e.begin, midnight))
+            if (start != day) {
+                day = start
+                events.addView(gapAbove(WidgetStyle.cardText(context, 12f, WidgetStyle.title, WidgetStyle.accent()).apply {
+                    text = if (start == midnight) "TOMORROW"
+                    else android.text.format.DateFormat.format("EEEE, MMM d", start).toString().uppercase()
+                    letterSpacing = 0.06f
+                }, 16))
+            }
+            events.addView(gapAbove(event(e), 8))
         }
     }
 
+    /** Midnight at the start of [t]'s day. */
+    private fun dayOf(t: Long) = Calendar.getInstance().apply {
+        timeInMillis = t
+        set(Calendar.HOUR_OF_DAY, 0); set(Calendar.MINUTE, 0); set(Calendar.SECOND, 0); set(Calendar.MILLISECOND, 0)
+    }.timeInMillis
+
     /** One event: a bar in its calendar's color, then its name over its time. */
-    private fun event(e: ClockInfo.Event, prefix: String?) = LinearLayout(context).apply {
+    private fun event(e: ClockInfo.Event) = LinearLayout(context).apply {
         orientation = LinearLayout.HORIZONTAL
         background = Ui.pressable(context, Ui.RADIUS_S)
         setOnClickListener { onEvent?.invoke(e) }
@@ -207,7 +283,7 @@ class AgendaWidget(context: Context, item: HomeItem) : CardWidget(context, item)
             addView(WidgetStyle.cardText(context, 15f, WidgetStyle.label).apply { text = e.title })
             addView(WidgetStyle.cardText(context, 13f, WidgetStyle.body, WidgetStyle.onCardQuiet()).apply {
                 val hours = if (e.allDay) "All day" else "${time(e.begin)} – ${time(e.end)}"
-                text = listOfNotNull(prefix, hours).joinToString(" · ")
+                text = hours
                 setPadding(0, dp(2), 0, 0)
             })
         })
@@ -239,6 +315,7 @@ class WeatherWidget(context: Context, item: HomeItem) : CardWidget(context, item
 
     override fun refresh() {
         content.removeAllViews()
+        content.spread = false
         val place = ClockInfo(context).place()
         if (place == null) {
             content.addView(heading(R.drawable.ic_location, "Weather"))
@@ -252,6 +329,8 @@ class WeatherWidget(context: Context, item: HomeItem) : CardWidget(context, item
             return
         }
         setCard(WeatherArt.sky(w.sky, w.night, dp(WidgetStyle.RADIUS).toFloat()))
+        // Room left over is shared out above, between and below the rows, not bunched in the middle.
+        content.spread = true
         val white = WidgetStyle.WHITE
         val soft = 0xD9FFFFFF.toInt()
         content.gravity = Gravity.CENTER_VERTICAL
