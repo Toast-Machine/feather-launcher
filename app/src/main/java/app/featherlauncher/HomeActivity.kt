@@ -2075,7 +2075,9 @@ class HomeActivity : Activity(), HomeScreen.Host {
         keyMover = KeyMover(
             step = { dx, dy ->
                 val from = order.indexOf(entry.key)
-                val to = from + dx + dy * across
+                var to = from + dx + dy * across
+                // Down onto a last row that's shorter: the end of it.
+                if (dy > 0 && to >= order.size && from / across < (order.size - 1) / across) to = order.size - 1
                 if (to != from && to in order.indices) {
                     order.add(to, order.removeAt(from))
                     slide(animate = true)
