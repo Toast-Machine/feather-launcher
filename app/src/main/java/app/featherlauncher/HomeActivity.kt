@@ -1497,6 +1497,8 @@ class HomeActivity : Activity(), HomeScreen.Host {
 
     override fun dispatchKeyEvent(event: KeyEvent): Boolean {
         if (pinKey(event)) return true
+        // Moving an icon or widget with the keypad: the keys are the move's until it's put down.
+        if (homeScreen.isKeyMoving) return homeScreen.keyMove(event)
         // A held arrow does something (see holdAction); a press still just moves.
         if (heldArrow(event)) return true
         // OK on the search bar opens the first result, as Enter does in the text box.
@@ -1535,6 +1537,7 @@ class HomeActivity : Activity(), HomeScreen.Host {
 
     private fun onBack() {
         when {
+            homeScreen.isKeyMoving -> homeScreen.cancelKeyMove()
             overlays.dismiss() -> Unit
             homeScreen.finishResize() -> Unit
             drawerOpen && showingHidden -> {
@@ -1586,25 +1589,31 @@ class HomeActivity : Activity(), HomeScreen.Host {
      * The phone's speed dial takes held numbers before an app sees them, so the service
      * catches them first and hands them over through [pressDigit] and [holdDigit].
      */
-    fun atHome(): Boolean = !drawerOpen && !overlays.isShowing
+    fun atHome(): Boolean = !drawerOpen && !overlays.isShowing && !homeScreen.isKeyMoving
 
     /**
      * A key the service held back (to see if it was held) and then let through. Arrow keys move
      * the keypad highlight; anything else goes through the usual key handling.
      */
     fun pressKey(code: Int) {
+        val now = android.os.SystemClock.uptimeMillis()
+        if (homeScreen.isKeyMoving) {
+            homeScreen.keyMove(KeyEvent(now, now, KeyEvent.ACTION_DOWN, code, 0))
+            homeScreen.keyMove(KeyEvent(now, now, KeyEvent.ACTION_UP, code, 0))
+            return
+        }
         val direction = directionOf(code)
         if (direction != null) {
             homeScreen.moveFocus(direction)
             return
         }
-        val now = android.os.SystemClock.uptimeMillis()
         dispatchKeyEvent(KeyEvent(now, now, KeyEvent.ACTION_DOWN, code, 0))
         dispatchKeyEvent(KeyEvent(now, now, KeyEvent.ACTION_UP, code, 0))
     }
 
     /** A key the service held back that turned out to be held: its built-in hold action, if any. */
     fun holdKey(code: Int) {
+        if (homeScreen.isKeyMoving) return pressKey(code)
         holdAction(code)?.invoke()
     }
 

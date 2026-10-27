@@ -16,6 +16,7 @@ import android.provider.MediaStore
 import android.provider.Telephony
 import android.view.Gravity
 import android.view.HapticFeedbackConstants
+import android.view.KeyEvent
 import android.view.MotionEvent
 import android.view.View
 import android.view.ViewConfiguration
@@ -338,6 +339,7 @@ class HomeScreen(
                     listOf(
                         shortcuts.menuItems(entry),
                         listOf(
+                            MenuItem("Move", R.drawable.ic_move) { startKeyMove(item) },
                             MenuItem("Rename", R.drawable.ic_edit) { rename(item, entry.label) },
                             MenuItem("Remove", R.drawable.ic_close, danger = true) { remove(item) },
                         ),
@@ -346,18 +348,20 @@ class HomeScreen(
                 ) { host.showAppInfo(entry) }
             }
             HomeItem.Type.FOLDER -> overlays.showMenu(item.label ?: FOLDER_NAME, listOf(
+                MenuItem("Move", R.drawable.ic_move) { startKeyMove(item) },
                 MenuItem("Rename", R.drawable.ic_edit) { rename(item, FOLDER_NAME) },
                 MenuItem("Remove", R.drawable.ic_close, danger = true) { remove(item) },
             ), anchor, folderIcon(item))
             HomeItem.Type.CLOCK -> overlays.showMenu(clockName(item), listOfNotNull(
                 featherSettings(item),
+                MenuItem("Move", R.drawable.ic_move) { startKeyMove(item) },
                 MenuItem("Resize", R.drawable.ic_height) { startResize(item) },
                 MenuItem("Remove", R.drawable.ic_close, danger = true) { remove(item) },
             ), anchor)
             HomeItem.Type.WIDGET -> {
                 val info = widgets.info(item.ref.toInt())
                 val label = info?.loadLabel(activity.packageManager) ?: "Widget"
-                val items = mutableListOf<MenuItem>()
+                val items = mutableListOf(MenuItem("Move", R.drawable.ic_move) { startKeyMove(item) })
                 if (info != null && info.resizeMode != 0) items += MenuItem("Resize", R.drawable.ic_height) { startResize(item) }
                 items += MenuItem("Remove", R.drawable.ic_close, danger = true) { remove(item) }
                 overlays.showMenu(label, items, anchor, info?.provider?.packageName?.let { pkg ->
@@ -620,8 +624,44 @@ class HomeScreen(
 
     // region Drag
 
+    /** An item is being moved with the keypad (see [startKeyMove]). */
+    val isKeyMoving get() = drag.isKeyMoving
+
+    /**
+     * Picks [item] up to move it with the keypad: the arrows step it a cell at a time, with what's
+     * in the way moving aside as it does for a drag; past the side of the page it goes on to the
+     * next one, and below the page into the dock. OK puts it down, Back puts it back.
+     */
+    fun startKeyMove(item: HomeItem) {
+        val view = views[item.id] ?: return
+        drag.startKeys(item, view)
+    }
+
+    /** Puts the item being moved with the keypad back where it was. */
+    fun cancelKeyMove() = drag.keyCancel()
+
+    /** A key while moving with the keypad. Returns true: every key is the move's while it lasts. */
+    fun keyMove(event: KeyEvent): Boolean {
+        val down = event.action == KeyEvent.ACTION_DOWN
+        when (event.keyCode) {
+            KeyEvent.KEYCODE_DPAD_LEFT -> if (down) drag.keyStep(-1, 0)
+            KeyEvent.KEYCODE_DPAD_RIGHT -> if (down) drag.keyStep(1, 0)
+            KeyEvent.KEYCODE_DPAD_UP -> if (down) drag.keyStep(0, -1)
+            KeyEvent.KEYCODE_DPAD_DOWN -> if (down) drag.keyStep(0, 1)
+            KeyEvent.KEYCODE_DPAD_CENTER, KeyEvent.KEYCODE_ENTER, KeyEvent.KEYCODE_MENU ->
+                if (!down && !event.isCanceled) drag.keyDrop()
+            KeyEvent.KEYCODE_BACK -> if (!down && !event.isCanceled) drag.keyCancel()
+        }
+        return true
+    }
+
     /** Called from the activity for every touch event; returns true when a drag consumed it. */
     fun dispatchTouch(ev: MotionEvent): Boolean {
+        // Moving with the keypad: a tap puts the item down where it is.
+        if (drag.isKeyMoving) {
+            if (ev.actionMasked == MotionEvent.ACTION_UP) drag.keyDrop()
+            return true
+        }
         if (ev.actionMasked == MotionEvent.ACTION_DOWN) {
             drag.downX = ev.x
             drag.downY = ev.y
@@ -671,6 +711,113 @@ class HomeScreen(
 
         fun arm(source: DragSource) {
             this.source = source
+        }
+
+        /** Where the keypad has moved the item to (page, column, row); null when not moving by keypad. */
+        private var keyCell: Triple<Int, Int, Int>? = null
+        val isKeyMoving get() = keyCell != null
+
+        fun startKeys(item: HomeItem, view: View) {
+            val r = rectInRoot((view as? AppIconView)?.iconView ?: view)
+            downX = r.exactCenterX()
+            downY = r.exactCenterY()
+            val src = DragSource(item, null, view)
+            source = src
+            val now = android.os.SystemClock.uptimeMillis()
+            val ev = MotionEvent.obtain(now, now, MotionEvent.ACTION_MOVE, downX, downY, 0)
+            start(src, ev)
+            ev.recycle()
+            keyCell = Triple(item.page, item.x, item.y)
+            showKeyCell()
+            android.widget.Toast.makeText(activity, "Move it with the arrows, then press OK", android.widget.Toast.LENGTH_SHORT).show()
+        }
+
+        fun keyStep(dx: Int, dy: Int) {
+            val before = target
+            // A step that would land the item where it already is (it can't go over a widget,
+            // so it settles in the nearest free spot) keeps going, so it never gets stuck.
+            repeat(Workspace.COLS + Workspace.ROWS) {
+                val from = keyCell ?: return
+                val next = nextKeyCell(from, dx, dy) ?: return
+                keyCell = next
+                if (next.first != from.first && from.first != Workspace.DOCK && next.first != Workspace.DOCK) {
+                    // A new page: wait for it to slide into place.
+                    root.postDelayed({ showKeyCell() }, 300)
+                    return
+                }
+                showKeyCell()
+                val now = target
+                if (now != null && now != before) {
+                    keyCell = now
+                    return
+                }
+            }
+        }
+
+        /** The spot one step from [from], or null where it can't go. */
+        private fun nextKeyCell(from: Triple<Int, Int, Int>, dx: Int, dy: Int): Triple<Int, Int, Int>? {
+            val (page, x, y) = from
+            if (page == Workspace.DOCK) return when {
+                // Up out of the dock, onto the bottom row of the page.
+                dy < 0 -> pages.currentPage.let { Triple(it, x.coerceAtMost(workspace.cols(it) - w), workspace.rows(it) - h) }
+                dx != 0 && x + dx in 0 until workspace.cols(page) -> Triple(page, x + dx, 0)
+                else -> null
+            }
+            val cols = workspace.cols(page)
+            val rows = workspace.rows(page)
+            return when {
+                x + dx < 0 || x + dx > cols - w -> {
+                    // Past the side: on to the page beyond, at the near edge.
+                    flipPage(dx)
+                    val now = pages.currentPage
+                    if (now == page) null
+                    else Triple(now, if (dx > 0) 0 else workspace.cols(now) - w, y.coerceAtMost(workspace.rows(now) - h))
+                }
+                y + dy < 0 -> null
+                // Below the page: into the dock, for an app or folder.
+                y + dy > rows - h -> if (w == 1 && h == 1) Triple(Workspace.DOCK, x.coerceAtMost(workspace.cols(Workspace.DOCK) - 1), 0) else null
+                else -> Triple(page, x + dx, y + dy)
+            }
+        }
+
+        /** Makes room at the keypad's spot and glides the item's picture there (or to the nearest free spot). */
+        private fun showKeyCell() {
+            val cell = keyCell ?: return
+            val view = dragView ?: return
+            root.removeCallbacks(reorder)
+            hoverCell = cell
+            applyReorder()
+            val (page, x, y) = target ?: cell
+            val cells = containerFor(page)
+            val origin = rectInRoot(cells)
+            val r = cells.cellRect(Rect(x, y, x + w, y + h))
+            // An icon sits above its name in the cell; a widget fills its cells.
+            val lift = if (source?.item?.isWidget == true) 0f else cells.iconOffset
+            view.animate().x(origin.left + r.exactCenterX() - view.width / 2f).y(origin.top + r.exactCenterY() - lift - view.height / 2f)
+                .setDuration(150).setInterpolator(DecelerateInterpolator(2f)).start()
+        }
+
+        fun keyDrop() {
+            if (keyCell == null) return
+            keyCell = null
+            // No room where it is: it goes back, and so does the screen.
+            if (target == null) showHomePage()
+            drop()
+            source = null
+        }
+
+        fun keyCancel() {
+            if (keyCell == null) return
+            keyCell = null
+            showHomePage()
+            cancel()
+            source = null
+        }
+
+        /** Back to the page the item came from, to see it go back. */
+        private fun showHomePage() {
+            val page = source?.item?.page ?: return
+            if (page != Workspace.DOCK && page != pages.currentPage) pages.snapTo(page, animate = false)
         }
 
         fun handle(ev: MotionEvent): Boolean {
@@ -1117,7 +1264,7 @@ class HomeScreen(
             }
             pages.snapTo(next)
             updateLeftZone()
-            root.postDelayed({ if (active) move(lastX, lastY) }, 300)
+            root.postDelayed({ if (active && keyCell == null) move(lastX, lastY) }, 300)
         }
 
         private fun drop() {
