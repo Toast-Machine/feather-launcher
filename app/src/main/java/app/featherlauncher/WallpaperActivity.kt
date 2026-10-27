@@ -213,7 +213,7 @@ class WallpaperActivity : Activity() {
                 Components.row(this@WallpaperActivity, p, R.drawable.ic_photo, "Your photos",
                     subtitle = "Pick a picture from the phone", chevron = true, inset = Ui.SPACE_L) { pickPhoto() },
             )))
-            addView(sectionTitle("Light and dark", "Switches by itself when the phone goes dark"))
+            addView(sectionTitle("Light and dark", "Switches wallpapers when dark mode turns on or off"))
             addView(pairCard())
             addView(sectionTitle("Colors", null))
             addView(HorizontalScrollView(this@WallpaperActivity).apply {
@@ -300,7 +300,7 @@ class WallpaperActivity : Activity() {
                 orientation = LinearLayout.VERTICAL
                 addView(card)
                 addView(TextView(this@WallpaperActivity).apply {
-                    text = if (DarkMode.hasPair(this@WallpaperActivity)) "Stop switching" else "Clear"
+                    text = if (DarkMode.hasPair(this@WallpaperActivity)) "Remove wallpaper pair" else "Clear selected wallpaper"
                     style(TextStyle.Label, p.accent)
                     setTextSize(TypedValue.COMPLEX_UNIT_SP, 14f)
                     setPadding(dp(Ui.SPACE_XL), dp(Ui.SPACE_M), dp(Ui.SPACE_XL), 0)
@@ -548,7 +548,7 @@ class WallpaperActivity : Activity() {
             gravity = Gravity.CENTER
         }
         private val hint = TextView(this@WallpaperActivity).apply {
-            text = "Drag to move it"
+            text = "Drag to position the wallpaper"
             style(TextStyle.Label, 0xFFFFFFFF.toInt())
             setTextSize(TypedValue.COMPLEX_UNIT_SP, 14f)
             gravity = Gravity.CENTER

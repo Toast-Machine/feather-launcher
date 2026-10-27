@@ -149,7 +149,7 @@ class PinPad private constructor(
         /** Asks for a new PIN twice; [set] gets it once both match. */
         fun create(context: Context, palette: Palette, overlays: Overlays, set: (String) -> Unit) {
             PinPad(context, palette, overlays, "New PIN", { false }, {}) { first ->
-                PinPad(context, palette, overlays, "Enter it again", { it == first }, set).show()
+                PinPad(context, palette, overlays, "Confirm PIN", { it == first }, set).show()
             }.show()
         }
     }

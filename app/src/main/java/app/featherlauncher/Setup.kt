@@ -33,14 +33,14 @@ object Setup {
 
     fun isHome(context: Context) = HOME.done(context)
 
-    val HOME = Item("Make it the home screen", "So Home opens it, and app shortcuts work", R.drawable.ic_home,
+    val HOME = Item("Set Feather Launcher as your home app", "Open Feather Launcher when you press Home", R.drawable.ic_home,
             done = { it.getSystemService(RoleManager::class.java).isRoleHeld(RoleManager.ROLE_HOME) },
             start = { a ->
                 @Suppress("DEPRECATION")
                 a.startActivityForResult(a.getSystemService(RoleManager::class.java).createRequestRoleIntent(RoleManager.ROLE_HOME), 0)
             })
 
-    val ACCESSIBILITY = Item("Accessibility", "For app limits, key shortcuts and holding numbers", R.drawable.ic_unlock,
+    val ACCESSIBILITY = Item("Accessibility", "For app limits and key shortcuts, including holding number keys", R.drawable.ic_unlock,
             done = LauncherService::isEnabled,
             start = { a ->
                 // Opens Launcher's own switch; older phones get the list instead.

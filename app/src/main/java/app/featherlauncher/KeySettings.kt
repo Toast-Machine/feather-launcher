@@ -48,7 +48,7 @@ class KeySettings(private val s: SettingsActivity) {
                 },
             )))
             content.addView(Components.footnote(s, p,
-                "Key shortcuts, and holding a number on this phone, need this so the phone's speed dial doesn't take the key first. In Accessibility, open Feather Launcher and turn it on."))
+                "Allow accessibility access to use key shortcuts and hold number keys for actions instead of speed dial. Open Feather Launcher in Accessibility and turn it on."))
         }
 
         content.addView(s.heading(p, "Gestures"))
@@ -84,7 +84,7 @@ class KeySettings(private val s: SettingsActivity) {
         content.addView(s.heading(p, "Number keys"))
         content.addView(s.spacer())
         content.addView(Components.group(s, p, listOf(1, 2, 3, 4, 5, 6, 7, 8, 9, 0).map { digit -> digitRow(p, digit) }))
-        content.addView(Components.footnote(s, p, "Hold a number to open an app or do anything a shortcut can, in any app except while typing. On the home screen, a quick press starts a search."))
+        content.addView(Components.footnote(s, p, "Hold a number key to run its shortcut, except while typing. On the home screen, press a number key to search."))
     }
 
     private fun digitRow(p: Palette, digit: Int) = LinearLayout(s).apply {
@@ -157,9 +157,9 @@ class KeySettings(private val s: SettingsActivity) {
         content.addView(Components.group(s, p, listOf(
             Components.row(s, p, R.drawable.ic_keyboard, "Key", keyLabel(draft) ?: "Choose",
                 chevron = true, inset = Ui.SPACE_L) { captureKey(draft) },
-            Components.row(s, p, draft.action?.type?.icon ?: R.drawable.ic_hotkey, "Does",
+            Components.row(s, p, draft.action?.type?.icon ?: R.drawable.ic_hotkey, "Action",
                 draft.action?.let { KeyShortcuts.describe(it, ::appLabel) } ?: "Choose", chevron = true, inset = Ui.SPACE_L) {
-                pickAction("What it does", draft.action, allowNone = false) { picked ->
+                pickAction("Choose an action", draft.action, allowNone = false) { picked ->
                     draft.action = picked
                     s.build()
                 }
@@ -208,7 +208,7 @@ class KeySettings(private val s: SettingsActivity) {
                 if (!ready) {
                     Toast.makeText(s, when {
                         key == null -> "Choose a key first"
-                        draft.action == null -> "Choose what it does"
+                        draft.action == null -> "Choose an action first"
                         else -> "Choose the app it works in"
                     }, Toast.LENGTH_SHORT).show()
                     return@pillButton
@@ -247,7 +247,7 @@ class KeySettings(private val s: SettingsActivity) {
             draft.scope != Scope.ALL -> "Everywhere else, $name works as usual."
             KeyShortcuts.canRepeatNormalPress(key) -> "A quick press of $name still works as usual."
             KeyShortcuts.typesInTextBoxes(key) -> "A quick press of $name still types it in text boxes, but its other uses in apps won't work."
-            else -> "In other apps, a quick press of $name won't do its usual job. Choose Home screen or One app to keep it."
+            else -> "In other apps, a quick press of $name will no longer perform its normal action. To preserve that action elsewhere, choose Home screen or One app."
         }
     }
 

@@ -357,7 +357,7 @@ class SettingsActivity : Activity() {
             },
         )))
         content.addView(Components.footnote(this, p,
-            "In dark mode, icons go dark and the wallpaper dims. To switch between a light and a dark wallpaper, choose both under Wallpaper."))
+            "Choose how app icons look and whether to dim the wallpaper. To switch wallpapers with dark mode, choose a light and dark pair under Wallpaper."))
     }
 
     private fun lookName(look: IconLookSetting) = when (look) {
@@ -428,7 +428,7 @@ class SettingsActivity : Activity() {
                 }
             },
         )))
-        content.addView(Components.footnote(this, p, "Categories, their order and which apps they hold are changed in the app list itself: hold a tab or an app."))
+        content.addView(Components.footnote(this, p, "Hold a category tab to edit it, or hold an app to change its category. Drag tabs or apps to reorder them."))
     }
 
     /** Hidden apps, listed here so they can be brought back, and the PIN that guards them. */
@@ -438,12 +438,12 @@ class SettingsActivity : Activity() {
             Components.row(this, p, R.drawable.ic_lock, "PIN", if (prefs.hiddenPin == null) "Off" else "On",
                 chevron = true, inset = Ui.SPACE_L) { pinOptions() },
         )))
-        content.addView(Components.footnote(this, p, "With a PIN, hidden apps and this page ask for it before opening."))
+        content.addView(Components.footnote(this, p, "A PIN is required to open Hidden apps or these settings."))
         val apps = repo.apps.filter { it.key in prefs.hidden }.sortedBy { it.label.lowercase() }
         content.addView(heading(p, "Hidden apps"))
         content.addView(spacer())
         if (apps.isEmpty()) {
-            content.addView(Components.footnote(this, p, "None. To hide an app, hold it in the app list and choose Hide."))
+            content.addView(Components.footnote(this, p, "No hidden apps. Hold an app in the app list and choose Hide from app list."))
             return
         }
         content.addView(Components.group(this, p, apps.map { e ->
@@ -625,7 +625,7 @@ class SettingsActivity : Activity() {
             PinPad.create(this, palette, overlays) {
                 prefs.hiddenPin = PinPad.hash(it)
                 build()
-                Toast.makeText(this, "Hidden apps are locked", Toast.LENGTH_SHORT).show()
+                Toast.makeText(this, "PIN set for hidden apps", Toast.LENGTH_SHORT).show()
             }
         }
         if (pin == null) return setNew()

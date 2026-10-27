@@ -168,7 +168,7 @@ class OnboardingActivity : Activity() {
         val tips = if (keypad) listOf(
             Triple(R.drawable.ic_arrow_downward, "Hold Down", "All your apps"),
             Triple(R.drawable.ic_arrow_upward, "Hold Up", "Search apps, contacts and more"),
-            Triple(R.drawable.ic_dialpad, "Type a number", "Dial it, or hold it to open its app"),
+            Triple(R.drawable.ic_dialpad, "Type a phone number", "Press Call to dial. Hold a number key to run its shortcut."),
             Triple(R.drawable.ic_keyboard, "Menu", "Options for whatever is highlighted"),
         ) else listOf(
             Triple(R.drawable.ic_arrow_upward, "Swipe up", "All your apps"),
@@ -195,7 +195,7 @@ class OnboardingActivity : Activity() {
     private fun done() = page(
         art = symbol(R.drawable.ic_check),
         title = "You're all set",
-        body = "More is waiting in Settings when you want it: app limits, notification filters, key shortcuts, dark icons and wallpapers.",
+        body = "Open Settings to set app limits, filter notifications and customize Feather Launcher.",
         primary = "Start" to ::finishOnboarding,
         dots = true,
     )

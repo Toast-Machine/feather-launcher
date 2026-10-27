@@ -469,7 +469,7 @@ class HomeActivity : Activity(), HomeScreen.Host {
     private fun openSearch(
         query: String = "",
         fromKeypad: Boolean = false,
-        hint: String = "Search contacts and apps",
+        hint: String = "Search apps, contacts and more",
         onPick: ((AppEntry) -> Unit)? = null,
     ) {
         searching = true
@@ -504,7 +504,7 @@ class HomeActivity : Activity(), HomeScreen.Host {
             searching = search
             pick = null
             this.search.setText("")
-            this.search.hint = "Search contacts and apps"
+            this.search.hint = "Search apps, contacts and more"
             if (!search && category == null) category = visibleCategories().firstOrNull()?.id
             setPanelLook()
             updateResults()
@@ -747,7 +747,7 @@ class HomeActivity : Activity(), HomeScreen.Host {
             // Its own page, like a category, but no tab is selected.
             title.text = "Hidden apps"
             val apps = repo.apps.filter { it.key in prefs.hidden }
-            if (apps.isEmpty()) rows += DrawerAdapter.Row.Title("No hidden apps. Long-press an app and choose Hide.")
+            if (apps.isEmpty()) rows += DrawerAdapter.Row.Title("No hidden apps. Hold an app in the app list and choose Hide from app list.")
             addApps(rows, apps)
             tabsScroll.visibility = if (prefs.drawerCategories) View.VISIBLE else View.GONE
             if (prefs.drawerCategories) renderTabs(visibleCategories())
@@ -758,7 +758,7 @@ class HomeActivity : Activity(), HomeScreen.Host {
             title.text = current?.name ?: "Apps"
             val apps = current?.let { c -> categories.sorted(c.id, visible.filter { categories.of(it) == c.id }) }.orEmpty()
             if (apps.isEmpty()) {
-                rows += DrawerAdapter.Row.Title("No apps here yet. Long-press an app and choose Category to move it here.")
+                rows += DrawerAdapter.Row.Title("No apps here yet. Hold an app in the app list, open its Category menu, and choose this category.")
             }
             addApps(rows, apps)
             tabsScroll.visibility = View.VISIBLE
@@ -868,7 +868,7 @@ class HomeActivity : Activity(), HomeScreen.Host {
                 if (sections > 0) rows += DrawerAdapter.Row.Divider
                 sections++
                 rows += DrawerAdapter.Row.Title("Contacts")
-                rows += DrawerAdapter.Row.Notice("Search your contacts here too", "Allow") {
+                rows += DrawerAdapter.Row.Notice("Allow contact search", "Allow") {
                     requestPermissions(arrayOf(android.Manifest.permission.READ_CONTACTS), REQUEST_CONTACTS)
                 }
             }
@@ -911,7 +911,7 @@ class HomeActivity : Activity(), HomeScreen.Host {
                 if (sections > 0) rows += DrawerAdapter.Row.Divider
                 sections++
                 rows += DrawerAdapter.Row.Title("Files")
-                rows += DrawerAdapter.Row.Notice("Search your photos, videos and music too", "Allow") {
+                rows += DrawerAdapter.Row.Notice("Allow photo, video and music search", "Allow") {
                     requestPermissions(smartSearch.mediaPermissions, REQUEST_MEDIA)
                 }
             }

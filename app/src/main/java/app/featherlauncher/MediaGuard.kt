@@ -112,8 +112,8 @@ class MediaGuard(private val context: Context) {
         nm.notify(pkg.hashCode(), Notification.Builder(context, CHANNEL)
             .setSmallIcon(limit.strictness.icon)
             .setContentTitle("$label is locked$until")
-            .setContentText(if (limit.strictness == Strictness.WAIT) "${limit.name} stopped its sound. Tap to open it for a few minutes."
-                else "${limit.name} stopped its sound.")
+            .setContentText(if (limit.strictness == Strictness.WAIT) "${limit.name} stopped audio from this app. Tap to view opening options."
+                else "${limit.name} stopped audio from this app.")
             .setContentIntent(open)
             .setAutoCancel(true)
             .build())

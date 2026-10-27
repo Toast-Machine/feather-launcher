@@ -545,7 +545,7 @@ class HomeScreen(
         column.addView(segmented(p, ClockOptions.Size.entries.map { it.label }, options.size.ordinal) {
             update(ClockOptions(ClockOptions.Size.entries[it], options.alignStart, options.showDate))
         })
-        column.addView(sectionLabel("Position", p))
+        column.addView(sectionLabel("Alignment", p))
         column.addView(segmented(p, listOf("Center", "Left"), if (options.alignStart) 1 else 0) {
             update(ClockOptions(options.size, it == 1, options.showDate))
         })

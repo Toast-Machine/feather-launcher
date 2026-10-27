@@ -24,7 +24,7 @@ class NotificationSettings(private val s: SettingsActivity) {
                 },
             )))
             content.addView(Components.footnote(s, p,
-                "Filters need this to see notifications as they arrive. Open Feather Launcher in the list and allow it."))
+                "Allow notification access to filter incoming notifications. Open Feather Launcher in the list and turn on access."))
         }
 
         content.addView(s.heading(p, "Filters"))
@@ -88,14 +88,14 @@ class NotificationSettings(private val s: SettingsActivity) {
             Components.row(s, p, R.drawable.ic_app_list, "App", appName(f.app), chevron = true, inset = Ui.SPACE_L) {
                 pickApp(f.app) { update(f.copy(app = it)) }
             },
-            Components.row(s, p, R.drawable.ic_message, "Words",
+            Components.row(s, p, R.drawable.ic_message, "Words or phrases",
                 subtitle = if (f.words.isEmpty()) "Any notification" else f.words.joinToString(", "), chevron = true, inset = Ui.SPACE_L) {
-                s.overlays.showInputAllowingEmpty("Words", f.words.joinToString(", "), "sale, promo code") {
+                s.overlays.showInputAllowingEmpty("Words or phrases", f.words.joinToString(", "), "sale, promo code") {
                     update(f.copy(words = NotificationFilter.parseWords(it)))
                 }
             },
         )))
-        content.addView(Components.footnote(s, p, "Separate words with commas. Leave it empty to filter every notification from the app."))
+        content.addView(Components.footnote(s, p, "Separate words or phrases with commas. Matches ignore capitalization. Leave blank to hide all notifications from the selected app."))
 
         if (f.words.isNotEmpty()) {
             content.addView(s.heading(p, "Hide"))
@@ -111,9 +111,9 @@ class NotificationSettings(private val s: SettingsActivity) {
             content.addView(s.heading(p, "When"))
             content.addView(s.spacer())
             content.addView(Components.group(s, p, listOf(
-                Components.row(s, p, R.drawable.ic_time, "Hides them", f.during?.let(::limitName)?.let { "During $it" } ?: "Always",
+                Components.row(s, p, R.drawable.ic_time, "Hide notifications", f.during?.let(::limitName)?.let { "During $it" } ?: "Always",
                     chevron = true, inset = Ui.SPACE_L) {
-                    Components.choiceSheet(s, p, s.overlays, "Hides them",
+                    Components.choiceSheet(s, p, s.overlays, "Hide notifications",
                         listOf("Always" to null) + limits.map { "During ${it.name}" to null },
                         limits.indexOfFirst { it.id == f.during } + 1) { i ->
                         update(f.copy(during = if (i == 0) null else limits[i - 1].id))
@@ -172,7 +172,7 @@ class NotificationSettings(private val s: SettingsActivity) {
             else -> "Notifications from $from that mention ${f.words.joinToString(" or ") { "“$it”" }}"
         }
         val during = f.during?.let(::limitName)?.let { " during $it" } ?: ""
-        return "$which will be hidden$during. You can still read them under History."
+        return "$which will be hidden$during. You can read the latest 100 hidden notifications in Hidden notifications."
     }
 
     private fun limitName(id: Long): String? = AppLimits.get(s).find(id)?.name
@@ -195,7 +195,7 @@ class NotificationSettings(private val s: SettingsActivity) {
         val history = store.history
         content.addView(s.spacer())
         if (history.isEmpty()) {
-            content.addView(Components.footnote(s, p, "Nothing has been hidden yet."))
+            content.addView(Components.footnote(s, p, "No hidden notifications."))
             return
         }
         content.addView(Components.group(s, p, history.map { h -> historyRow(p, h) }))

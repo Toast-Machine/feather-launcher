@@ -38,7 +38,7 @@ class LimitSettings(private val s: SettingsActivity) {
         }.also { if (locked) freeze(it) }
         content.addView(Components.group(s, p, rows))
         content.addView(Components.footnote(s, p,
-            "Each limit locks the apps you choose at the times you choose. Locked apps' sound stops too."))
+            "Each limit locks selected apps on a schedule and stops their audio."))
 
         val changing = content.childCount
         content.addView(s.heading(p, "Changing limits"))
@@ -48,17 +48,17 @@ class LimitSettings(private val s: SettingsActivity) {
             Components.row(s, p, R.drawable.ic_lock, "Changes allowed", guard.label, chevron = true, inset = Ui.SPACE_L) {
                 guarded { guardSheet() }
             },
-            if (guard == AppLimits.Guard.WAIT) Components.row(s, p, R.drawable.ic_hourglass, "Wait",
+            if (guard == AppLimits.Guard.WAIT) Components.row(s, p, R.drawable.ic_hourglass, "Wait before changing limits",
                 AppLimits.formatDuration(limits.guardWaitSeconds), chevron = true, inset = Ui.SPACE_L) {
                 guarded {
-                    durationSheet("Wait", listOf(30, 60, 2 * 60, 5 * 60, 10 * 60, 15 * 60), limits.guardWaitSeconds) {
+                    durationSheet("Wait before changing limits", listOf(30, 60, 2 * 60, 5 * 60, 10 * 60, 15 * 60), limits.guardWaitSeconds) {
                         limits.guardWaitSeconds = it
                     }
                 }
             } else null,
         )))
         content.addView(Components.footnote(s, p, when (guard) {
-            AppLimits.Guard.NONE -> "Make limits harder to undo on a whim: changing them can need a wait, a PIN, or a restart of the phone."
+            AppLimits.Guard.NONE -> "Require a wait, a PIN or a phone restart before changing limits."
             AppLimits.Guard.WAIT -> "To change limits, start the wait and keep Settings open for ${AppLimits.formatDuration(limits.guardWaitSeconds)}."
             AppLimits.Guard.PIN -> "Changing limits needs the PIN."
             AppLimits.Guard.RESTART -> "Limits can only be changed in the first ${AppLimits.RESTART_WINDOW / AppLimits.MINUTE} minutes after the phone starts."
@@ -81,7 +81,7 @@ class LimitSettings(private val s: SettingsActivity) {
         content.addView(s.spacer())
         val count = limit.apps.count { pkg -> s.visibleApps.any { it.packageName == pkg } }
         content.addView(Components.group(s, p, listOf(
-            Components.toggleRow(s, p, limit.strictness.icon, "On", limit.enabled) { change(limit.copy(enabled = it)) },
+            Components.toggleRow(s, p, limit.strictness.icon, "Enable limit", limit.enabled) { change(limit.copy(enabled = it)) },
             Components.row(s, p, R.drawable.ic_edit, "Name", limit.name, chevron = true, inset = Ui.SPACE_L) {
                 guarded {
                     s.overlays.showInput("Name", limit.name, "Name") { change(limit.copy(name = it)) }
@@ -126,10 +126,10 @@ class LimitSettings(private val s: SettingsActivity) {
                     chevron = true, inset = Ui.SPACE_L) {
                     guarded { durationSheet("Wait before opening", listOf(10, 15, 30, 60, 120), limit.waitSeconds) { change(limit.copy(waitSeconds = it)) } }
                 },
-                Components.row(s, p, R.drawable.ic_time, "Opens for", AppLimits.formatDuration(limit.openMinutes * 60),
+                Components.row(s, p, R.drawable.ic_time, "Time allowed after opening", AppLimits.formatDuration(limit.openMinutes * 60),
                     chevron = true, inset = Ui.SPACE_L) {
                     guarded {
-                        durationSheet("Opens for", listOf(1, 2, 5, 10, 15, 30).map { it * 60 }, limit.openMinutes * 60) {
+                        durationSheet("Time allowed after opening", listOf(1, 2, 5, 10, 15, 30).map { it * 60 }, limit.openMinutes * 60) {
                             change(limit.copy(openMinutes = it / 60))
                         }
                     }
@@ -146,16 +146,16 @@ class LimitSettings(private val s: SettingsActivity) {
             val cooldown = if (limit.cooldownMinutes == 0) "" else
                 " Then it can't be opened again for ${AppLimits.formatDuration(limit.cooldownMinutes * 60)}."
             content.addView(Components.footnote(s, p,
-                "Opening an app shows your message and a button. Wait ${AppLimits.formatDuration(limit.waitSeconds)} " +
-                    "without leaving the screen, and it opens for ${AppLimits.formatDuration(limit.openMinutes * 60)}, then locks again.$cooldown"))
+                "To open a limited app, tap the button and keep the limit screen open for ${AppLimits.formatDuration(limit.waitSeconds)}. " +
+                    "The app opens for ${AppLimits.formatDuration(limit.openMinutes * 60)}, then locks again.$cooldown"))
         } else {
-            content.addView(Components.footnote(s, p, "The apps don't open until the limit ends. Opening one shows your message."))
+            content.addView(Components.footnote(s, p, "Apps stay blocked until the limit ends. Trying to open one shows your message."))
         }
 
         content.addView(s.spacer())
         content.addView(Components.group(s, p, listOf(
             Components.row(s, p, R.drawable.ic_message, "Message", subtitle = limit.message.ifBlank { "None" }, chevron = true, inset = Ui.SPACE_L) {
-                guarded { s.overlays.showInputAllowingEmpty("Message", limit.message, "What to see when opening one") { change(limit.copy(message = it)) } }
+                guarded { s.overlays.showInputAllowingEmpty("Message", limit.message, "Message shown when you try to open a limited app") { change(limit.copy(message = it)) } }
             },
         )))
 
@@ -167,8 +167,8 @@ class LimitSettings(private val s: SettingsActivity) {
             },
         )))
         content.addView(Components.footnote(s, p, if (NotificationService.isEnabled(s))
-            "While the apps are locked, their notifications wait and come back on their own when the limit ends."
-            else "While the apps are locked, their notifications wait until the limit ends. Needs notification access, under Notifications."))
+            "Notifications from locked apps are held until the limit ends, then appear again. Ongoing notifications are not held."
+            else "Notifications from locked apps are held until the limit ends. Ongoing notifications are not held. Requires notification access, under Notifications."))
 
         content.addView(LinearLayout(s).apply {
             orientation = LinearLayout.VERTICAL
@@ -190,7 +190,7 @@ class LimitSettings(private val s: SettingsActivity) {
             orientation = LinearLayout.VERTICAL
             setPadding(s.dp(Ui.SPACE_XL), 0, s.dp(Ui.SPACE_XL), s.dp(Ui.SPACE_L))
             addView(TextView(s).apply {
-                text = "Its apps won't be locked by it anymore."
+                text = "This limit will stop locking its selected apps. Other limits will still apply."
                 style(TextStyle.Body, p.textSecondary)
             })
             addView(Components.pillButton(s, "Delete", p.danger, p.onAccent) {
@@ -288,7 +288,7 @@ class LimitSettings(private val s: SettingsActivity) {
                     override fun run() {
                         val started = limits.waitStartedAt
                         if (started == 0L) {
-                            button.text = "Start $wait wait"
+                            button.text = "Start wait · $wait"
                             progress.level = 0
                             return
                         }
