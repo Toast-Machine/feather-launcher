@@ -184,7 +184,9 @@ class PageDots(context: Context, attrs: AttributeSet?) : View(context, attrs) {
         val active = Ui.dp(context, 16).toFloat()
         val total = (count - 1) * (2 * r + gap) + active
         var x = (width - total) / 2
-        val cy = height / 2f
+        // Cards end a gap short of the page, so the dots go up half that to sit midway between
+        // the cards and the dock.
+        val cy = height / 2f - Ui.dp(context, CardWidget.GAP / 2f)
         for (i in 0 until count) {
             val w = if (i == current) active else 2 * r
             paint.color = if (i == current) 0xFFFFFFFF.toInt() else 0x73FFFFFF

@@ -175,7 +175,7 @@ class Workspace(context: Context) {
             val widthDp = window.bounds.width() / density
             // The page's share of the screen (see activity_home.xml): all but the system bars, the
             // page's top margin and [PAGE_TOP], the page dots, and the dock with its bottom margin.
-            val pageDp = (window.bounds.height() - bars.top - bars.bottom) / density - 8 - PAGE_TOP - 20 - Ui.DOCK_HEIGHT - 12
+            val pageDp = (window.bounds.height() - bars.top - bars.bottom) / density - 8 - PAGE_TOP - 20 - Ui.DOCK_HEIGHT - 16
             // Pages are inset from the screen's edges as much as the dock is.
             val cellDp = (widthDp - 2 * Ui.BAR_MARGIN) / COLS
             ROWS = kotlin.math.round(pageDp / cellDp).toInt().coerceAtMost((pageDp / MIN_CELL).toInt()).coerceIn(3, 7)
