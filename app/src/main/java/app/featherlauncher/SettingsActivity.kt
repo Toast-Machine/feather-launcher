@@ -129,7 +129,9 @@ class SettingsActivity : Activity() {
             }
             windowInsets
         }
-        build()
+        // The page is first drawn once the system bars' insets arrive, just before the first frame;
+        // building it here too would only be thrown away.
+        root.post { if (!::content.isInitialized) build() }
         if (intent.getBooleanExtra(EXTRA_UPDATE, false)) root.post { updatesSheet() }
     }
 
@@ -139,10 +141,13 @@ class SettingsActivity : Activity() {
         AppLimits.get(this).lockAgain()
     }
 
+    private var resumed = false
+
     override fun onResume() {
         super.onResume()
-        // Default home app may have been changed in system settings.
-        if (::content.isInitialized) build()
+        // Default home app may have been changed in system settings. Not on opening, when it was just built.
+        if (resumed && ::content.isInitialized) build()
+        resumed = true
         if (installWhenAllowed) {
             installWhenAllowed = false
             if (packageManager.canRequestPackageInstalls()) root.post { updatesSheet(installNow = true) }
@@ -191,7 +196,15 @@ class SettingsActivity : Activity() {
             Page.LIMITS -> LimitSettings(this).build(p)
             Page.LIMIT -> LimitSettings(this).buildLimit(p)
         }
-        scroll.post { scroll.scrollTo(0, scrollY) }
+        // Back where it was before the first frame shows, so the rebuilt page doesn't flash at the top.
+        scroll.viewTreeObserver.addOnPreDrawListener(object : android.view.ViewTreeObserver.OnPreDrawListener {
+            override fun onPreDraw(): Boolean {
+                scroll.viewTreeObserver.removeOnPreDrawListener(this)
+                if (scrollY > 0) header.setBackgroundColor(p.surfaceScrolled)
+                scroll.scrollTo(0, scrollY)
+                return true
+            }
+        })
     }
 
     /** The back arrow and the page's title. It reaches up behind the status bar, so its tint does too. */
