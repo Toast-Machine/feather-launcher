@@ -103,6 +103,8 @@ class LauncherService : AccessibilityService() {
 
         val digit = if (code in KeyEvent.KEYCODE_0..KeyEvent.KEYCODE_9) code - KeyEvent.KEYCODE_0 else null
         if (digit != null) {
+            // On the lock screen, numbers type the PIN.
+            if (getSystemService(android.app.KeyguardManager::class.java).isKeyguardLocked) return false
             if (home != null) {
                 owned += code
                 press(code, onHold = { HomeActivity.running?.holdDigit(digit) }, onPress = { HomeActivity.running?.pressDigit(digit) })
