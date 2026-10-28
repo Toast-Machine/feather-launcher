@@ -153,9 +153,24 @@ class HomeActivity : Activity(), HomeScreen.Host {
     }
 
     /** Icons, the wallpaper dimming and the wallpaper pair, for the current light or dark mode. */
+    /** The screen went off; the darkening comes back after the unlock (see [applyDarkMode]). */
+    private var dimAfterUnlock = false
+
     private fun applyDarkMode() {
         repo.setLook(DarkMode.iconLook(this, prefs), DarkMode.tint(this, prefs))
-        findViewById<View>(R.id.wall_dim).alpha = DarkMode.wallpaperDim(this, prefs)
+        val dim = findViewById<View>(R.id.wall_dim)
+        val target = DarkMode.wallpaperDim(this, prefs)
+        dim.animate().cancel()
+        if (dimAfterUnlock && target > 0f) {
+            // Unlocking zooms this window in from smaller than the screen, while the wallpaper
+            // behind it stays put: a darkening already showing would show its edges. It fades
+            // in once the zoom is over.
+            dim.alpha = 0f
+            dim.animate().alpha(target).setStartDelay(450).setDuration(250).start()
+        } else {
+            dim.alpha = target
+        }
+        dimAfterUnlock = false
         DarkMode.applyPair(this)
     }
 
@@ -283,6 +298,11 @@ class HomeActivity : Activity(), HomeScreen.Host {
 
     override fun onStop() {
         super.onStop()
+        // The screen went off (the phone is locking): see applyDarkMode.
+        if (!getSystemService(android.os.PowerManager::class.java).isInteractive) {
+            dimAfterUnlock = true
+            findViewById<View>(R.id.wall_dim).alpha = 0f
+        }
         home.removeCallbacks(limitsChanged)
         home.removeCallbacks(redrawBadges)
         if (NotificationBadges.onChange === badgesChanged) NotificationBadges.onChange = null
