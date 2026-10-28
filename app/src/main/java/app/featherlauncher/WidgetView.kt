@@ -48,9 +48,18 @@ class WidgetView(context: Context) : AppWidgetHostView(context) {
                 view.offsetDescendantRectToMyCoords(bg, box)
             }
             val radius = maxOf(resources.getDimension(android.R.dimen.system_app_widget_background_radius), WidgetStyle.RADIUS * resources.displayMetrics.density)
-            outline.setRoundRect(box, minOf(radius, minOf(box.width(), box.height()) / 2f))
+            corner = minOf(radius, minOf(box.width(), box.height()) / 2f)
+            cornerBox.set(box)
+            cornerBox.offset(view.left, view.top)
+            outline.setRoundRect(box, corner)
         }
     }
+
+    /** The rounded corner (px) the widget is cut to, and the box (in this view) it's cut around. */
+    var corner = 0f
+        private set
+    val cornerBox = android.graphics.Rect()
+    val cornerInset get() = cornerBox.left
 
     override fun onLayout(changed: Boolean, left: Int, top: Int, right: Int, bottom: Int) {
         super.onLayout(changed, left, top, right, bottom)

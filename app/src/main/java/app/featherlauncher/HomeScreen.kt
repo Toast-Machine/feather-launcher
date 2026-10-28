@@ -68,7 +68,11 @@ class HomeScreen(
     init {
         dock.cols = Workspace.DOCK_COLS
         dock.rows = 1
-        pages.onPageChanged = { dots.current = it }
+        pages.onPageChanged = {
+            dots.current = it
+            // The widget being resized stays on its page; the frame around it goes too.
+            finishResize()
+        }
         if (workspace.isNew) setUpDefaults()
         bindAll()
     }
@@ -1007,7 +1011,8 @@ class HomeScreen(
             val dockBox = rectInRoot(dock)
             val gap = dp(EDGE_GAP)
             val top = box.top + gap
-            val height = dockBox.top - gap - top
+            // Just the page: the dots under it aren't part of it.
+            val height = box.bottom - top
             fun zone(lp: FrameLayout.LayoutParams) = DropZone(activity, 0, outline, Ui.RADIUS_BAR).also { root.addView(it, lp) }
 
             pageOutline = zone(FrameLayout.LayoutParams(root.width - 2 * dp(Ui.BAR_MARGIN), height, Gravity.TOP or Gravity.START).apply {
@@ -1415,7 +1420,8 @@ class HomeScreen(
         actions += MenuItem("Remove", R.drawable.ic_close, danger = true) { remove(item) }
         return LinearLayout(activity).apply {
             orientation = LinearLayout.HORIZONTAL
-            background = Ui.rounded(activity, p.surface, TOOLBAR_RADIUS)
+            // A pill, as are the buttons inside it.
+            background = Ui.rounded(activity, p.surface, Ui.RADIUS_PILL)
             elevation = dp(8).toFloat()
             val pad = dp(TOOLBAR_PADDING)
             setPadding(pad, pad, pad, pad)
@@ -1430,8 +1436,8 @@ class HomeScreen(
                     compoundDrawablePadding = dp(8)
                     compoundDrawableTintList = android.content.res.ColorStateList.valueOf(color)
                     setPadding(dp(14), 0, dp(16), 0)
-                    background = Ui.rounded(activity, if (action.danger) p.dangerSurface else p.surfaceHigh, TOOLBAR_RADIUS - TOOLBAR_PADDING)
-                    foreground = Ui.pressable(activity, TOOLBAR_RADIUS - TOOLBAR_PADDING)
+                    background = Ui.rounded(activity, if (action.danger) p.dangerSurface else p.surfaceHigh, Ui.RADIUS_PILL)
+                    foreground = Ui.pressable(activity, Ui.RADIUS_PILL)
                     isFocusable = true
                     setOnClickListener {
                         finishResize()
@@ -1471,7 +1477,12 @@ class HomeScreen(
 
         override fun onDraw(canvas: Canvas) {
             val b = bounds()
-            val radius = dp(18).toFloat()
+            // Around a card, its curve runs parallel to the card's, the frame's distance out.
+            val radius = when (view) {
+                is CardWidget -> dp(WidgetStyle.RADIUS + CardWidget.GAP - 2).toFloat()
+                is WidgetView -> (view.corner + view.cornerInset - dp(2)).coerceAtLeast(dp(18).toFloat())
+                else -> dp(18).toFloat()
+            }
             canvas.drawRoundRect(b, radius, radius, stroke)
             val r = dp(7).toFloat()
             handles(b).forEach { (x, y) -> canvas.drawCircle(x, y, r, knob) }
@@ -1481,14 +1492,22 @@ class HomeScreen(
             b.left to b.centerY(), b.centerX() to b.top, b.right to b.centerY(), b.centerX() to b.bottom,
         )
 
-        /** Above the widget if there's room, otherwise below, centered on it. */
+        /**
+         * Above the widget if there's room on the page, otherwise below, centered on it. A widget
+         * that fills the page has it inside along its bottom, so it never covers the dock.
+         */
         fun placeToolbar() {
             val bar = toolbar ?: return
             bar.measure(View.MeasureSpec.UNSPECIFIED, View.MeasureSpec.UNSPECIFIED)
             val b = bounds()
             val gap = dp(12)
             val above = b.top - gap - bar.measuredHeight
-            val y = if (above > overlays.insets.top + dp(8)) above else b.bottom + gap
+            val below = b.bottom + gap
+            val y = when {
+                above > rectInRoot(pages).top -> above
+                below + bar.measuredHeight < rectInRoot(dock).top - gap -> below
+                else -> b.bottom - gap - bar.measuredHeight
+            }
             val x = (b.centerX() - bar.measuredWidth / 2f).coerceIn(dp(12).toFloat(), (root.width - bar.measuredWidth - dp(12)).toFloat())
             bar.x = x
             bar.y = y
@@ -1571,7 +1590,14 @@ class HomeScreen(
         // Putting a background back resets the padding to the background's own; the view's stays.
         val padding = intArrayOf(view.paddingLeft, view.paddingTop, view.paddingRight, view.paddingBottom)
         view.background = null
-        view.draw(Canvas(bitmap))
+        val canvas = Canvas(bitmap)
+        // Drawn off screen, the widget isn't cut to its rounded corners; cut it here instead.
+        if (view is WidgetView && view.corner > 0) {
+            canvas.clipPath(android.graphics.Path().apply {
+                addRoundRect(RectF(view.cornerBox), view.corner, view.corner, android.graphics.Path.Direction.CW)
+            })
+        }
+        view.draw(canvas)
         view.background = background
         view.setPadding(padding[0], padding[1], padding[2], padding[3])
         return bitmap
@@ -1679,7 +1705,6 @@ class HomeScreen(
         private const val EDGE_HIT = 28
         private const val FOLDER_NAME = "Folder"
         private const val FOLDER_COLS = 4
-        private const val TOOLBAR_RADIUS = 24
         private const val TOOLBAR_PADDING = 6
         /** How long a dragged app hovers over a spot before icons there make room. */
         private const val REORDER_DELAY = 180L
