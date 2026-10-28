@@ -47,19 +47,17 @@ object Ui {
         }
 
     /**
-     * Where the keypad is: a soft fill with a crisp outline around the focused item, in [color]
-     * (white on the wallpaper, gray in sheets so it shows in light and dark). Nothing otherwise.
+     * Where the keypad is: a crisp outline around the focused item, in [color] (white on the
+     * wallpaper, gray in sheets so it shows in light and dark). Nothing otherwise. No fill, so
+     * it never covers what's inside, and no fade, so it moves at once.
      */
     fun focusRing(context: Context, radiusDp: Int, color: Int = FOCUS_NEUTRAL): Drawable =
         android.graphics.drawable.StateListDrawable().apply {
             addState(intArrayOf(android.R.attr.state_focused), GradientDrawable().apply {
-                setColor((color and 0xFFFFFF) or 0x24000000)
                 setStroke(dp(context, 2), (color and 0xFFFFFF) or 0xD9000000.toInt())
                 cornerRadius = dp(context, radiusDp).toFloat()
             })
             addState(intArrayOf(), android.graphics.drawable.ColorDrawable(0))
-            setEnterFadeDuration(90)
-            setExitFadeDuration(90)
         }
 
     /** For app icons: no box when tapped (the icon shrinks instead, see [pressScale]), only the focus ring. */
@@ -68,9 +66,16 @@ object Ui {
     /** Touch ripple, plus the focus ring when the keypad is on the view. */
     fun pressable(context: Context, radiusDp: Int, content: Drawable? = null, focusColor: Int = FOCUS_NEUTRAL): Drawable =
         android.graphics.drawable.LayerDrawable(arrayOf(
-            RippleDrawable(ColorStateList.valueOf(0x33FFFFFF), content, rounded(context, 0xFFFFFFFF.toInt(), radiusDp)),
+            TouchRipple(content, rounded(context, 0xFFFFFFFF.toInt(), radiusDp)),
             focusRing(context, radiusDp, focusColor),
         ))
+
+    /** A ripple for touches only. A plain ripple also fills the item while it's focused, on top of the focus ring. */
+    private class TouchRipple(content: Drawable?, mask: Drawable) : RippleDrawable(ColorStateList.valueOf(0x33FFFFFF), content, mask) {
+        override fun onStateChange(stateSet: IntArray): Boolean = super.onStateChange(
+            stateSet.filter { it != android.R.attr.state_focused && it != android.R.attr.state_hovered }.toIntArray(),
+        )
+    }
 
     /** A gray that shows on both light and dark surfaces. */
     const val FOCUS_NEUTRAL = 0xFF8C929B.toInt()
