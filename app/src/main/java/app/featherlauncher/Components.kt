@@ -11,7 +11,6 @@ import android.view.ViewGroup
 import android.widget.HorizontalScrollView
 import android.widget.ImageView
 import android.widget.LinearLayout
-import android.widget.Switch
 import android.widget.TextView
 
 /** The shared pieces sheets and the settings page are built from, so they all look the same. */
@@ -168,14 +167,7 @@ object Components {
 
     /** A row with an on/off switch; tapping anywhere on the row flips it. */
     fun toggleRow(ctx: Context, p: Palette, icon: Int, label: String, checked: Boolean, onChange: (Boolean) -> Unit): View {
-        val switch = Switch(ctx).apply {
-            isChecked = checked
-            isClickable = false
-            isFocusable = false
-            val states = arrayOf(intArrayOf(android.R.attr.state_checked), intArrayOf())
-            thumbTintList = ColorStateList(states, intArrayOf(p.onAccent, p.textSecondary))
-            trackTintList = ColorStateList(states, intArrayOf(p.accent, p.surface))
-        }
+        val switch = FeatherSwitch(ctx, p, checked)
         return LinearLayout(ctx).apply {
             orientation = LinearLayout.HORIZONTAL
             gravity = Gravity.CENTER_VERTICAL
@@ -191,10 +183,10 @@ object Components {
                 text = label
                 style(TextStyle.Body, p.text)
             }, LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f).apply { marginStart = dp(ctx, Ui.SPACE_L) })
-            addView(switch)
+            addView(switch, LinearLayout.LayoutParams(dp(ctx, FeatherSwitch.WIDTH), dp(ctx, FeatherSwitch.HEIGHT)).apply { marginStart = dp(ctx, Ui.SPACE_M) })
             setOnClickListener {
-                switch.isChecked = !switch.isChecked
-                onChange(switch.isChecked)
+                switch.checked = !switch.checked
+                onChange(switch.checked)
             }
         }
     }

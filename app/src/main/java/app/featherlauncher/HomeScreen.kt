@@ -963,6 +963,8 @@ class HomeScreen(
             val page = when {
                 inDock && w == 1 && h == 1 -> Workspace.DOCK
                 inDock -> null
+                // Beside or below the dock is neither the dock nor the page.
+                y >= dockRect.top -> null
                 else -> pages.currentPage
             }
             if (page == null) {
@@ -985,11 +987,13 @@ class HomeScreen(
                 setTarget(null)
             } else {
                 // After a short hover, what's in the way slides aside: icons for an app, anything for a widget.
+                // Over a free spot there's nothing to wait for: the highlight follows at once.
                 val cell = Triple(page, col, row)
                 if (cell != hoverCell) {
                     hoverCell = cell
                     root.removeCallbacks(reorder)
-                    root.postDelayed(reorder, REORDER_DELAY)
+                    if (workspace.isFree(page, col, row, w, h, source?.item)) applyReorder()
+                    else root.postDelayed(reorder, REORDER_DELAY)
                 }
             }
         }

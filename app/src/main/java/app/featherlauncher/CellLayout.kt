@@ -26,7 +26,7 @@ class CellLayout(context: Context, attrs: AttributeSet? = null) : ViewGroup(cont
 
     /** The item being dropped is an app icon, so preview the icon's square, not the whole cell. */
     var dropPreviewIsIcon = false
-    /** Dropping here makes or fills a folder: draw the highlight larger and stronger. */
+    /** Dropping here makes or fills a folder: draw the highlight stronger. */
     var dropPreviewGrow = false
     /** How far above the cell's center icons sit (they're raised by half the name under them). */
     var iconOffset = 0f
@@ -102,11 +102,10 @@ class CellLayout(context: Context, attrs: AttributeSet? = null) : ViewGroup(cont
             if (dropPreviewIsIcon) {
                 // Same square as the icon's own highlight, where the icon will sit
                 // (raised by half the name's height on pages, where icons have names).
-                val grow = if (dropPreviewGrow) 1.18f else 1f
-                val half = Ui.dp(context, boxDp) / 2f * grow
+                val half = Ui.dp(context, boxDp) / 2f
                 val cx = r.exactCenterX()
                 val cy = r.exactCenterY() - iconOffset
-                val radius = Ui.dp(context, AppIconView.ICON_RADIUS + AppIconView.INSET) * grow
+                val radius = Ui.dp(context, AppIconView.ICON_RADIUS + AppIconView.INSET).toFloat()
                 previewPaint.color = if (dropPreviewGrow) 0x55FFFFFF else 0x33FFFFFF
                 canvas.drawRoundRect(cx - half, cy - half, cx + half, cy + half, radius, radius, previewPaint)
             } else {
