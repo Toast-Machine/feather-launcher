@@ -304,12 +304,16 @@ class AgendaWidget(context: Context, item: HomeItem) : CardWidget(context, item)
 class WeatherWidget(context: Context, item: HomeItem) : CardWidget(context, item) {
     /** A short card (a small screen): the top on one line. */
     private var compact = false
+    /** A narrow card: just the weather now, stacked, as in iOS's small widget. */
+    private var narrow = false
 
     override fun onSizeChanged(w: Int, h: Int, oldw: Int, oldh: Int) {
         super.onSizeChanged(w, h, oldw, oldh)
-        val next = h < dp(250)
-        if (next != compact) {
-            compact = next
+        val nextCompact = h < dp(250)
+        val nextNarrow = w < dp(260)
+        if (nextCompact != compact || nextNarrow != narrow) {
+            compact = nextCompact
+            narrow = nextNarrow
             post { refresh() }
         }
     }
@@ -330,18 +334,46 @@ class WeatherWidget(context: Context, item: HomeItem) : CardWidget(context, item
             return
         }
         setCard(WeatherArt.sky(w.sky, w.night, dp(WidgetStyle.RADIUS).toFloat()))
-        // Room left over is shared out above, between and below the rows, not bunched in the middle.
+        // Room left over goes between the rows, not above and below them.
         content.spread = true
         val white = WidgetStyle.WHITE
         val soft = 0xD9FFFFFF.toInt()
         content.gravity = Gravity.CENTER_VERTICAL
-        // In a short card everything up top fits on one line, leaving room for the days.
+        if (narrow) {
+            content.spread = false
+            content.addView(WidgetStyle.cardText(context, 14f, WidgetStyle.title, white).apply {
+                text = place.name
+                isSingleLine = true
+                ellipsize = android.text.TextUtils.TruncateAt.END
+            })
+            content.addView(LinearLayout(context).apply {
+                orientation = LinearLayout.HORIZONTAL
+                gravity = Gravity.CENTER_VERTICAL
+                addView(WidgetStyle.cardText(context, 40f, WidgetStyle.display, white).apply { text = "${w.temperature}°" },
+                    LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f))
+                addView(ImageView(context).apply { setImageDrawable(WeatherArt.icon(w.sky, w.night)) }, LinearLayout.LayoutParams(dp(36), dp(36)))
+            }, LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT).apply { topMargin = dp(2) })
+            content.addView(WidgetStyle.cardText(context, 13f, WidgetStyle.label, white).apply {
+                text = w.description
+                isSingleLine = true
+                ellipsize = android.text.TextUtils.TruncateAt.END
+                setPadding(0, dp(2), 0, 0)
+            })
+            content.addView(WidgetStyle.cardText(context, 13f, WidgetStyle.label, soft).apply {
+                text = listOfNotNull("↑${w.high}°  ↓${w.low}°", w.rainChance.takeIf { it >= 20 }?.let { "$it% rain" }).joinToString("  ·  ")
+                isSingleLine = true
+                ellipsize = android.text.TextUtils.TruncateAt.END
+                setPadding(0, dp(2), 0, 0)
+            })
+            return
+        }
+        // In a short card everything up top fits on one line, leaving room for the hours.
         if (compact) {
             content.addView(LinearLayout(context).apply {
                 orientation = LinearLayout.HORIZONTAL
                 gravity = Gravity.CENTER_VERTICAL
                 addView(ImageView(context).apply { setImageDrawable(WeatherArt.icon(w.sky, w.night)) },
-                    LinearLayout.LayoutParams(dp(44), dp(44)).apply { marginEnd = dp(10) })
+                    LinearLayout.LayoutParams(dp(40), dp(40)).apply { marginEnd = dp(10) })
                 addView(WidgetStyle.cardText(context, 34f, WidgetStyle.display, white).apply { text = "${w.temperature}°" })
                 addView(LinearLayout(context).apply {
                     orientation = LinearLayout.VERTICAL
@@ -383,16 +415,70 @@ class WeatherWidget(context: Context, item: HomeItem) : CardWidget(context, item
                 })
             })
         })
-        // The next hours, then the next days, each evenly across the card. When only one fits,
-        // the days stay: they say more.
-        content.addView(FitColumn.dropFirst(gapAbove(forecast(w.hours.filterIndexed { i, _ -> i % 2 == 0 }.take(5).map { h ->
+        // The next hours evenly across the card, then a line per day, as many as fit, so a taller
+        // card shows more days instead of empty space. Days are always lines, never a row like
+        // the hours: they're a different thing. Lines go before the hours when there's no room.
+        content.addView(FitColumn.dropFirst(gapAbove((forecast(w.hours.filterIndexed { i, _ -> i % 2 == 0 }.take(5).map { h ->
             Column(android.text.format.DateFormat.format(if (android.text.format.DateFormat.is24HourFormat(context)) "H:mm" else "h a", h.time).toString(),
                 h.sky, h.night, "${h.temperature}°", null, h.rain)
-        }), 12), priority = 2))
-        content.addView(FitColumn.dropFirst(gapAbove(forecast(w.days.take(5).mapIndexed { i, d ->
-            Column(if (i == 0) "Today" else android.text.format.DateFormat.format("EEE", d.time).toString(),
-                d.sky, false, "${d.high}°", "${d.low}°", d.rain)
-        }), 12), priority = 1))
+        })), if (compact) 8 else 12), priority = 0))
+        if (w.days.isNotEmpty()) {
+            val low = w.days.minOf { it.low }
+            val high = w.days.maxOf { it.high }
+            val rainy = w.days.any { it.rain >= 20 }
+            w.days.forEachIndexed { i, d ->
+                // Midday: the forecast gives each day's start at today's offset from UTC, so after
+                // the clocks change it lands late on the day before.
+                val name = if (i == 0) "Today" else android.text.format.DateFormat.format("EEE", d.time + 12 * 3_600_000L).toString()
+                val line = dayLine(name, d, low, high, rainy)
+                content.addView(FitColumn.dropFirst(gapAbove(if (i == 0) divided(line) else line, if (i == 0) 10 else 4)))
+            }
+        }
+    }
+
+    /** [row] under a thin line across the card, setting the days apart from what's above in a tall card. */
+    private fun divided(row: View) = LinearLayout(context).apply {
+        orientation = LinearLayout.VERTICAL
+        addView(View(context).apply { setBackgroundColor(0x33FFFFFF) }, LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, dp(1)))
+        addView(row, LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT).apply { topMargin = dp(10) })
+    }
+
+    /** A day in a tall card: its name, picture, low, a bar for its range within the week's, and high. */
+    private fun dayLine(label: String, d: Weather.Day, low: Int, high: Int, rainy: Boolean) = LinearLayout(context).apply {
+        orientation = LinearLayout.HORIZONTAL
+        gravity = Gravity.CENTER_VERTICAL
+        addView(WidgetStyle.cardText(context, 15f, WidgetStyle.title, WidgetStyle.WHITE).apply { text = label },
+            LinearLayout.LayoutParams(dp(56), LinearLayout.LayoutParams.WRAP_CONTENT))
+        addView(ImageView(context).apply { setImageDrawable(WeatherArt.icon(d.sky, false)) }, LinearLayout.LayoutParams(dp(26), dp(26)))
+        if (rainy) addView(WidgetStyle.cardText(context, 12f, WidgetStyle.label, RAIN).apply {
+            text = if (d.rain >= 20) "${d.rain}%" else ""
+            setPadding(dp(4), 0, 0, 0)
+        }, LinearLayout.LayoutParams(dp(40), LinearLayout.LayoutParams.WRAP_CONTENT))
+        addView(WidgetStyle.cardText(context, 15f, WidgetStyle.body, SOFT).apply {
+            text = "${d.low}°"
+            gravity = Gravity.END
+        }, LinearLayout.LayoutParams(dp(44), LinearLayout.LayoutParams.WRAP_CONTENT).apply { marginEnd = dp(10) })
+        val span = (high - low).coerceAtLeast(1).toFloat()
+        addView(RangeBar(context, (d.low - low) / span, (d.high - low) / span), LinearLayout.LayoutParams(0, dp(5), 1f))
+        addView(WidgetStyle.cardText(context, 15f, WidgetStyle.title, WidgetStyle.WHITE).apply {
+            text = "${d.high}°"
+            gravity = Gravity.END
+        }, LinearLayout.LayoutParams(dp(44), LinearLayout.LayoutParams.WRAP_CONTENT))
+    }
+
+    /** A faint track with the part from [from] to [to] (fractions of its length) filled in. */
+    private class RangeBar(context: Context, val from: Float, val to: Float) : View(context) {
+        private val paint = android.graphics.Paint(android.graphics.Paint.ANTI_ALIAS_FLAG)
+
+        override fun onDraw(canvas: android.graphics.Canvas) {
+            val r = height / 2f
+            paint.color = 0x33FFFFFF
+            canvas.drawRoundRect(0f, 0f, width.toFloat(), height.toFloat(), r, r, paint)
+            paint.color = 0xE6FFFFFF.toInt()
+            // At least a dot, for a day whose low and high are the same.
+            val start = from * width
+            canvas.drawRoundRect(start, 0f, maxOf(to * width, start + height), height.toFloat(), r, r, paint)
+        }
     }
 
     /** One time in a forecast row: a label, the weather's picture, the temperature (a high and a low for days), the chance of rain. */
@@ -400,6 +486,8 @@ class WeatherWidget(context: Context, item: HomeItem) : CardWidget(context, item
 
     private fun forecast(columns: List<Column>) = LinearLayout(context).apply {
         orientation = LinearLayout.HORIZONTAL
+        // The line for the chance of rain only takes room when there's rain to show.
+        val rainy = columns.any { it.rain >= 20 }
         columns.forEach { c ->
             addView(LinearLayout(context).apply {
                 orientation = LinearLayout.VERTICAL
@@ -409,7 +497,7 @@ class WeatherWidget(context: Context, item: HomeItem) : CardWidget(context, item
                     text = c.label
                 })
                 addView(ImageView(context).apply { setImageDrawable(WeatherArt.icon(c.sky, c.night)) },
-                    LinearLayout.LayoutParams(dp(28), dp(28)).apply { topMargin = dp(4); bottomMargin = dp(3) })
+                    LinearLayout.LayoutParams(dp(if (compact) 24 else 28), dp(if (compact) 24 else 28)).apply { topMargin = dp(3); bottomMargin = dp(2) })
                 addView(LinearLayout(context).apply {
                     orientation = LinearLayout.HORIZONTAL
                     gravity = Gravity.CENTER
@@ -419,7 +507,7 @@ class WeatherWidget(context: Context, item: HomeItem) : CardWidget(context, item
                         setPadding(dp(4), 0, 0, 0)
                     })
                 })
-                addView(WidgetStyle.cardText(context, 11f, WidgetStyle.label, RAIN).apply {
+                if (rainy) addView(WidgetStyle.cardText(context, 11f, WidgetStyle.label, RAIN).apply {
                     gravity = Gravity.CENTER
                     text = if (c.rain >= 20) "${c.rain}%" else " "
                     setPadding(0, dp(2), 0, 0)

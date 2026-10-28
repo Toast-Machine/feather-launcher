@@ -62,6 +62,25 @@ class Workspace(context: Context) {
                 )
             }
         }.onFailure { isNew = true }
+        fitToGrid()
+    }
+
+    /**
+     * The rows depend on the screen (see [fitRows]), so after the display size changes, say,
+     * something can reach past the last row. It moves to the first free spot from its page on.
+     */
+    private fun fitToGrid() {
+        val out = items.filter { !it.inDock && it.y + it.h > ROWS }
+        items -= out.toSet()
+        for (item in out) {
+            item.h = item.h.coerceAtMost(ROWS)
+            val (page, spot) = (item.page until pageCount).firstNotNullOfOrNull { p -> findSpot(p, item.w, item.h)?.let { p to it } }
+                ?: (addPage() to (0 to 0))
+            item.page = page
+            item.x = spot.first
+            item.y = spot.second
+            items += item
+        }
     }
 
     fun save() {
@@ -137,17 +156,29 @@ class Workspace(context: Context) {
         const val DOCK = -1
         const val COLS = 4
         /**
-         * Rows on each page. Five on short screens (keypad phones); taller phones get another row
-         * for each 120dp or so of height, so icons aren't spaced far apart. Set once at startup.
+         * Rows on each page: as many as keeps the cells about square, so a 2 by 2 widget is a
+         * square on every screen, but never so many that an icon and its name don't fit in a
+         * cell. Set once at startup.
          */
         var ROWS = 5
             private set
 
-        fun fitRows(context: Context) {
-            val m = context.resources.displayMetrics
-            // The page's share of the screen: everything but the status bar, dock, page dots and gesture bar.
-            val pageDp = m.heightPixels / m.density - 24 - 92 - 20 - 48
-            ROWS = (pageDp / 120f).toInt().coerceIn(5, 7)
+        /** Space above the first row; the page's outline while dragging starts here. */
+        const val PAGE_TOP = 6
+        /** The least height of a cell: an icon with its highlight, its name, and a little room. */
+        private const val MIN_CELL = AppIconView.BOX + AppIconView.LABEL_HEIGHT + 4
+
+        fun fitRows(activity: android.app.Activity) {
+            val window = activity.windowManager.currentWindowMetrics
+            val bars = window.windowInsets.getInsets(android.view.WindowInsets.Type.systemBars())
+            val density = activity.resources.displayMetrics.density
+            val widthDp = window.bounds.width() / density
+            // The page's share of the screen (see activity_home.xml): all but the system bars, the
+            // page's top margin and [PAGE_TOP], the page dots, and the dock with its bottom margin.
+            val pageDp = (window.bounds.height() - bars.top - bars.bottom) / density - 8 - PAGE_TOP - 20 - Ui.DOCK_HEIGHT - 12
+            // Pages are inset from the screen's edges as much as the dock is.
+            val cellDp = (widthDp - 2 * Ui.BAR_MARGIN) / COLS
+            ROWS = kotlin.math.round(pageDp / cellDp).toInt().coerceAtMost((pageDp / MIN_CELL).toInt()).coerceIn(3, 7)
         }
         const val DOCK_COLS = 4
     }

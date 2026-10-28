@@ -173,7 +173,8 @@ class HomeScreen(
     private fun newPage() = CellLayout(activity).apply {
         cols = Workspace.COLS
         rows = Workspace.ROWS
-        setPadding(dp(8), 0, dp(8), 0)
+        // The cells fill the page's outline while dragging: in line with the dock at the sides.
+        setPadding(dp(Ui.BAR_MARGIN), dp(Workspace.PAGE_TOP), dp(Ui.BAR_MARGIN), 0)
     }
 
     private fun containerFor(page: Int): CellLayout = if (page == Workspace.DOCK) dock else pages.page(page)
@@ -1673,7 +1674,7 @@ class HomeScreen(
         private const val DOCK_GAP = 15
         /** Thickness of the targets along the edges while dragging. */
         /** Space between the page outline and the dock (and around the slivers). */
-        private const val EDGE_GAP = 6
+        private const val EDGE_GAP = Workspace.PAGE_TOP
         /** How close to a side edge (dp) the finger counts as over that side's sliver. */
         private const val EDGE_HIT = 28
         private const val FOLDER_NAME = "Folder"

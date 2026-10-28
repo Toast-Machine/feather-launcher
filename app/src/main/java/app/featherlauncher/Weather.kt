@@ -56,7 +56,7 @@ object Weather {
         val unit = if (fahrenheit) "&temperature_unit=fahrenheit" else ""
         val url = "https://api.open-meteo.com/v1/forecast?latitude=${place.lat}&longitude=${place.lon}" +
             "&current=temperature_2m,weather_code,is_day&hourly=temperature_2m,weather_code,is_day,precipitation_probability" +
-            "&daily=temperature_2m_max,temperature_2m_min,weather_code,precipitation_probability_max&forecast_days=5&timezone=auto&timeformat=unixtime$unit"
+            "&daily=temperature_2m_max,temperature_2m_min,weather_code,precipitation_probability_max&forecast_days=10&timezone=auto&timeformat=unixtime$unit"
         val text = (URL(url).openConnection() as HttpURLConnection).run {
             connectTimeout = 10_000
             readTimeout = 15_000

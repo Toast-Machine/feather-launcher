@@ -162,7 +162,7 @@ open class FitColumn(context: Context) : android.widget.LinearLayout(context) {
         orientation = VERTICAL
     }
 
-    /** Shares the room left over evenly above, between and below the rows. */
+    /** Shares the room left over evenly between the rows, so the top and bottom keep just the padding. A single row is centered. */
     var spread = false
         set(value) {
             field = value
@@ -174,8 +174,9 @@ open class FitColumn(context: Context) : android.widget.LinearLayout(context) {
         val shown = (0 until childCount).map(::getChildAt).filter { it.visibility != View.GONE }
         // Margins between rows give way to the even spacing.
         val used = shown.sumOf { it.measuredHeight }
-        val gap = ((b - t - paddingTop - paddingBottom - used) / (shown.size + 1)).coerceAtLeast(0)
-        var y = paddingTop + gap
+        val spare = (b - t - paddingTop - paddingBottom - used).coerceAtLeast(0)
+        val gap = if (shown.size > 1) spare / (shown.size - 1) else 0
+        var y = paddingTop + if (shown.size == 1) spare / 2 else 0
         for (child in shown) {
             val width = r - l - paddingLeft - paddingRight
             child.layout(paddingLeft, y, paddingLeft + minOf(child.measuredWidth, width).let { if (child.layoutParams.width == LayoutParams.MATCH_PARENT) width else it }, y + child.measuredHeight)
