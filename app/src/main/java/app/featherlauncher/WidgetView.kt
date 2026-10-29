@@ -9,6 +9,7 @@ import android.view.View
 import android.view.ViewConfiguration
 import android.view.ViewOutlineProvider
 import kotlin.math.abs
+import kotlin.math.roundToInt
 
 /**
  * Hosts another app's widget, with Android's rounded widget corners, and adds long-press (to
@@ -52,6 +53,12 @@ class WidgetView(context: Context) : AppWidgetHostView(context) {
             cornerBox.set(box)
             cornerBox.offset(view.left, view.top)
             outline.setRoundRect(box, corner)
+            // The keypad ring around the widget follows its corner, the gap out from it.
+            val ring = ((corner + cornerInset) / resources.displayMetrics.density).roundToInt()
+            if (ring != ringDp) {
+                ringDp = ring
+                post { foreground = Ui.focusRing(context, ring, 0xFFFFFFFF.toInt()) }
+            }
         }
     }
 
@@ -60,6 +67,7 @@ class WidgetView(context: Context) : AppWidgetHostView(context) {
         private set
     val cornerBox = android.graphics.Rect()
     val cornerInset get() = cornerBox.left
+    private var ringDp = 0
 
     override fun onLayout(changed: Boolean, left: Int, top: Int, right: Int, bottom: Int) {
         super.onLayout(changed, left, top, right, bottom)

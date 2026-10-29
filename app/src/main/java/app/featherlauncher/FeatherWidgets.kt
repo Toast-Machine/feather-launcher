@@ -210,6 +210,10 @@ class AgendaWidget(context: Context, item: HomeItem) : CardWidget(context, item)
             addView(LinearLayout(context).apply {
                 orientation = LinearLayout.VERTICAL
                 gravity = Gravity.CENTER_HORIZONTAL
+                // The date opens the calendar, as the card does, so the keypad can reach it next to the events.
+                background = Ui.pressable(context, Ui.RADIUS_S, focusColor = WidgetStyle.onCard())
+                setPadding(0, dp(6), 0, dp(6))
+                setOnClickListener { onCalendar?.invoke() }
                 addView(WidgetStyle.cardText(context, 13f, WidgetStyle.title, WidgetStyle.accent()).apply {
                     text = android.text.format.DateFormat.format("EEE", now).toString().uppercase()
                     letterSpacing = 0.08f
@@ -274,7 +278,7 @@ class AgendaWidget(context: Context, item: HomeItem) : CardWidget(context, item)
     /** One event: a bar in its calendar's color, then its name over its time. */
     private fun event(e: ClockInfo.Event) = LinearLayout(context).apply {
         orientation = LinearLayout.HORIZONTAL
-        background = Ui.pressable(context, Ui.RADIUS_S)
+        background = Ui.pressable(context, Ui.RADIUS_S, focusColor = WidgetStyle.onCard())
         setOnClickListener { onEvent?.invoke(e) }
         addView(View(context).apply {
             background = Ui.rounded(context, if (e.color != 0) e.color or 0xFF000000.toInt() else WidgetStyle.accent(), 2)
@@ -639,7 +643,7 @@ class MediaWidget(context: Context, item: HomeItem) : CardWidget(context, item) 
         val inset = dp(if (fill != null) 11 else 9)
         setPadding(inset, inset, inset, inset)
         background = fill?.let { Ui.rounded(context, it, Ui.RADIUS_PILL) }
-        foreground = Ui.pressable(context, Ui.RADIUS_PILL)
+        foreground = Ui.pressable(context, Ui.RADIUS_PILL, focusColor = WidgetStyle.onCard())
         isFocusable = true
         setOnClickListener { onClick() }
         layoutParams = LinearLayout.LayoutParams(LinearLayout.LayoutParams.WRAP_CONTENT, LinearLayout.LayoutParams.MATCH_PARENT).apply {

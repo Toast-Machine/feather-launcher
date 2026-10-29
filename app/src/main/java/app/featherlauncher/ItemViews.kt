@@ -129,6 +129,11 @@ class ClockWidget(context: Context, val item: HomeItem) : FitColumn(context) {
         }
         val room = -dp(SHADOW_ROOM)
         addView(time, LayoutParams(LayoutParams.WRAP_CONTENT, LayoutParams.WRAP_CONTENT).apply { setMargins(room, room, room, room) })
+        // The time does what the clock does (its alarms), so the keypad can reach it like the date and pills.
+        time.setOnClickListener { performClick() }
+        time.setOnLongClickListener { performLongClick() }
+        // Its highlight hugs the digits, inside the room left for the shadow, so it stays within the clock.
+        time.foreground = android.graphics.drawable.InsetDrawable(Ui.focusRing(context, Ui.RADIUS_L, WidgetStyle.WHITE), dp(SHADOW_ROOM))
         addView(date, LayoutParams(LayoutParams.WRAP_CONTENT, LayoutParams.WRAP_CONTENT).apply { topMargin = dp(4) })
         addView(detail, LayoutParams(LayoutParams.WRAP_CONTENT, LayoutParams.WRAP_CONTENT).apply { topMargin = dp(5) })
         addView(pills, LayoutParams(LayoutParams.MATCH_PARENT, LayoutParams.WRAP_CONTENT).apply { topMargin = dp(12) })

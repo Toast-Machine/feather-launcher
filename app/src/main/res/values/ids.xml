@@ -6,4 +6,6 @@
     <item name="widget_preview" type="id" />
     <!-- How readily FitColumn leaves a row out when space is short. -->
     <item name="fit_priority" type="id" />
+    <!-- Something inside a widget made ready for the keypad highlight. -->
+    <item name="key_target" type="id" />
 </resources>

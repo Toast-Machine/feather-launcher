@@ -72,6 +72,7 @@ class HomeScreen(
             dots.current = it
             // The widget being resized stays on its page; the frame around it goes too.
             finishResize()
+            inside = null
         }
         if (workspace.isNew) setUpDefaults()
         bindAll()
@@ -784,6 +785,8 @@ class HomeScreen(
                     return
                 }
                 showKeyCell()
+                // On another app: stop there, to make a folder.
+                if (folderTarget != null) return
                 val now = target
                 if (now != null && now != before) {
                     keyCell = now
@@ -823,8 +826,19 @@ class HomeScreen(
             val cell = keyCell ?: return
             val view = dragView ?: return
             root.removeCallbacks(reorder)
-            hoverCell = cell
-            applyReorder()
+            // Onto another app (or a folder), as with a finger: OK puts them in a folder together.
+            val occupant = if (w == 1 && h == 1 && source?.item?.type != HomeItem.Type.FOLDER) workspace.on(cell.first).firstOrNull {
+                it.x == cell.second && it.y == cell.third && it !== source?.item &&
+                    (it.type == HomeItem.Type.APP || it.type == HomeItem.Type.FOLDER)
+            } else null
+            setFolderTarget(occupant)
+            if (occupant != null) {
+                clearReorder(commit = false)
+                setTarget(null)
+            } else {
+                hoverCell = cell
+                applyReorder()
+            }
             val (page, x, y) = target ?: cell
             val cells = containerFor(page)
             val origin = rectInRoot(cells)
@@ -1614,6 +1628,17 @@ class HomeScreen(
      * left, it moves to the next or previous page. Returns false if there's nothing to focus.
      */
     fun moveFocus(direction: Int): Boolean {
+        // Inside a widget the arrows stay in it, among what can be pressed; Back comes out.
+        inside?.let { widget ->
+            val parts = pressablesIn(widget)
+            val from = activity.currentFocus?.takeIf { it in parts }
+            if (from == null) {
+                inside = null
+            } else {
+                nearest(from, parts - from, direction)?.requestFocusFromTouch()
+                return true
+            }
+        }
         val here = itemsOn(pages.currentPage) + itemsOn(Workspace.DOCK)
         if (here.isEmpty()) return false
         // Resting on the invisible spot (or nowhere) counts as no highlight yet: start at the top.
@@ -1624,23 +1649,7 @@ class HomeScreen(
         }
         val r = rectInRoot(from)
         val vertical = direction == View.FOCUS_UP || direction == View.FOCUS_DOWN
-        val best = (here - from).map { it to rectInRoot(it) }.filter { (_, o) ->
-            when (direction) {
-                View.FOCUS_DOWN -> o.top >= r.centerY()
-                View.FOCUS_UP -> o.bottom <= r.centerY()
-                // Sideways only within the same row; never up or down a row.
-                View.FOCUS_RIGHT -> o.left >= r.centerX() && gap(o.top, o.bottom, r.top, r.bottom) == 0
-                else -> o.right <= r.centerX() && gap(o.top, o.bottom, r.top, r.bottom) == 0
-            }
-        }.minWithOrNull(compareBy({ (_, o) ->
-            val along = if (vertical) abs(o.centerY() - r.centerY()) else abs(o.centerX() - r.centerX())
-            // How far off to the side it is; 0 when it's in the same column (or row).
-            val aside = if (vertical) gap(o.left, o.right, r.left, r.right) else gap(o.top, o.bottom, r.top, r.bottom)
-            aside * 8 + along
-        }, { (_, o) ->
-            // Two as close (under a wide widget, say): the one most in line with where it's coming from.
-            if (vertical) abs(o.centerX() - r.centerX()) else abs(o.centerY() - r.centerY())
-        }))?.first
+        val best = nearest(from, here - from, direction)
         if (best != null) {
             // From touch: the arrows often arrive through the key service while the screen is
             // still in touch mode, where a plain request is refused and nothing would move.
@@ -1660,6 +1669,61 @@ class HomeScreen(
         return true
     }
 
+    /**
+     * What's next from [from] in [direction] among [others]. Up and down stay in line vertically
+     * and left and right horizontally, choosing what's in the same column (or row) first.
+     */
+    private fun nearest(from: View, others: List<View>, direction: Int): View? {
+        val r = rectInRoot(from)
+        val vertical = direction == View.FOCUS_UP || direction == View.FOCUS_DOWN
+        return others.map { it to rectInRoot(it) }.filter { (_, o) ->
+            when (direction) {
+                View.FOCUS_DOWN -> o.top >= r.centerY()
+                View.FOCUS_UP -> o.bottom <= r.centerY()
+                // Sideways only within the same row; never up or down a row.
+                View.FOCUS_RIGHT -> o.left >= r.centerX() && gap(o.top, o.bottom, r.top, r.bottom) == 0
+                else -> o.right <= r.centerX() && gap(o.top, o.bottom, r.top, r.bottom) == 0
+            }
+        }.minWithOrNull(compareBy({ (_, o) ->
+            val along = if (vertical) abs(o.centerY() - r.centerY()) else abs(o.centerX() - r.centerX())
+            // How far off to the side it is; 0 when it's in the same column (or row).
+            val aside = if (vertical) gap(o.left, o.right, r.left, r.right) else gap(o.top, o.bottom, r.top, r.bottom)
+            aside * 8 + along
+        }, { (_, o) ->
+            // Two as close (under a wide widget, say): the one most in line with where it's coming from.
+            if (vertical) abs(o.centerX() - r.centerX()) else abs(o.centerY() - r.centerY())
+        }))?.first
+    }
+
+    /** The widget the keypad is inside, moving among what can be pressed in it. */
+    private var inside: View? = null
+
+    /**
+     * OK on a widget with things to press inside goes into it, highlighting the first; OK on
+     * one with nothing inside presses it as usual. Returns true when it went in.
+     */
+    fun enterWidget(view: View?): Boolean {
+        if (view == null || inside != null || view.isInTouchMode) return false
+        val item = itemFor(view)?.takeIf { it.second === view }?.first ?: return false
+        if (!item.isWidget) return false
+        val parts = pressablesIn(view).ifEmpty { return false }
+        parts.forEach { keyTarget(it, view) }
+        view.isPressed = false
+        inside = view
+        parts.minByOrNull { rectInRoot(it).let { r -> r.top * 10_000 + r.left } }?.requestFocusFromTouch()
+        return true
+    }
+
+    /** Back inside a widget: out to the widget itself. Returns false when not inside one. */
+    fun leaveWidget(): Boolean {
+        val widget = inside ?: return false
+        inside = null
+        // Gone from it already (a touch, say): Back does its usual thing.
+        if (activity.currentFocus?.let { it.isInTouchMode || it !in pressablesIn(widget) } != false) return false
+        widget.requestFocusFromTouch()
+        return true
+    }
+
     /** Flips to the next or previous page, if there is one (holding right or left on the keypad). */
     fun flipPage(delta: Int) {
         val next = pages.currentPage + delta
@@ -1668,6 +1732,34 @@ class HomeScreen(
 
     private fun itemsOn(page: Int): List<View> = workspace.items.filter { it.page == page }
         .mapNotNull { views[it.id] }.filter { it.isFocusable && it.visibility == View.VISIBLE }
+
+    /** What can be pressed inside [widget], each only once (not what's inside a button too). */
+    private fun pressablesIn(widget: View): List<View> {
+        val found = mutableListOf<View>()
+        fun walk(v: View) {
+            if (v.visibility != View.VISIBLE) return
+            if (v !== widget && v.isEnabled && v.hasOnClickListeners()) {
+                found += v
+                return
+            }
+            if (v is ViewGroup) for (i in 0 until v.childCount) walk(v.getChildAt(i))
+        }
+        walk(widget)
+        return found
+    }
+
+    /** Readies something inside [widget] for the keypad: it can take the highlight, shows it, and holding OK or Menu on it is holding the widget. */
+    private fun keyTarget(view: View, widget: View) {
+        if (view.getTag(R.id.key_target) != null) return
+        view.setTag(R.id.key_target, true)
+        view.isFocusable = true
+        // Feather's own have their highlight (Ui.pressable, a layered drawable, or one of their
+        // own); another app's widget's need one.
+        if (view.foreground == null && view.background !is android.graphics.drawable.LayerDrawable) {
+            view.foreground = Ui.focusRing(activity, Ui.RADIUS_M, 0xFFFFFFFF.toInt())
+        }
+        if (!view.isLongClickable) view.setOnLongClickListener { if (it.isInTouchMode) false else widget.performLongClick() }
+    }
 
     /** Space between two ranges, 0 if they overlap. */
     private fun gap(a0: Int, a1: Int, b0: Int, b1: Int) = maxOf(0, maxOf(a0, b0) - minOf(a1, b1))

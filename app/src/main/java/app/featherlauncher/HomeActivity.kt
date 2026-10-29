@@ -1557,6 +1557,11 @@ class HomeActivity : Activity(), HomeScreen.Host {
             if (event.action == KeyEvent.ACTION_UP && !event.isCanceled) onBack()
             return true
         }
+        // A quick OK on a widget goes into it (holding it still opens its menu).
+        if (event.keyCode in listOf(KeyEvent.KEYCODE_DPAD_CENTER, KeyEvent.KEYCODE_ENTER) && !drawerOpen && !overlays.isShowing &&
+            event.action == KeyEvent.ACTION_UP && !event.isCanceled &&
+            event.eventTime - event.downTime < android.view.ViewConfiguration.getLongPressTimeout() &&
+            homeScreen.enterWidget(currentFocus)) return true
         val digit = digitOf(event.keyCode)
         if (drawerOpen && digit != null && !overlays.isShowing) {
             if (!search.isFocused) {
@@ -1577,6 +1582,7 @@ class HomeActivity : Activity(), HomeScreen.Host {
             keyMover != null -> keyMover?.undo?.invoke().also { keyMover = null }
             overlays.dismiss() -> Unit
             homeScreen.finishResize() -> Unit
+            homeScreen.leaveWidget() -> Unit
             drawerOpen && showingHidden -> {
                 showingHidden = false
                 updateResults()
