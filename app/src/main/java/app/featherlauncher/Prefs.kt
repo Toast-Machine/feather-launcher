@@ -173,6 +173,16 @@ class Prefs(context: Context) {
         get() = sp.getBoolean("glance_upcoming", true)
         set(value) = sp.edit().putBoolean("glance_upcoming", value).apply()
 
+    /** The wallpaper is the Weather one ([WeatherWallpaper]), kept up to date. */
+    var weatherWallpaper: Boolean
+        get() = sp.getBoolean("weather_wallpaper", false)
+        set(value) = sp.edit().putBoolean("weather_wallpaper", value).apply()
+
+    /** The weather and time of day the Weather wallpaper last showed, so it's only set again when they change. */
+    var weatherWallpaperScene: String?
+        get() = sp.getString("weather_wallpaper_scene", null)
+        set(value) = sp.edit().putString("weather_wallpaper_scene", value).apply()
+
     var glanceWeather: Boolean
         get() = sp.getBoolean("glance_weather", true)
         set(value) = sp.edit().putBoolean("glance_weather", value).apply()

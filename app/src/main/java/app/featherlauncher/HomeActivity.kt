@@ -245,6 +245,7 @@ class HomeActivity : Activity(), HomeScreen.Host {
         if (::smartSearch.isInitialized) preloadSearch()
         // Settings may have changed on the settings page.
         prefs.reload()
+        WeatherWallpaper.refresh(this)
         val next = currentPalette()
         // The wallpaper may have changed too, which changes the app list's colors.
         if (next.accent != palette.accent || next.dark != palette.dark || next.drawer != palette.drawer) {

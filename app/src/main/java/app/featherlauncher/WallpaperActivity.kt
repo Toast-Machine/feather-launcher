@@ -26,33 +26,32 @@ import android.view.View
 import android.view.ViewGroup
 import android.view.WindowInsets
 import android.view.WindowInsetsController
-import android.widget.AbsListView
-import android.widget.BaseAdapter
 import android.widget.FrameLayout
 import android.widget.HorizontalScrollView
 import android.widget.ImageView
 import android.widget.LinearLayout
-import android.widget.ListView
 import android.widget.TextClock
 import android.widget.TextView
 import android.widget.Toast
-import org.json.JSONArray
 import java.net.HttpURLConnection
 import java.net.URL
 import java.util.concurrent.Executors
 import kotlin.math.max
 
 /**
- * Choosing a wallpaper without leaving the launcher: a photo from the phone, one of the
- * launcher's colors, or a photo from Unsplash photographers (through Picsum, which needs no
- * account). Whatever is picked opens full screen under a mock clock and dock, can be dragged
- * into place, and is set for the home screen, the lock screen or both.
+ * Choosing a wallpaper without leaving the launcher, laid out like iOS's gallery: Weather,
+ * your own photo and a light and dark pair on top; then collections of photos picked for
+ * Feather (from Unsplash, through Picsum: nature and abstract, no people and nothing
+ * religious); then colors. Whatever is picked opens full screen under a mock clock and dock,
+ * can be dragged into place, and is set for the home screen, the lock screen or both.
  */
 class WallpaperActivity : Activity() {
     private lateinit var palette: Palette
     private lateinit var root: FrameLayout
     private lateinit var overlays: Overlays
     private val io = Executors.newFixedThreadPool(3)
+    /** Thumbnails load on their own, many at once, so the first rows fill in quickly and nothing waits behind them. */
+    private val thumbIo = Executors.newFixedThreadPool(8)
     private val main = Handler(Looper.getMainLooper())
     /** Thumbnails already loaded, up to 16 MB of them. */
     private val thumbs = object : LruCache<String, Bitmap>(16 * 1024 * 1024) {
@@ -60,19 +59,11 @@ class WallpaperActivity : Activity() {
     }
     private var insets = Rect()
 
-    /** Photos loaded so far, and whether more are being fetched. */
-    private val photos = ArrayList<Photo>()
-    /** Picsum lists its photos in a fixed order; starting somewhere random shows a fresh mix each time. */
-    private var page = (2..30).random()
-    private var loading = false
-    private var loadFailed = false
-    private lateinit var adapter: Adapter
+    private var scroll: android.widget.ScrollView? = null
     /** The preview on top of the page, if one is open. */
     private var preview: Preview? = null
     /** Which half of the light and dark pair is being chosen (null: setting a wallpaper normally). */
     private var pairTarget: Boolean? = null
-
-    class Photo(val id: String, val author: String, val width: Int, val height: Int)
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -99,11 +90,11 @@ class WallpaperActivity : Activity() {
         }
         onBackInvokedDispatcher.registerOnBackInvokedCallback(android.window.OnBackInvokedDispatcher.PRIORITY_DEFAULT) { back() }
         build()
-        loadMore()
     }
 
     override fun onDestroy() {
         io.shutdownNow()
+        thumbIo.shutdownNow()
         super.onDestroy()
     }
 
@@ -127,30 +118,36 @@ class WallpaperActivity : Activity() {
 
     private fun build() {
         val p = palette
+        val scrollY = scroll?.scrollY ?: 0
         root.removeAllViews()
         val page = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
         val header = header(p)
         page.addView(header)
         val tint = Ui.scrollTint(header, p.surface, p.surfaceScrolled)
         pairTarget?.let { page.addView(pairBanner(p, it)) }
-        adapter = Adapter()
-        page.addView(ListView(this).apply {
-            divider = null
-            selector = android.graphics.drawable.ColorDrawable(0)
-            itemsCanFocus = true
+        val content = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            setPadding(0, dp(Ui.SPACE_S), 0, insets.bottom + dp(Ui.SPACE_XL))
+            // Choosing one half of the pair: only pictures, not Weather or another pair.
+            if (pairTarget == null) addView(featured())
+            addView(sectionTitle("Collections", "Photos from Unsplash, chosen for Feather"))
+            COLLECTIONS.forEach { (name, ids) -> addView(collection(name, ids)) }
+            addView(sectionTitle("Colors", null))
+            addView(colors())
+            if (pairTarget == null) addView(Components.group(this@WallpaperActivity, p, listOf(
+                Components.row(this@WallpaperActivity, p, R.drawable.ic_open_external, "Other wallpaper apps",
+                    subtitle = "Live wallpapers and other pickers", chevron = true, inset = Ui.SPACE_L) {
+                    runCatching { startActivity(Intent.createChooser(Intent(Intent.ACTION_SET_WALLPAPER), "Wallpaper")) }
+                },
+            )).apply { (layoutParams as? ViewGroup.MarginLayoutParams)?.topMargin = dp(Ui.SPACE_XL) })
+        }
+        scroll = android.widget.ScrollView(this).apply {
             isVerticalScrollBarEnabled = false
-            clipToPadding = false
-            setPadding(0, 0, 0, insets.bottom + dp(Ui.SPACE_L))
-            this.adapter = this@WallpaperActivity.adapter
-            setOnScrollListener(object : AbsListView.OnScrollListener {
-                override fun onScrollStateChanged(view: AbsListView, state: Int) = Unit
-                override fun onScroll(view: AbsListView, first: Int, visible: Int, total: Int) {
-                    tint(first > 0 || (view.getChildAt(0)?.top ?: 0) < 0)
-                    // More photos as the end comes near.
-                    if (first + visible >= total - 2) loadMore()
-                }
-            })
-        }, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, 0, 1f))
+            addView(content)
+            setOnScrollChangeListener { _, _, y, _, _ -> tint(y > 0) }
+            post { scrollTo(0, scrollY) }
+        }
+        page.addView(scroll, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, 0, 1f))
         root.addView(page, FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT))
         preview?.let { root.addView(it.view) }
     }
@@ -179,57 +176,111 @@ class WallpaperActivity : Activity() {
         })
     }
 
-    /** The page's rows: your photos and colors on top, then the photo grid two to a row, then a footer. */
-    private inner class Adapter : BaseAdapter() {
-        private val pairs get() = (photos.size + 1) / 2
-        override fun getCount() = 2 + pairs + 1
-        override fun getItem(position: Int) = position
-        override fun getItemId(position: Int) = position.toLong()
-        override fun getViewTypeCount() = 4
-        override fun getItemViewType(position: Int) = when {
-            position == 0 -> 0
-            position == 1 -> 1
-            position < 2 + pairs -> 2
-            else -> 3
-        }
-        override fun areAllItemsEnabled() = false
-        override fun isEnabled(position: Int) = false
+    /** A tall rounded card, as the gallery's pictures are; its content fills it. */
+    private fun card(description: String, onClick: () -> Unit) = FrameLayout(this).apply {
+        background = Ui.rounded(this@WallpaperActivity, palette.surfaceHigh, Ui.RADIUS_L)
+        clipToOutline = true
+        foreground = Ui.pressable(this@WallpaperActivity, Ui.RADIUS_L)
+        isFocusable = true
+        contentDescription = description
+        setOnClickListener { onClick() }
+    }
 
-        override fun getView(position: Int, convertView: View?, parent: ViewGroup): View = when (getItemViewType(position)) {
-            0 -> topSection()
-            1 -> convertView ?: sectionTitle("Photos", "From Unsplash photographers")
-            2 -> photoRow(position - 2, convertView as? LinearLayout)
-            else -> footer()
+    /** A card's name under it, with a quieter line under that. */
+    private fun captioned(card: View, title: String, subtitle: String) = LinearLayout(this).apply {
+        orientation = LinearLayout.VERTICAL
+        addView(card, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(FEATURED_HEIGHT)))
+        addView(TextView(this@WallpaperActivity).apply {
+            text = title
+            style(TextStyle.Label, palette.text)
+            setTextSize(TypedValue.COMPLEX_UNIT_SP, 14f)
+            setPadding(dp(2), dp(Ui.SPACE_S), 0, 0)
+        })
+        addView(TextView(this@WallpaperActivity).apply {
+            text = subtitle
+            style(TextStyle.Caption, palette.textSecondary)
+            typeface = android.graphics.Typeface.DEFAULT
+            setPadding(dp(2), dp(2), 0, 0)
+        })
+    }
+
+    private fun centeredIcon(icon: Int) = ImageView(this).apply {
+        setImageResource(icon)
+        imageTintList = ColorStateList.valueOf(palette.textSecondary)
+        scaleType = ImageView.ScaleType.CENTER
+    }
+
+    /** Weather, your own photo, and the light and dark pair, side by side on top. */
+    private fun featured(): View = LinearLayout(this).apply {
+        orientation = LinearLayout.HORIZONTAL
+        setPadding(dp(Ui.SPACE_L), 0, dp(Ui.SPACE_L), 0)
+        val on = Prefs(this@WallpaperActivity).weatherWallpaper
+        listOf(
+            captioned(weatherCard(), "Weather", if (on) "In use" else "Follows the sky"),
+            captioned(card("Your photo") { pickPhoto() }.apply {
+                addView(centeredIcon(R.drawable.ic_photo), FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT))
+            }, "Your photo", "From the phone"),
+            captioned(pairPreview(), "Light & dark", if (DarkMode.hasPair(this@WallpaperActivity)) "In use" else "Two photos"),
+        ).forEachIndexed { i, v ->
+            addView(v, LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f).apply { if (i > 0) marginStart = dp(Ui.SPACE_M) })
         }
     }
 
-    /** "Your photos" and the row of colors. */
-    private fun topSection(): View {
-        val p = palette
-        return LinearLayout(this).apply {
+    /**
+     * The Weather wallpaper, showing the sky as it is now. It's set for the home and lock
+     * screens, and Feather keeps it up to date ([WeatherWallpaper]).
+     */
+    private fun weatherCard(): View {
+        val picture = ImageView(this).apply { scaleType = ImageView.ScaleType.CENTER_CROP }
+        Thread {
+            val place = ClockInfo(this).place()
+            val sky = place?.let { Weather.at(it) {} }?.sky ?: Sky.PARTLY
+            val bitmap = WeatherScene.draw(dp(120), dp(FEATURED_HEIGHT), sky, WeatherWallpaper.timeOfDay(place))
+            main.post { picture.setImageBitmap(bitmap) }
+        }.start()
+        return card("Weather wallpaper") {
+            WeatherWallpaper.start(this) { ok ->
+                if (ok) {
+                    startActivity(Intent(this, HomeActivity::class.java).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
+                    finish()
+                } else {
+                    Toast.makeText(this, "Couldn't set the wallpaper", Toast.LENGTH_SHORT).show()
+                }
+            }
+        }.apply { addView(picture, FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT)) }
+    }
+
+    /** The pair's two pictures, half and half, or an invitation to choose them. Opens the pair's sheet. */
+    private fun pairPreview(): View = card("Light and dark wallpapers") {
+        val column = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
-            setPadding(0, dp(Ui.SPACE_S), 0, 0)
-            addView(Components.group(this@WallpaperActivity, p, listOf(
-                Components.row(this@WallpaperActivity, p, R.drawable.ic_photo, "Your photos",
-                    subtitle = "Pick a picture from the phone", chevron = true, inset = Ui.SPACE_L) { pickPhoto() },
-            )))
-            addView(sectionTitle("Light and dark", "Switches wallpapers when dark mode turns on or off"))
-            addView(pairCard())
-            addView(sectionTitle("Colors", null))
-            addView(HorizontalScrollView(this@WallpaperActivity).apply {
-                isHorizontalScrollBarEnabled = false
-                clipToPadding = false
-                setPadding(dp(Ui.SPACE_L), 0, dp(Ui.SPACE_L), 0)
-                addView(LinearLayout(this@WallpaperActivity).apply {
-                    orientation = LinearLayout.HORIZONTAL
-                    COLORS.forEach { (name, top, bottom) ->
-                        addView(colorTile(name, top, bottom), LinearLayout.LayoutParams(dp(72), dp(96)).apply {
-                            marginEnd = dp(Ui.SPACE_S)
-                        })
-                    }
-                })
+            setPadding(0, 0, 0, dp(Ui.SPACE_L))
+            addView(TextView(this@WallpaperActivity).apply {
+                text = "One for light mode and one for dark mode. The wallpaper changes when dark mode turns on or off."
+                style(TextStyle.Secondary, palette.textSecondary)
+                setPadding(dp(Ui.SPACE_XL), 0, dp(Ui.SPACE_XL), dp(Ui.SPACE_L))
             })
+            addView(pairCard())
         }
+        overlays.showSheet("Light and dark", column)
+    }.apply {
+        val halves = listOf(false, true).map { DarkMode.pairFile(this@WallpaperActivity, it) }
+        if (halves.none { it.exists() }) {
+            addView(centeredIcon(R.drawable.ic_moon), FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT))
+            return@apply
+        }
+        addView(LinearLayout(this@WallpaperActivity).apply {
+            orientation = LinearLayout.HORIZONTAL
+            halves.forEach { file ->
+                addView(ImageView(this@WallpaperActivity).apply {
+                    scaleType = ImageView.ScaleType.CENTER_CROP
+                    if (file.exists()) io.execute {
+                        val b = BitmapFactory.decodeFile(file.path, BitmapFactory.Options().apply { inSampleSize = 8 })
+                        main.post { setImageBitmap(b) }
+                    }
+                }, LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.MATCH_PARENT, 1f))
+            }
+        }, FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT))
     }
 
     /** The two halves of the pair, side by side: each shows its picture, or asks to choose one. */
@@ -273,6 +324,7 @@ class WallpaperActivity : Activity() {
                             }, FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT))
                         }
                         setOnClickListener {
+                            overlays.dismiss()
                             pairTarget = dark
                             build()
                         }
@@ -308,7 +360,8 @@ class WallpaperActivity : Activity() {
                     isFocusable = true
                     setOnClickListener {
                         DarkMode.clearPair(this@WallpaperActivity)
-                        adapter.notifyDataSetChanged()
+                        overlays.dismiss()
+                        build()
                     }
                 })
             }
@@ -362,108 +415,65 @@ class WallpaperActivity : Activity() {
         })
     }
 
-    private fun colorTile(name: String, top: Int, bottom: Int) = View(this).apply {
-        background = android.graphics.drawable.GradientDrawable(
-            android.graphics.drawable.GradientDrawable.Orientation.TOP_BOTTOM, intArrayOf(top, bottom),
-        ).apply { cornerRadius = dp(Ui.RADIUS_M).toFloat() }
-        foreground = Ui.pressable(this@WallpaperActivity, Ui.RADIUS_M)
-        isFocusable = true
-        contentDescription = name
-        setOnClickListener { openPreview(gradient(top, bottom), name, null) }
-    }
-
-    /** Two photos side by side, each a portrait tile. */
-    private fun photoRow(index: Int, recycled: LinearLayout?): View {
-        val row = recycled ?: LinearLayout(this).apply {
-            orientation = LinearLayout.HORIZONTAL
-            setPadding(dp(Ui.SPACE_L), 0, dp(Ui.SPACE_L), dp(Ui.SPACE_S))
-            repeat(2) { i ->
-                addView(ImageView(this@WallpaperActivity).apply {
-                    scaleType = ImageView.ScaleType.CENTER_CROP
-                    background = Ui.rounded(this@WallpaperActivity, palette.surfaceHigh, Ui.RADIUS_M)
-                    clipToOutline = true
-                    foreground = Ui.pressable(this@WallpaperActivity, Ui.RADIUS_M)
-                    isFocusable = true
-                }, LinearLayout.LayoutParams(0, dp(200), 1f).apply { if (i == 0) marginEnd = dp(Ui.SPACE_S) })
-            }
-        }
-        for (i in 0..1) {
-            val tile = row.getChildAt(i) as ImageView
-            val photo = photos.getOrNull(index * 2 + i)
-            tile.visibility = if (photo == null) View.INVISIBLE else View.VISIBLE
-            tile.setImageBitmap(null)
-            tile.tag = photo?.id
-            if (photo == null) continue
-            tile.contentDescription = "Photo by ${photo.author}"
-            val url = "https://picsum.photos/id/${photo.id}/360/480"
-            thumbs.get(url)?.let(tile::setImageBitmap) ?: io.execute {
-                val bitmap = download(url)
-                main.post {
-                    if (bitmap != null) thumbs.put(url, bitmap)
-                    if (tile.tag == photo.id) tile.setImageBitmap(bitmap)
-                }
-            }
-            tile.setOnClickListener { openPhoto(photo) }
-        }
-        return row
-    }
-
-    private fun footer(): View {
-        val p = palette
-        return LinearLayout(this).apply {
-            orientation = LinearLayout.VERTICAL
-            setPadding(0, dp(Ui.SPACE_M), 0, 0)
-            if (loadFailed) addView(TextView(this@WallpaperActivity).apply {
-                text = "Couldn't load photos. Check the connection, then tap to try again."
-                style(TextStyle.Secondary, p.textSecondary)
-                gravity = Gravity.CENTER
-                setPadding(dp(Ui.SPACE_XL), dp(Ui.SPACE_M), dp(Ui.SPACE_XL), dp(Ui.SPACE_M))
-                background = Ui.pressable(this@WallpaperActivity, Ui.RADIUS_M)
+    /** One collection: its name, then its photos in a row that scrolls sideways. */
+    private fun collection(name: String, ids: List<Int>): View = LinearLayout(this).apply {
+        orientation = LinearLayout.VERTICAL
+        addView(TextView(this@WallpaperActivity).apply {
+            text = name
+            style(TextStyle.Label, palette.textSecondary)
+            setTextSize(TypedValue.COMPLEX_UNIT_SP, 14f)
+            setPadding(dp(Ui.SPACE_XL), dp(Ui.SPACE_M), dp(Ui.SPACE_XL), dp(Ui.SPACE_S))
+        })
+        addView(sideways(ids.map { id ->
+            ImageView(this@WallpaperActivity).apply {
+                scaleType = ImageView.ScaleType.CENTER_CROP
+                background = Ui.rounded(this@WallpaperActivity, palette.surfaceHigh, Ui.RADIUS_M)
+                clipToOutline = true
+                foreground = Ui.pressable(this@WallpaperActivity, Ui.RADIUS_M)
                 isFocusable = true
-                setOnClickListener {
-                    loadFailed = false
-                    loadMore()
+                contentDescription = name
+                // Just big enough for the tile, so each is a few kilobytes.
+                val url = "https://picsum.photos/id/$id/${dp(TILE_WIDTH)}/${dp(TILE_HEIGHT)}"
+                thumbs.get(url)?.let(::setImageBitmap) ?: thumbIo.execute {
+                    val bitmap = thumbnail(id, url)
+                    main.post {
+                        if (bitmap != null) thumbs.put(url, bitmap)
+                        setImageBitmap(bitmap)
+                    }
                 }
-            }) else if (loading) addView(TextView(this@WallpaperActivity).apply {
-                text = "Loading photos…"
-                style(TextStyle.Secondary, p.textTertiary)
-                gravity = Gravity.CENTER
-                setPadding(0, dp(Ui.SPACE_M), 0, dp(Ui.SPACE_M))
-            })
-            addView(Components.group(this@WallpaperActivity, p, listOf(
-                Components.row(this@WallpaperActivity, p, R.drawable.ic_open_external, "Other wallpaper apps",
-                    subtitle = "Live wallpapers and other pickers", chevron = true, inset = Ui.SPACE_L) {
-                    runCatching { startActivity(Intent.createChooser(Intent(Intent.ACTION_SET_WALLPAPER), "Wallpaper")) }
-                },
-            )).apply { (layoutParams as ViewGroup.MarginLayoutParams).topMargin = dp(Ui.SPACE_M) })
-        }
+                setOnClickListener { openPhoto(id, name) }
+            }
+        }))
     }
 
-    /** The next page of photos from Picsum's list. */
-    private fun loadMore() {
-        if (loading || loadFailed) return
-        loading = true
-        val pageNumber = page
-        io.execute {
-            val found = runCatching {
-                val json = JSONArray(fetch("https://picsum.photos/v2/list?page=$pageNumber&limit=30"))
-                (0 until json.length()).map { i ->
-                    val o = json.getJSONObject(i)
-                    Photo(o.getString("id"), o.optString("author"), o.optInt("width"), o.optInt("height"))
-                }
-            }.getOrNull()
-            main.post {
-                loading = false
-                if (found == null) {
-                    loadFailed = true
-                } else {
-                    photos += found
-                    page++
-                }
-                if (::adapter.isInitialized) adapter.notifyDataSetChanged()
+    /** Tiles in a row that scrolls sideways, inset to line up with the page. */
+    private fun sideways(tiles: List<View>) = HorizontalScrollView(this).apply {
+        isHorizontalScrollBarEnabled = false
+        clipToPadding = false
+        setPadding(dp(Ui.SPACE_L), 0, dp(Ui.SPACE_L), 0)
+        addView(LinearLayout(this@WallpaperActivity).apply {
+            orientation = LinearLayout.HORIZONTAL
+            tiles.forEachIndexed { i, tile ->
+                addView(tile, LinearLayout.LayoutParams(dp(TILE_WIDTH), dp(TILE_HEIGHT)).apply { if (i > 0) marginStart = dp(Ui.SPACE_S) })
+            }
+        })
+    }
+
+    private fun colors(): View = sideways(COLORS.map { (name, stops) ->
+        ImageView(this).apply {
+            scaleType = ImageView.ScaleType.FIT_XY
+            background = Ui.rounded(this@WallpaperActivity, palette.surfaceHigh, Ui.RADIUS_M)
+            clipToOutline = true
+            foreground = Ui.pressable(this@WallpaperActivity, Ui.RADIUS_M)
+            isFocusable = true
+            contentDescription = name
+            setImageBitmap(colorPicture(dp(TILE_WIDTH), dp(TILE_HEIGHT), stops))
+            setOnClickListener {
+                val (w, h) = targetSize()
+                openPreview(colorPicture(w, h, stops), name, null)
             }
         }
-    }
+    })
 
     // endregion
 
@@ -497,11 +507,11 @@ class WallpaperActivity : Activity() {
 
     // region Preview
 
-    private fun openPhoto(photo: Photo) {
+    private fun openPhoto(id: Int, collection: String) {
         val (w, h) = targetSize()
         // Picsum resizes and crops on its side; a little wider than the screen leaves room to move it.
         val width = (w * 1.3f).toInt()
-        loadInto("Photo by ${photo.author}", "Unsplash") { download("https://picsum.photos/id/${photo.id}/$width/$h") }
+        loadInto(collection, "Unsplash") { download("https://picsum.photos/id/$id/$width/$h") }
     }
 
     /** Shows the preview right away with a loading note, then the picture once [load] returns it. */
@@ -668,6 +678,7 @@ class WallpaperActivity : Activity() {
         private fun usePair(dark: Boolean) {
             val cropped = image.visibleArea(targetSize()) ?: return
             setButton.isEnabled = false
+            WeatherWallpaper.stop(this@WallpaperActivity)
             DarkMode.saveToPair(this@WallpaperActivity, cropped, dark) {
                 pairTarget = null
                 preview = null
@@ -680,8 +691,10 @@ class WallpaperActivity : Activity() {
 
         /** Crops what's on screen to the wallpaper's size and sets it, then goes home to show it. */
         private fun apply(which: Int) {
-            // A wallpaper set on its own replaces the pair; otherwise the next mode switch would undo it.
+            // A wallpaper set on its own replaces the pair (otherwise the next mode switch would
+            // undo it) and the Weather wallpaper (which would replace it when the sky changes).
             if (which and WallpaperManager.FLAG_SYSTEM != 0) DarkMode.clearPair(this@WallpaperActivity)
+            WeatherWallpaper.stop(this@WallpaperActivity)
             val cropped = image.visibleArea(targetSize()) ?: return
             setButton.isEnabled = false
             (setButton as TextView).text = "Setting…"
@@ -790,16 +803,33 @@ class WallpaperActivity : Activity() {
         return max(bounds.width(), m.widthPixels) to max(bounds.height(), m.heightPixels)
     }
 
-    private fun gradient(top: Int, bottom: Int): Bitmap {
-        val (w, h) = targetSize()
-        return Bitmap.createBitmap(w, h, Bitmap.Config.ARGB_8888).also {
-            Canvas(it).drawRect(0f, 0f, w.toFloat(), h.toFloat(), Paint().apply {
-                shader = LinearGradient(0f, 0f, 0f, h.toFloat(), top, bottom, Shader.TileMode.CLAMP)
+    /**
+     * A color wallpaper: [stops] blended corner to corner, with a soft glow of the lightest
+     * near the top so it has depth rather than looking flat.
+     */
+    private fun colorPicture(w: Int, h: Int, stops: IntArray): Bitmap =
+        Bitmap.createBitmap(w, h, Bitmap.Config.ARGB_8888).also {
+            val canvas = Canvas(it)
+            canvas.drawRect(0f, 0f, w.toFloat(), h.toFloat(), Paint().apply {
+                shader = LinearGradient(0f, 0f, w * 0.6f, h.toFloat(), stops, null, Shader.TileMode.CLAMP)
+            })
+            if (stops.distinct().size > 1) canvas.drawRect(0f, 0f, w.toFloat(), h.toFloat(), Paint().apply {
+                shader = android.graphics.RadialGradient(w * 0.8f, h * 0.15f, h * 0.55f,
+                    (stops.last() and 0xFFFFFF) or 0x66000000, stops.last() and 0xFFFFFF, Shader.TileMode.CLAMP)
             })
         }
-    }
 
-    private fun fetch(url: String): String = open(url).inputStream.bufferedReader().use { it.readText() }
+    /** A tile's picture, kept on the phone after the first time so the page opens with them already there. */
+    private fun thumbnail(id: Int, url: String): Bitmap? {
+        val file = java.io.File(cacheDir, "wallpaper-thumbs/$id-${dp(TILE_WIDTH)}.jpg")
+        if (file.exists()) BitmapFactory.decodeFile(file.path)?.let { return it }
+        val bytes = runCatching { open(url).inputStream.use { it.readBytes() } }.getOrNull() ?: return null
+        runCatching {
+            file.parentFile?.mkdirs()
+            file.writeBytes(bytes)
+        }
+        return BitmapFactory.decodeByteArray(bytes, 0, bytes.size)
+    }
 
     private fun download(url: String): Bitmap? = runCatching { open(url).inputStream.use(BitmapFactory::decodeStream) }.getOrNull()
 
@@ -816,18 +846,35 @@ class WallpaperActivity : Activity() {
     companion object {
         private const val REQUEST_PHOTO = 41
 
-        /** Calm colors that suit the launcher's surfaces: name, top and bottom of a soft gradient. */
+        private const val FEATURED_HEIGHT = 200
+        private const val TILE_WIDTH = 112
+        private const val TILE_HEIGHT = 200
+
+        /**
+         * Photos picked by hand from Picsum's Unsplash photos, by their Picsum id: nature,
+         * sky and abstract, with no people in them and nothing religious.
+         */
+        private val COLLECTIONS = listOf(
+            "Mountains" to listOf(29, 1043, 906, 908, 905, 961, 676, 664, 558, 599, 806, 873, 872, 235),
+            "Sea and coast" to listOf(1041, 913, 909, 907, 1050, 871, 851, 853, 912, 973, 1053, 614, 716, 865, 1052),
+            "Forest and green" to listOf(1039, 502, 498, 704, 666, 919, 634, 932, 924, 571, 958, 940, 915, 955),
+            "Sky and night" to listOf(1022, 901, 724, 981, 825, 681, 683, 769, 794, 896, 715, 733, 583, 994),
+            "Desert" to listOf(564, 829, 247, 261, 902, 184),
+            "Abstract" to listOf(893, 1031, 948, 942, 677, 846, 1002),
+        )
+
+        /** Rich color blends: name and the colors from corner to corner. */
         private val COLORS = listOf(
-            Triple("Forest", 0xFF2F5D50.toInt(), 0xFF14281F.toInt()),
-            Triple("Night", 0xFF2B3A55.toInt(), 0xFF111827.toInt()),
-            Triple("Plum", 0xFF5A3A5E.toInt(), 0xFF24152A.toInt()),
-            Triple("Clay", 0xFFA0563F.toInt(), 0xFF4A2219.toInt()),
-            Triple("Sand", 0xFFE3D5BC.toInt(), 0xFFC2AE8C.toInt()),
-            Triple("Sage", 0xFF9DB09A.toInt(), 0xFF5E7260.toInt()),
-            Triple("Ocean", 0xFF2E6F8E.toInt(), 0xFF0F2E3F.toInt()),
-            Triple("Rose", 0xFFD9A5A0.toInt(), 0xFF8E5B58.toInt()),
-            Triple("Graphite", 0xFF3A3D42.toInt(), 0xFF151719.toInt()),
-            Triple("Black", 0xFF000000.toInt(), 0xFF000000.toInt()),
+            "Dusk" to intArrayOf(0xFF2E1A47.toInt(), 0xFF7B2F6B.toInt(), 0xFFF28A5B.toInt()),
+            "Lagoon" to intArrayOf(0xFF0B3D4F.toInt(), 0xFF0F7C8C.toInt(), 0xFF7FD8C6.toInt()),
+            "Midnight" to intArrayOf(0xFF050A1F.toInt(), 0xFF1B2A6B.toInt(), 0xFF4A63C9.toInt()),
+            "Ember" to intArrayOf(0xFF2A0A0A.toInt(), 0xFF8C1D1D.toInt(), 0xFFF2703A.toInt()),
+            "Meadow" to intArrayOf(0xFF0E2A1B.toInt(), 0xFF2F6B3A.toInt(), 0xFFA8C66C.toInt()),
+            "Blossom" to intArrayOf(0xFF9C7BC2.toInt(), 0xFFE6A3B5.toInt(), 0xFFF6D5D0.toInt()),
+            "Sky" to intArrayOf(0xFF3557C9.toInt(), 0xFF6FA8F5.toInt(), 0xFFBFE3FF.toInt()),
+            "Sand" to intArrayOf(0xFF9E7650.toInt(), 0xFFD9B382.toInt(), 0xFFF3E3C3.toInt()),
+            "Slate" to intArrayOf(0xFF1C1F26.toInt(), 0xFF3A4250.toInt(), 0xFF6B7A8F.toInt()),
+            "Black" to intArrayOf(0xFF000000.toInt(), 0xFF000000.toInt()),
         )
     }
 }

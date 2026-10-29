@@ -27,6 +27,12 @@ class ShortcutDraft(
     /** The saved shortcut this replaces, or null for a new one. */
     val original: KeyShortcut? = null,
 ) {
+    private fun state() = listOf(keyCode, keyCode2, press, action, scope, app)
+    private val initial = state()
+
+    /** Whether anything was changed since the editor opened, so leaving it would lose something. */
+    val changed get() = state() != initial
+
     companion object {
         fun of(sc: KeyShortcut) = ShortcutDraft(sc.keyCode, sc.keyCode2, sc.press, sc.action, sc.scope, sc.app, sc)
     }

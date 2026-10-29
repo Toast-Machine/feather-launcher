@@ -240,10 +240,15 @@ class SettingsActivity : Activity() {
         if (openedDirectly && current != Page.SHORTCUT && current != Page.FILTER) return finish()
         when (current) {
             Page.MAIN -> finish()
-            // Leaving the editor without saving drops the changes.
+            // Leaving the editor without saving drops the changes: asked first, if there are any.
             Page.SHORTCUT -> {
-                draft = null
-                open(Page.KEYS)
+                val leave = {
+                    draft = null
+                    open(Page.KEYS)
+                }
+                val d = draft
+                if (d?.changed == true) confirmDiscard(if (d.original == null) "This shortcut won't be added." else "Your changes to this shortcut won't be saved.", leave)
+                else leave()
             }
             Page.FILTER, Page.NOTIFICATION_HISTORY -> {
                 filterDraft = null
@@ -252,6 +257,26 @@ class SettingsActivity : Activity() {
             Page.LIMIT -> open(Page.LIMITS)
             else -> open(Page.MAIN)
         }
+    }
+
+    /** Asks before leaving an editor with changes in it: [discard] drops them, Keep editing stays. */
+    private fun confirmDiscard(message: String, discard: () -> Unit) {
+        val p = palette
+        val column = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            setPadding(dp(Ui.SPACE_XL), 0, dp(Ui.SPACE_XL), dp(Ui.SPACE_L))
+            addView(TextView(this@SettingsActivity).apply {
+                text = message
+                style(TextStyle.Body, p.textSecondary)
+            })
+            addView(Components.pillButton(this@SettingsActivity, "Discard", p.danger, p.onAccent) {
+                overlays.dismiss()
+                discard()
+            }, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(48)).apply { topMargin = dp(Ui.SPACE_L) })
+            addView(Components.pillButton(this@SettingsActivity, "Keep editing", p.surfaceHigh, p.text) { overlays.dismiss() },
+                LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(48)).apply { topMargin = dp(Ui.SPACE_S) })
+        }
+        overlays.showSheet("Discard changes?", column)
     }
 
     /** The main page: one row per area, each showing what it's set to, opening its own page. */

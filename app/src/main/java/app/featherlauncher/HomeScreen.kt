@@ -358,6 +358,7 @@ class HomeScreen(
                         shortcuts.menuItems(entry),
                         listOf(
                             MenuItem("Move", R.drawable.ic_move) { startKeyMove(item) },
+                            MenuItem("Put in folder", R.drawable.ic_folder) { putInFolder(item, entry) },
                             MenuItem("Rename", R.drawable.ic_edit) { rename(item, entry.label) },
                             MenuItem("Remove", R.drawable.ic_close, danger = true) { remove(item) },
                         ),
@@ -479,6 +480,34 @@ class HomeScreen(
         workspace.items.remove(target)
         return workspace.add(target.page, target.x, target.y, 1, 1, HomeItem.Type.FOLDER, "").also {
             it.apps += listOf(target.ref, key)
+        }
+    }
+
+    /**
+     * Puts the app [item] in one of the home screen's folders, or in a new folder of its own in
+     * its place (named straight away; more apps go in the same way). With the keypad this is how
+     * folders are made: moving onto an app makes room.
+     */
+    private fun putInFolder(item: HomeItem, entry: AppEntry) {
+        val folders = workspace.items.filter { it.type == HomeItem.Type.FOLDER }
+        val options = folders.map { (it.label ?: FOLDER_NAME) to ImageView(activity).apply { setImageBitmap(folderIcon(it)) } } +
+            ("New folder" to ImageView(activity).apply {
+                setImageResource(R.drawable.ic_add)
+                imageTintList = android.content.res.ColorStateList.valueOf(palette().text)
+            })
+        Components.choiceSheet(activity, palette(), overlays, "Put ${item.label ?: entry.label} in", options, -1) { i ->
+            workspace.items.remove(item)
+            views.remove(item.id)?.let { (it.parent as? ViewGroup)?.removeView(it) }
+            val folder = folders.getOrNull(i)
+            if (folder != null) {
+                if (item.ref !in folder.apps) folder.apps += item.ref
+            } else {
+                val made = workspace.add(item.page, item.x, item.y, 1, 1, HomeItem.Type.FOLDER, "").also { it.apps += item.ref }
+                rename(made, FOLDER_NAME)
+            }
+            workspace.removeEmptyPages()
+            workspace.save()
+            bindAll()
         }
     }
 
@@ -785,8 +814,6 @@ class HomeScreen(
                     return
                 }
                 showKeyCell()
-                // On another app: stop there, to make a folder.
-                if (folderTarget != null) return
                 val now = target
                 if (now != null && now != before) {
                     keyCell = now
@@ -826,19 +853,8 @@ class HomeScreen(
             val cell = keyCell ?: return
             val view = dragView ?: return
             root.removeCallbacks(reorder)
-            // Onto another app (or a folder), as with a finger: OK puts them in a folder together.
-            val occupant = if (w == 1 && h == 1 && source?.item?.type != HomeItem.Type.FOLDER) workspace.on(cell.first).firstOrNull {
-                it.x == cell.second && it.y == cell.third && it !== source?.item &&
-                    (it.type == HomeItem.Type.APP || it.type == HomeItem.Type.FOLDER)
-            } else null
-            setFolderTarget(occupant)
-            if (occupant != null) {
-                clearReorder(commit = false)
-                setTarget(null)
-            } else {
-                hoverCell = cell
-                applyReorder()
-            }
+            hoverCell = cell
+            applyReorder()
             val (page, x, y) = target ?: cell
             val cells = containerFor(page)
             val origin = rectInRoot(cells)
@@ -1623,9 +1639,9 @@ class HomeScreen(
 
     /**
      * Moves the keypad highlight on the home screen in [direction] (a View.FOCUS_ constant).
-     * Up and down stay in line vertically and left and right horizontally, choosing what's in the
-     * same column (or row) before anything off to the side. Past the last item on the right or
-     * left, it moves to the next or previous page. Returns false if there's nothing to focus.
+     * It goes where Android goes ([nearest]): what's in the same row or column first. With
+     * nothing further on the right or left, it moves to the next or previous page. Returns false
+     * if there's nothing to focus.
      */
     fun moveFocus(direction: Int): Boolean {
         // Inside a widget the arrows stay in it, among what can be pressed; Back comes out.
@@ -1670,29 +1686,73 @@ class HomeScreen(
     }
 
     /**
-     * What's next from [from] in [direction] among [others]. Up and down stay in line vertically
-     * and left and right horizontally, choosing what's in the same column (or row) first.
+     * What's next from [from] in [direction] among [others], chosen the way Android itself
+     * (and so every Android TV) chooses: something directly in line wins; otherwise the
+     * closest, with distance along the direction counting far more than distance to the side.
      */
     private fun nearest(from: View, others: List<View>, direction: Int): View? {
-        val r = rectInRoot(from)
-        val vertical = direction == View.FOCUS_UP || direction == View.FOCUS_DOWN
-        return others.map { it to rectInRoot(it) }.filter { (_, o) ->
-            when (direction) {
-                View.FOCUS_DOWN -> o.top >= r.centerY()
-                View.FOCUS_UP -> o.bottom <= r.centerY()
-                // Sideways only within the same row; never up or down a row.
-                View.FOCUS_RIGHT -> o.left >= r.centerX() && gap(o.top, o.bottom, r.top, r.bottom) == 0
-                else -> o.right <= r.centerX() && gap(o.top, o.bottom, r.top, r.bottom) == 0
+        val src = rectInRoot(from)
+        var best: Rect? = null
+        var bestView: View? = null
+        for (view in others) {
+            val r = rectInRoot(view)
+            if (!isCandidate(src, r, direction)) continue
+            if (best == null || isBetter(direction, src, r, best)) {
+                best = r
+                bestView = view
             }
-        }.minWithOrNull(compareBy({ (_, o) ->
-            val along = if (vertical) abs(o.centerY() - r.centerY()) else abs(o.centerX() - r.centerX())
-            // How far off to the side it is; 0 when it's in the same column (or row).
-            val aside = if (vertical) gap(o.left, o.right, r.left, r.right) else gap(o.top, o.bottom, r.top, r.bottom)
-            aside * 8 + along
-        }, { (_, o) ->
-            // Two as close (under a wide widget, say): the one most in line with where it's coming from.
-            if (vertical) abs(o.centerX() - r.centerX()) else abs(o.centerY() - r.centerY())
-        }))?.first
+        }
+        return bestView
+    }
+
+    // The rules below follow Android's FocusFinder.
+
+    /** Whether [dest] lies in [direction] from [src] at all. */
+    private fun isCandidate(src: Rect, dest: Rect, direction: Int) = when (direction) {
+        View.FOCUS_LEFT -> (src.right > dest.right || src.left >= dest.right) && src.left > dest.left
+        View.FOCUS_RIGHT -> (src.left < dest.left || src.right <= dest.left) && src.right < dest.right
+        View.FOCUS_UP -> (src.bottom > dest.bottom || src.top >= dest.bottom) && src.top > dest.top
+        else -> (src.top < dest.top || src.bottom <= dest.top) && src.bottom < dest.bottom
+    }
+
+    /** Whether [a] is a better next stop from [src] than [b]. */
+    private fun isBetter(direction: Int, src: Rect, a: Rect, b: Rect): Boolean {
+        if (beamBeats(direction, src, a, b)) return true
+        if (beamBeats(direction, src, b, a)) return false
+        return weighted(direction, src, a) < weighted(direction, src, b)
+    }
+
+    /** Whether the two overlap across [direction]: in the same row for left and right, the same column for up and down. */
+    private fun inBeam(direction: Int, a: Rect, b: Rect) =
+        if (direction == View.FOCUS_LEFT || direction == View.FOCUS_RIGHT) b.bottom > a.top && b.top < a.bottom
+        else b.right > a.left && b.left < a.right
+
+    /** In line beats out of line, unless the one out of line is much nearer (up and down only). */
+    private fun beamBeats(direction: Int, src: Rect, a: Rect, b: Rect): Boolean {
+        if (inBeam(direction, src, b) || !inBeam(direction, src, a)) return false
+        val bFullyPast = when (direction) {
+            View.FOCUS_LEFT -> src.left >= b.right
+            View.FOCUS_RIGHT -> src.right <= b.left
+            View.FOCUS_UP -> src.top >= b.bottom
+            else -> src.bottom <= b.top
+        }
+        if (!bFullyPast) return true
+        if (direction == View.FOCUS_LEFT || direction == View.FOCUS_RIGHT) return true
+        val toNear = maxOf(0, if (direction == View.FOCUS_UP) src.top - a.bottom else a.top - src.bottom)
+        val toFar = maxOf(1, if (direction == View.FOCUS_UP) src.top - b.top else b.bottom - src.bottom)
+        return toNear < toFar
+    }
+
+    private fun weighted(direction: Int, src: Rect, dest: Rect): Long {
+        val major = maxOf(0, when (direction) {
+            View.FOCUS_LEFT -> src.left - dest.right
+            View.FOCUS_RIGHT -> dest.left - src.right
+            View.FOCUS_UP -> src.top - dest.bottom
+            else -> dest.top - src.bottom
+        }).toLong()
+        val minor = (if (direction == View.FOCUS_LEFT || direction == View.FOCUS_RIGHT) src.centerY() - dest.centerY()
+            else src.centerX() - dest.centerX()).toLong()
+        return 13 * major * major + minor * minor
     }
 
     /** The widget the keypad is inside, moving among what can be pressed in it. */
@@ -1760,9 +1820,6 @@ class HomeScreen(
         }
         if (!view.isLongClickable) view.setOnLongClickListener { if (it.isInTouchMode) false else widget.performLongClick() }
     }
-
-    /** Space between two ranges, 0 if they overlap. */
-    private fun gap(a0: Int, a1: Int, b0: Int, b1: Int) = maxOf(0, maxOf(a0, b0) - minOf(a1, b1))
 
     fun rectInRoot(view: View): Rect {
         val location = IntArray(2)

@@ -25,8 +25,12 @@ class LauncherService : AccessibilityService() {
 
     private val recheck = Runnable { check() }
     private val screenOn = object : BroadcastReceiver() {
-        // Delayed checks don't run while the phone sleeps, so look again when it wakes.
-        override fun onReceive(context: Context, intent: Intent) = check()
+        // Delayed checks don't run while the phone sleeps, so look again when it wakes. The
+        // Weather wallpaper catches up too, before the lock screen is looked at.
+        override fun onReceive(context: Context, intent: Intent) {
+            check()
+            WeatherWallpaper.refresh(context)
+        }
     }
 
     override fun onServiceConnected() {
