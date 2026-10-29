@@ -211,18 +211,26 @@ class WallpaperActivity : Activity() {
     }
 
     /** Weather, your own photo, and the light and dark pair, side by side on top. */
-    private fun featured(): View = LinearLayout(this).apply {
-        orientation = LinearLayout.HORIZONTAL
+    private fun featured(): View = HorizontalScrollView(this).apply {
+        isHorizontalScrollBarEnabled = false
+        clipToPadding = false
         setPadding(dp(Ui.SPACE_L), 0, dp(Ui.SPACE_L), 0)
+        addView(featuredRow())
+    }
+
+    /** The top cards at full size, a row that scrolls sideways rather than squeezing them. */
+    private fun featuredRow(): View = LinearLayout(this).apply {
+        orientation = LinearLayout.HORIZONTAL
         val on = Prefs(this@WallpaperActivity).weatherWallpaper
         listOf(
             captioned(weatherCard(), "Weather", if (on) "In use" else "Follows the sky"),
             captioned(card("Your photo") { pickPhoto() }.apply {
                 addView(centeredIcon(R.drawable.ic_photo), FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT))
             }, "Your photo", "From the phone"),
+            captioned(shuffleCard(), "Shuffle", if (Prefs(this@WallpaperActivity).shuffleOn) "In use" else "Changes by itself"),
             captioned(pairPreview(), "Light & dark", if (DarkMode.hasPair(this@WallpaperActivity)) "In use" else "Two photos"),
         ).forEachIndexed { i, v ->
-            addView(v, LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f).apply { if (i > 0) marginStart = dp(Ui.SPACE_M) })
+            addView(v, LinearLayout.LayoutParams(dp(FEATURED_WIDTH), ViewGroup.LayoutParams.WRAP_CONTENT).apply { if (i > 0) marginStart = dp(Ui.SPACE_M) })
         }
     }
 
@@ -235,7 +243,7 @@ class WallpaperActivity : Activity() {
         Thread {
             val place = ClockInfo(this).place()
             val sky = place?.let { Weather.at(it) {} }?.sky ?: Sky.PARTLY
-            val bitmap = WeatherScene.draw(dp(120), dp(FEATURED_HEIGHT), sky, WeatherWallpaper.timeOfDay(place))
+            val bitmap = WeatherScene.draw(dp(FEATURED_WIDTH), dp(FEATURED_HEIGHT), sky, WeatherWallpaper.timeOfDay(place))
             main.post { picture.setImageBitmap(bitmap) }
         }.start()
         return card("Weather wallpaper") {
@@ -248,6 +256,69 @@ class WallpaperActivity : Activity() {
                 }
             }
         }.apply { addView(picture, FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT)) }
+    }
+
+    /** Photo Shuffle: a fan of the photos it would use. Opens its sheet. */
+    private fun shuffleCard(): View = card("Photo Shuffle") { shuffleSheet() }.apply {
+        addView(centeredIcon(R.drawable.ic_shuffle), FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT))
+    }
+
+    /** What Photo Shuffle goes through, and how often it changes. */
+    private fun shuffleSheet() {
+        val p = palette
+        val prefs = Prefs(this)
+        val column = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            setPadding(0, 0, 0, dp(Ui.SPACE_L))
+            addView(TextView(this@WallpaperActivity).apply {
+                text = "The wallpaper changes by itself, through photos you choose or one of the collections, on the home and lock screens."
+                style(TextStyle.Secondary, p.textSecondary)
+                setPadding(dp(Ui.SPACE_XL), 0, dp(Ui.SPACE_XL), dp(Ui.SPACE_L))
+            })
+            val sources = listOf(Components.row(this@WallpaperActivity, p, R.drawable.ic_photo, "Your photos",
+                subtitle = "Choose the photos to go through", chevron = true, inset = Ui.SPACE_L) {
+                overlays.dismiss()
+                @Suppress("DEPRECATION")
+                startActivityForResult(Intent(MediaStore.ACTION_PICK_IMAGES).setType("image/*")
+                    .putExtra(MediaStore.EXTRA_PICK_IMAGES_MAX, MediaStore.getPickImagesMaxLimit()), REQUEST_SHUFFLE)
+            }) + COLLECTIONS.map { (name, ids) ->
+                Components.row(this@WallpaperActivity, p, R.drawable.ic_shuffle, name, subtitle = "${ids.size} photos",
+                    color = if (prefs.shuffleOn && prefs.shuffleCollection == name) p.accent else p.text, inset = Ui.SPACE_L) {
+                    overlays.dismiss()
+                    Shuffle.start(this@WallpaperActivity, name) { ok -> shuffleStarted(ok) }
+                }
+            }
+            addView(Components.group(this@WallpaperActivity, p, sources))
+            addView(Components.group(this@WallpaperActivity, p, listOfNotNull(
+                Components.row(this@WallpaperActivity, p, R.drawable.ic_time, "Changes", subtitle = prefs.shuffleEvery.label,
+                    chevron = true, inset = Ui.SPACE_L) {
+                    val options = Shuffle.Every.entries
+                    Components.choiceSheet(this@WallpaperActivity, p, overlays, "Changes", options.map { it.label to null },
+                        options.indexOf(prefs.shuffleEvery)) { prefs.shuffleEvery = options[it] }
+                },
+                if (prefs.shuffleOn) Components.row(this@WallpaperActivity, p, R.drawable.ic_close, "Turn off Photo Shuffle",
+                    color = p.danger, inset = Ui.SPACE_L) {
+                    Shuffle.stop(this@WallpaperActivity)
+                    overlays.dismiss()
+                    build()
+                } else null,
+            )).apply { (layoutParams as? ViewGroup.MarginLayoutParams)?.topMargin = dp(Ui.SPACE_M) })
+        }
+        // Taller than a small screen: it scrolls.
+        val scroll = android.widget.ScrollView(this).apply {
+            isVerticalScrollBarEnabled = false
+            addView(column)
+        }
+        overlays.showSheet("Photo Shuffle", scroll, scrollable = scroll)
+    }
+
+    private fun shuffleStarted(ok: Boolean) {
+        if (ok) {
+            startActivity(Intent(this, HomeActivity::class.java).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
+            finish()
+        } else {
+            Toast.makeText(this, "Couldn't set the wallpaper. Check the connection and try again.", Toast.LENGTH_SHORT).show()
+        }
     }
 
     /** The pair's two pictures, half and half, or an invitation to choose them. Opens the pair's sheet. */
@@ -489,6 +560,13 @@ class WallpaperActivity : Activity() {
     override fun onActivityResult(requestCode: Int, resultCode: Int, data: Intent?) {
         @Suppress("DEPRECATION")
         super.onActivityResult(requestCode, resultCode, data)
+        if (requestCode == REQUEST_SHUFFLE && resultCode == RESULT_OK && data != null) {
+            val uris = data.clipData?.let { clip -> (0 until clip.itemCount).map { clip.getItemAt(it).uri } } ?: listOfNotNull(data.data)
+            if (uris.isEmpty()) return
+            Toast.makeText(this, "Setting up Photo Shuffle…", Toast.LENGTH_SHORT).show()
+            Shuffle.startWithPhotos(this, uris) { ok -> shuffleStarted(ok) }
+            return
+        }
         val uri = data?.data?.takeIf { requestCode == REQUEST_PHOTO && resultCode == RESULT_OK } ?: return
         loadInto("Your photo", null) { decode(uri) }
     }
@@ -664,13 +742,15 @@ class WallpaperActivity : Activity() {
         }
 
         private fun chooseWhere() {
-            val options = listOf("Home screen", "Lock screen", "Home and lock screen")
-            val flags = listOf(
-                WallpaperManager.FLAG_SYSTEM, WallpaperManager.FLAG_LOCK,
-                WallpaperManager.FLAG_SYSTEM or WallpaperManager.FLAG_LOCK,
-            )
+            // Choosing the home and lock screens one at a time gives each its own picture.
+            val options = listOf("Home and lock screen", "Lock screen, with it blurred on the home screen", "Home screen only", "Lock screen only")
             Components.choiceSheet(this@WallpaperActivity, palette, overlays, "Set wallpaper for", options.map { it to null }, -1) { i ->
-                apply(flags[i])
+                when (i) {
+                    0 -> apply(WallpaperManager.FLAG_SYSTEM or WallpaperManager.FLAG_LOCK)
+                    1 -> apply(WallpaperManager.FLAG_LOCK, blurredHome = true)
+                    2 -> apply(WallpaperManager.FLAG_SYSTEM)
+                    else -> apply(WallpaperManager.FLAG_LOCK)
+                }
             }
         }
 
@@ -679,6 +759,7 @@ class WallpaperActivity : Activity() {
             val cropped = image.visibleArea(targetSize()) ?: return
             setButton.isEnabled = false
             WeatherWallpaper.stop(this@WallpaperActivity)
+            Shuffle.stop(this@WallpaperActivity)
             DarkMode.saveToPair(this@WallpaperActivity, cropped, dark) {
                 pairTarget = null
                 preview = null
@@ -690,16 +771,23 @@ class WallpaperActivity : Activity() {
         }
 
         /** Crops what's on screen to the wallpaper's size and sets it, then goes home to show it. */
-        private fun apply(which: Int) {
+        /** Sets the picture for [which] screens; with [blurredHome], a soft blur of it on the home screen too, as iOS does. */
+        private fun apply(which: Int, blurredHome: Boolean = false) {
             // A wallpaper set on its own replaces the pair (otherwise the next mode switch would
             // undo it) and the Weather wallpaper (which would replace it when the sky changes).
             if (which and WallpaperManager.FLAG_SYSTEM != 0) DarkMode.clearPair(this@WallpaperActivity)
+            if (blurredHome) DarkMode.clearPair(this@WallpaperActivity)
             WeatherWallpaper.stop(this@WallpaperActivity)
+            Shuffle.stop(this@WallpaperActivity)
             val cropped = image.visibleArea(targetSize()) ?: return
             setButton.isEnabled = false
             (setButton as TextView).text = "Setting…"
             io.execute {
-                val ok = runCatching { WallpaperManager.getInstance(this@WallpaperActivity).setBitmap(cropped, null, true, which) }.isSuccess
+                val ok = runCatching {
+                    val manager = WallpaperManager.getInstance(this@WallpaperActivity)
+                    manager.setBitmap(cropped, null, true, which)
+                    if (blurredHome) manager.setBitmap(blurred(cropped), null, true, WallpaperManager.FLAG_SYSTEM)
+                }.isSuccess
                 main.post {
                     if (ok) {
                         startActivity(Intent(this@WallpaperActivity, HomeActivity::class.java).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
@@ -804,6 +892,21 @@ class WallpaperActivity : Activity() {
     }
 
     /**
+     * [bitmap] softly blurred and a little darker, for the home screen under a sharp lock screen.
+     * Shrinking a picture a lot and growing it back with smoothing blurs it evenly; doing it in
+     * steps keeps the blur free of blocks.
+     */
+    private fun blurred(bitmap: Bitmap): Bitmap {
+        var small = bitmap
+        repeat(4) { small = Bitmap.createScaledBitmap(small, maxOf(1, small.width / 2), maxOf(1, small.height / 2), true) }
+        var big = small
+        repeat(4) { big = Bitmap.createScaledBitmap(big, big.width * 2, big.height * 2, true) }
+        return Bitmap.createScaledBitmap(big, bitmap.width, bitmap.height, true).also {
+            Canvas(it).drawColor(0x26000000)
+        }
+    }
+
+    /**
      * A color wallpaper: [stops] blended corner to corner, with a soft glow of the lightest
      * near the top so it has depth rather than looking flat.
      */
@@ -845,8 +948,13 @@ class WallpaperActivity : Activity() {
 
     companion object {
         private const val REQUEST_PHOTO = 41
+        private const val REQUEST_SHUFFLE = 42
 
-        private const val FEATURED_HEIGHT = 200
+        /** The photo ids in the collection called [name], for [Shuffle]. */
+        fun collection(name: String) = COLLECTIONS.firstOrNull { it.first == name }?.second
+
+        private const val FEATURED_WIDTH = 120
+        private const val FEATURED_HEIGHT = 210
         private const val TILE_WIDTH = 112
         private const val TILE_HEIGHT = 200
 

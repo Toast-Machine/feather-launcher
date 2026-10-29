@@ -30,6 +30,7 @@ class LauncherService : AccessibilityService() {
         override fun onReceive(context: Context, intent: Intent) {
             check()
             WeatherWallpaper.refresh(context)
+            if (intent.action == Intent.ACTION_SCREEN_ON) Shuffle.next(context, screenOn = true)
         }
     }
 

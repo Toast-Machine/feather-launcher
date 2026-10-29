@@ -183,6 +183,23 @@ class Prefs(context: Context) {
         get() = sp.getString("weather_wallpaper_scene", null)
         set(value) = sp.edit().putString("weather_wallpaper_scene", value).apply()
 
+    /** Photo Shuffle is on ([Shuffle]): the collection it goes through, or null for your own photos; where it's got to, and when it last moved on. */
+    var shuffleOn: Boolean
+        get() = sp.getBoolean("shuffle_on", false)
+        set(value) = sp.edit().putBoolean("shuffle_on", value).apply()
+    var shuffleCollection: String?
+        get() = sp.getString("shuffle_collection", null)
+        set(value) = sp.edit().putString("shuffle_collection", value).apply()
+    var shuffleIndex: Int
+        get() = sp.getInt("shuffle_index", -1)
+        set(value) = sp.edit().putInt("shuffle_index", value).apply()
+    var shuffleLast: Long
+        get() = sp.getLong("shuffle_last", 0)
+        set(value) = sp.edit().putLong("shuffle_last", value).apply()
+    var shuffleEvery: Shuffle.Every
+        get() = Shuffle.Every.entries.firstOrNull { it.name == sp.getString("shuffle_every", null) } ?: Shuffle.Every.WAKE
+        set(value) = sp.edit().putString("shuffle_every", value.name).apply()
+
     var glanceWeather: Boolean
         get() = sp.getBoolean("glance_weather", true)
         set(value) = sp.edit().putBoolean("glance_weather", value).apply()

@@ -25,6 +25,7 @@ object WeatherWallpaper {
         val prefs = Prefs(context)
         prefs.weatherWallpaper = true
         prefs.weatherWallpaperScene = null
+        Shuffle.stop(context)
         // A wallpaper of its own replaces the light and dark pair.
         DarkMode.clearPair(context)
         refresh(context, done)
@@ -43,7 +44,8 @@ object WeatherWallpaper {
         val place = ClockInfo(app).place()
         val sky = place?.let { Weather.at(it) { refresh(app) } }?.sky ?: Sky.CLEAR
         val time = timeOfDay(place)
-        val scene = "$sky/$time"
+        // The drawing's version goes in too, so a new look replaces the old one straight away.
+        val scene = "3/$sky/$time"
         if (scene == prefs.weatherWallpaperScene || scene == drawing) return done?.invoke(true) ?: Unit
         drawing = scene
         io.execute {

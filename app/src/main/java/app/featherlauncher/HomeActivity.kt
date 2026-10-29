@@ -246,6 +246,7 @@ class HomeActivity : Activity(), HomeScreen.Host {
         // Settings may have changed on the settings page.
         prefs.reload()
         WeatherWallpaper.refresh(this)
+        Shuffle.next(this)
         val next = currentPalette()
         // The wallpaper may have changed too, which changes the app list's colors.
         if (next.accent != palette.accent || next.dark != palette.dark || next.drawer != palette.drawer) {
