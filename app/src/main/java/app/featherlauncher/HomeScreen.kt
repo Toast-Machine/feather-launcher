@@ -589,7 +589,7 @@ class HomeScreen(
             }
             setOnLongClickListener {
                 performHapticFeedback(HapticFeedbackConstants.LONG_PRESS)
-                drag.arm(DragSource(null, entry, icon, folder))
+                drag.arm(DragSource(null, entry, icon, folder, from = rectInRoot(icon)))
                 overlays.showMenu(entry.label, listOf(
                     MenuItem("Move out of folder", R.drawable.ic_home) {
                         removeFromFolder(folder, entry.key)
@@ -760,7 +760,9 @@ class HomeScreen(
      * What is being dragged: an item already on the home screen, an app from the app list, or one
      * of Feather's widgets from the widget list ([kind]), made where it's dropped.
      */
-    private class DragSource(val item: HomeItem?, val entry: AppEntry?, val view: View, val folder: HomeItem? = null, val kind: FeatherKind? = null)
+    private class DragSource(val item: HomeItem?, val entry: AppEntry?, val view: View, val folder: HomeItem? = null, val kind: FeatherKind? = null,
+        /** Where [view] was when it was picked up, for one that's gone by the time the drag starts (an app in a folder: its menu closes the folder). */
+        val from: Rect? = null)
 
     private inner class Drag {
         var downX = 0f
@@ -919,8 +921,10 @@ class HomeScreen(
 
         private fun start(src: DragSource, ev: MotionEvent) {
             active = true
-            // A widget's picture is taken from the widget list before it closes.
+            // A widget's picture is taken from the widget list before it closes, and where an
+            // app in a folder is before the folder closes: once it's closing, it's gone or moving.
             val listShot = src.kind?.let { snapshot(src.view) to rectInRoot(src.view) }
+            val inFolder = src.from ?: src.folder?.let { rectInRoot(src.view) }
             overlays.dismiss()
             finishResize()
             host.cancelViewTouches()
@@ -937,8 +941,8 @@ class HomeScreen(
                 origin = listShot.second
             } else {
                 bitmap = repo.icon(src.entry!!) ?: return cancel()
-                if (src.folder != null) {
-                    origin = rectInRoot(src.view)
+                if (inFolder != null) {
+                    origin = inFolder
                 } else {
                     val size = dp(AppIconView.ICON)
                     origin = Rect(ev.x.toInt() - size / 2, ev.y.toInt() - size / 2, ev.x.toInt() + size / 2, ev.y.toInt() + size / 2)
@@ -1373,17 +1377,25 @@ class HomeScreen(
             bindAll()
             if (emptied) pages.snapTo(item.page.coerceAtLeast(0).coerceAtMost(workspace.pageCount - 1), animate = false)
             views[item.id]?.visibility = View.INVISIBLE
-            root.post { settleOn(item) }
+            // From the app list or a folder, the picture is the bare icon, without the room around it.
+            val bare = src.item == null && src.kind == null
+            root.post { settleOn(item, bare) }
         }
 
         /** Animates the dragged image into the item's cell, then shows the real view. */
-        private fun settleOn(item: HomeItem) {
+        private fun settleOn(item: HomeItem, bare: Boolean = false) {
             val real = views[item.id]
             val view = dragView ?: return finish()
             if (real == null || real.width == 0) return finish()
             val targetView = (real as? AppIconView)?.iconView ?: real
             val rect = rectInRoot(targetView)
-            view.animate().x(rect.left.toFloat()).y(rect.top.toFloat()).scaleX(1f).scaleY(1f).alpha(1f)
+            // Lands exactly over the icon it becomes, at its size, so nothing jumps when it's swapped in.
+            if (bare) rect.set(rect.left + targetView.paddingLeft, rect.top + targetView.paddingTop,
+                rect.right - targetView.paddingRight, rect.bottom - targetView.paddingBottom)
+            val w = view.width.takeIf { it > 0 } ?: view.layoutParams.width
+            val h = view.height.takeIf { it > 0 } ?: view.layoutParams.height
+            view.animate().x(rect.exactCenterX() - w / 2f).y(rect.exactCenterY() - h / 2f)
+                .scaleX(rect.width() / w.toFloat()).scaleY(rect.height() / h.toFloat()).alpha(1f)
                 .setDuration(200).setInterpolator(DecelerateInterpolator(2f))
                 .withEndAction { finish() }.start()
         }
