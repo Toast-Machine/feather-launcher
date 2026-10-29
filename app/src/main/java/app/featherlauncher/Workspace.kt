@@ -39,6 +39,12 @@ class Workspace(context: Context) {
     var isNew = false
         private set
 
+    /**
+     * The highest id handed out so far. Ids are never used twice: the home screen keeps a view
+     * per id, and a folder turned back into an app must not get the folder's view.
+     */
+    private var lastId = 0L
+
     init {
         load()
     }
@@ -51,6 +57,7 @@ class Workspace(context: Context) {
         runCatching {
             val json = JSONObject(file.readText())
             pageCount = json.optInt("pages", 1).coerceAtLeast(1)
+            lastId = json.optLong("lastId")
             val array = json.getJSONArray("items")
             for (i in 0 until array.length()) {
                 val o = array.getJSONObject(i)
@@ -94,12 +101,15 @@ class Workspace(context: Context) {
             })
         }
         val tmp = File(file.path + ".tmp")
-        tmp.writeText(JSONObject().put("pages", pageCount).put("items", array).toString())
+        tmp.writeText(JSONObject().put("pages", pageCount).put("lastId", lastId).put("items", array).toString())
         tmp.renameTo(file)
         isNew = false
     }
 
-    fun nextId(): Long = (items.maxOfOrNull { it.id } ?: 0L) + 1
+    fun nextId(): Long {
+        lastId = maxOf(lastId, items.maxOfOrNull { it.id } ?: 0L) + 1
+        return lastId
+    }
 
     fun add(page: Int, x: Int, y: Int, w: Int, h: Int, type: HomeItem.Type, ref: String): HomeItem =
         HomeItem(nextId(), page, x, y, w, h, type, ref).also { items += it }
