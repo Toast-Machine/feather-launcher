@@ -565,14 +565,23 @@ class SettingsActivity : Activity() {
             overlays.showSheet("Updates", column)
             return
         }
-        column.addView(TextView(this).apply {
-            text = release.notes.ifBlank { "A new version of Feather Launcher." }
-            style(TextStyle.Body, p.text)
-            // Long notes are cut short, so the button below always fits.
-            maxLines = 10
-            ellipsize = android.text.TextUtils.TruncateAt.END
-            setPadding(dp(Ui.SPACE_XL), 0, dp(Ui.SPACE_XL), dp(Ui.SPACE_M))
-        })
+        // Long notes scroll in their own space, so all of them can be read and the button below
+        // always fits.
+        val notesHeight = resources.displayMetrics.heightPixels * 45 / 100
+        val notes = object : ScrollView(this) {
+            override fun onMeasure(widthMeasureSpec: Int, heightMeasureSpec: Int) =
+                super.onMeasure(widthMeasureSpec, MeasureSpec.makeMeasureSpec(notesHeight, MeasureSpec.AT_MOST))
+        }.apply {
+            isVerticalScrollBarEnabled = false
+            isVerticalFadingEdgeEnabled = true
+            setFadingEdgeLength(dp(Ui.SPACE_XL))
+            addView(TextView(this@SettingsActivity).apply {
+                text = release.notes.ifBlank { "A new version of Feather Launcher." }
+                style(TextStyle.Body, p.text)
+                setPadding(dp(Ui.SPACE_XL), 0, dp(Ui.SPACE_XL), dp(Ui.SPACE_M))
+            })
+        }
+        column.addView(notes)
         column.addView(status)
         lateinit var installRow: View
         fun install() {
@@ -593,7 +602,7 @@ class SettingsActivity : Activity() {
         }
         installRow = Components.row(this, p, R.drawable.ic_arrow_downward, "Install ${release.version}", color = p.accent) { install() }
         column.addView(installRow)
-        overlays.showSheet("Feather Launcher ${release.version}", column)
+        overlays.showSheet("Feather Launcher ${release.version}", column, scrollable = notes)
         if (installNow) install()
     }
 
