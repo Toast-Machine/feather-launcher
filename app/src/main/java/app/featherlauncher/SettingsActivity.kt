@@ -468,7 +468,7 @@ class SettingsActivity : Activity() {
                 }
             },
         )))
-        content.addView(Components.footnote(this, p, "Hold a category tab to edit it, or hold an app to change its category. Drag tabs or apps to reorder them."))
+        content.addView(Components.footnote(this, p, "Hold a category tab or app for options. Drag to reorder, or choose Move to use the arrow keys."))
     }
 
     /** Hidden apps, listed here so they can be brought back, and the PIN that guards them. */
@@ -604,7 +604,7 @@ class SettingsActivity : Activity() {
             orientation = LinearLayout.VERTICAL
             setPadding(0, 0, 0, dp(Ui.SPACE_M))
             addView(Components.row(this@SettingsActivity, p, R.drawable.ic_arrow_downward, "Save a backup",
-                subtitle = "Your home screen, categories, settings and wallpapers, in one file") {
+                subtitle = "Layout, settings and wallpaper pair. Photo Shuffle photos excluded.") {
                 overlays.dismiss()
                 @Suppress("DEPRECATION")
                 startActivityForResult(Intent(Intent.ACTION_CREATE_DOCUMENT).addCategory(Intent.CATEGORY_OPENABLE)

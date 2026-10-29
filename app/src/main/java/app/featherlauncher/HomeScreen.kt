@@ -799,7 +799,7 @@ class HomeScreen(
             ev.recycle()
             keyCell = Triple(item.page, item.x, item.y)
             showKeyCell()
-            android.widget.Toast.makeText(activity, "Move it with the arrows, then press OK", android.widget.Toast.LENGTH_SHORT).show()
+            android.widget.Toast.makeText(activity, "Use arrows to move. OK to place, Back to cancel.", android.widget.Toast.LENGTH_SHORT).show()
         }
 
         fun keyStep(dx: Int, dy: Int) {

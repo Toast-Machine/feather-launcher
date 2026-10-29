@@ -20,10 +20,10 @@ import java.util.Date
 /** Feather's own widgets: the clock, and the ones on cards. [ref] is the [HomeItem.ref] that says which; [about] says what it's for. */
 enum class FeatherKind(val ref: String, val label: String, val w: Int, val h: Int, val about: String) {
     CLOCK("", "Clock", 4, 2, "The time, the date and what's coming up"),
-    AGENDA("agenda", "Agenda", 4, 2, "Today's events"),
-    WEATHER("weather", "Weather", 4, 2, "The weather now, the chance of rain and the next hours"),
+    AGENDA("agenda", "Agenda", 4, 2, "Upcoming calendar events"),
+    WEATHER("weather", "Weather", 4, 2, "Current weather with hourly and daily forecasts"),
     MEDIA("media", "Now playing", 4, 1, "Play, pause and skip whatever's playing"),
-    ZMANIM("zmanim", "Zmanim", 4, 2, "Today's coming zmanim"),
+    ZMANIM("zmanim", "Zmanim", 4, 2, "Upcoming zmanim"),
     ;
 
     /**
@@ -247,11 +247,11 @@ class AgendaWidget(context: Context, item: HomeItem) : CardWidget(context, item)
         }.timeInMillis
         val today = info.events(now, midnight, 20)
         today.forEachIndexed { i, e -> events.addView(gapAbove(event(e), if (i == 0) 0 else 10)) }
-        if (today.isEmpty()) events.addView(WidgetStyle.cardText(context, 15f, WidgetStyle.title).apply { text = "Nothing more today" })
+        if (today.isEmpty()) events.addView(WidgetStyle.cardText(context, 15f, WidgetStyle.title).apply { text = "No more events today" })
         // The days after, each under its name, as far as two weeks ahead.
         val later = info.events(midnight, midnight + 14 * DAY, 40).filter { it.begin >= midnight || it.allDay }
         if (later.isEmpty() && today.isEmpty()) {
-            events.addView(gapAbove(quiet("Enjoy the rest of your day", 13f), 4))
+            events.addView(gapAbove(quiet("No upcoming events in the next two weeks", 13f), 4))
             return
         }
         var day = -1L
@@ -364,7 +364,7 @@ class WeatherWidget(context: Context, item: HomeItem) : CardWidget(context, item
                 setPadding(0, dp(2), 0, 0)
             })
             content.addView(WidgetStyle.cardText(context, 13f, WidgetStyle.label, soft).apply {
-                text = listOfNotNull("↑${w.high}°  ↓${w.low}°", w.rainChance.takeIf { it >= 20 }?.let { "$it% rain" }).joinToString("  ·  ")
+                text = listOfNotNull("↑${w.high}°  ↓${w.low}°", w.rainChance.takeIf { it >= 20 }?.let { "$it% rain or snow" }).joinToString("  ·  ")
                 isSingleLine = true
                 ellipsize = android.text.TextUtils.TruncateAt.END
                 setPadding(0, dp(2), 0, 0)
@@ -383,7 +383,7 @@ class WeatherWidget(context: Context, item: HomeItem) : CardWidget(context, item
                     orientation = LinearLayout.VERTICAL
                     addView(WidgetStyle.cardText(context, 14f, WidgetStyle.title, white).apply { text = "${place.name} · ${w.description}" })
                     addView(WidgetStyle.cardText(context, 13f, WidgetStyle.label, soft).apply {
-                        text = listOfNotNull("↑${w.high}°  ↓${w.low}°", w.rainChance.takeIf { it >= 20 }?.let { "$it% rain" }).joinToString("  ·  ")
+                        text = listOfNotNull("↑${w.high}°  ↓${w.low}°", w.rainChance.takeIf { it >= 20 }?.let { "$it% rain or snow" }).joinToString("  ·  ")
                         setPadding(0, dp(2), 0, 0)
                     })
                 }, LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f).apply { marginStart = dp(12) })
@@ -413,7 +413,7 @@ class WeatherWidget(context: Context, item: HomeItem) : CardWidget(context, item
                     setPadding(0, dp(4), 0, 0)
                 })
                 if (w.rainChance >= 20) addView(WidgetStyle.cardText(context, 13f, WidgetStyle.label, soft).apply {
-                    text = "${w.rainChance}% rain"
+                    text = "${w.rainChance}% rain or snow"
                     gravity = Gravity.END
                     setPadding(0, dp(2), 0, 0)
                 })

@@ -2066,7 +2066,7 @@ class HomeActivity : Activity(), HomeScreen.Host {
             },
         )
         lift()
-        toast("Move it with the arrows, then press OK")
+        toast("Use Left or Right to move. OK to place, Back to cancel.")
     }
 
     /**
@@ -2158,7 +2158,7 @@ class HomeActivity : Activity(), HomeScreen.Host {
             },
             undo = { settle() },
         )
-        toast("Move it with the arrows, then press OK")
+        toast("Use arrows to move. OK to place, Back to cancel.")
     }
 
     /** Every app tile showing in [list]. */

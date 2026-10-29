@@ -223,12 +223,12 @@ class WallpaperActivity : Activity() {
         orientation = LinearLayout.HORIZONTAL
         val on = Prefs(this@WallpaperActivity).weatherWallpaper
         listOf(
-            captioned(weatherCard(), "Weather", if (on) "In use" else "Follows the sky"),
+            captioned(weatherCard(), "Weather", if (on) "In use" else "Updates both screens"),
             captioned(card("Your photo") { pickPhoto() }.apply {
                 addView(centeredIcon(R.drawable.ic_photo), FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT))
             }, "Your photo", "From the phone"),
-            captioned(shuffleCard(), "Shuffle", if (Prefs(this@WallpaperActivity).shuffleOn) "In use" else "Changes by itself"),
-            captioned(pairPreview(), "Light & dark", if (DarkMode.hasPair(this@WallpaperActivity)) "In use" else "Two photos"),
+            captioned(shuffleCard(), "Photo Shuffle", if (Prefs(this@WallpaperActivity).shuffleOn) "In use" else "Rotates photos automatically"),
+            captioned(pairPreview(), "Light & dark", if (DarkMode.hasPair(this@WallpaperActivity)) "In use" else "Switches with dark mode"),
         ).forEachIndexed { i, v ->
             addView(v, LinearLayout.LayoutParams(dp(FEATURED_WIDTH), ViewGroup.LayoutParams.WRAP_CONTENT).apply { if (i > 0) marginStart = dp(Ui.SPACE_M) })
         }
@@ -271,18 +271,18 @@ class WallpaperActivity : Activity() {
             orientation = LinearLayout.VERTICAL
             setPadding(0, 0, 0, dp(Ui.SPACE_L))
             addView(TextView(this@WallpaperActivity).apply {
-                text = "The wallpaper changes by itself, through photos you choose or one of the collections, on the home and lock screens."
+                text = "Rotate your chosen photos or a collection on both the home and lock screens. Scheduled changes apply when the screen turns on or you return home. This replaces Weather wallpaper and removes any saved light and dark wallpaper pair."
                 style(TextStyle.Secondary, p.textSecondary)
                 setPadding(dp(Ui.SPACE_XL), 0, dp(Ui.SPACE_XL), dp(Ui.SPACE_L))
             })
             val sources = listOf(Components.row(this@WallpaperActivity, p, R.drawable.ic_photo, "Your photos",
-                subtitle = "Choose the photos to go through", chevron = true, inset = Ui.SPACE_L) {
+                subtitle = "Choose photos for Photo Shuffle", chevron = true, inset = Ui.SPACE_L) {
                 overlays.dismiss()
                 @Suppress("DEPRECATION")
                 startActivityForResult(Intent(MediaStore.ACTION_PICK_IMAGES).setType("image/*")
                     .putExtra(MediaStore.EXTRA_PICK_IMAGES_MAX, MediaStore.getPickImagesMaxLimit()), REQUEST_SHUFFLE)
             }) + COLLECTIONS.map { (name, ids) ->
-                Components.row(this@WallpaperActivity, p, R.drawable.ic_shuffle, name, subtitle = "${ids.size} photos",
+                Components.row(this@WallpaperActivity, p, R.drawable.ic_shuffle, name, subtitle = "${ids.size} photos · Internet required",
                     color = if (prefs.shuffleOn && prefs.shuffleCollection == name) p.accent else p.text, inset = Ui.SPACE_L) {
                     overlays.dismiss()
                     Shuffle.start(this@WallpaperActivity, name) { ok -> shuffleStarted(ok) }
@@ -290,10 +290,10 @@ class WallpaperActivity : Activity() {
             }
             addView(Components.group(this@WallpaperActivity, p, sources))
             addView(Components.group(this@WallpaperActivity, p, listOfNotNull(
-                Components.row(this@WallpaperActivity, p, R.drawable.ic_time, "Changes", subtitle = prefs.shuffleEvery.label,
+                Components.row(this@WallpaperActivity, p, R.drawable.ic_time, "Change frequency", subtitle = prefs.shuffleEvery.label,
                     chevron = true, inset = Ui.SPACE_L) {
                     val options = Shuffle.Every.entries
-                    Components.choiceSheet(this@WallpaperActivity, p, overlays, "Changes", options.map { it.label to null },
+                    Components.choiceSheet(this@WallpaperActivity, p, overlays, "Change frequency", options.map { it.label to null },
                         options.indexOf(prefs.shuffleEvery)) { prefs.shuffleEvery = options[it] }
                 },
                 if (prefs.shuffleOn) Components.row(this@WallpaperActivity, p, R.drawable.ic_close, "Turn off Photo Shuffle",
@@ -317,7 +317,7 @@ class WallpaperActivity : Activity() {
             startActivity(Intent(this, HomeActivity::class.java).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
             finish()
         } else {
-            Toast.makeText(this, "Couldn't set the wallpaper. Check the connection and try again.", Toast.LENGTH_SHORT).show()
+            Toast.makeText(this, "Couldn't start Photo Shuffle. Try again.", Toast.LENGTH_SHORT).show()
         }
     }
 
@@ -743,7 +743,7 @@ class WallpaperActivity : Activity() {
 
         private fun chooseWhere() {
             // Choosing the home and lock screens one at a time gives each its own picture.
-            val options = listOf("Home and lock screen", "Lock screen, with it blurred on the home screen", "Home screen only", "Lock screen only")
+            val options = listOf("Home and lock screen", "Lock screen and blurred home screen", "Home screen only", "Lock screen only")
             Components.choiceSheet(this@WallpaperActivity, palette, overlays, "Set wallpaper for", options.map { it to null }, -1) { i ->
                 when (i) {
                     0 -> apply(WallpaperManager.FLAG_SYSTEM or WallpaperManager.FLAG_LOCK)

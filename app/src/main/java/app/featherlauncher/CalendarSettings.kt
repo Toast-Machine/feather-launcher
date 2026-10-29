@@ -30,7 +30,7 @@ class CalendarSettings(private val s: SettingsActivity) {
             place == null -> content.addView(Components.footnote(s, p, "Your location isn't available yet. Search for a city, or try again later."))
             place.zone.id != java.util.TimeZone.getDefault().id ->
                 content.addView(Components.footnote(s, p, "Times are shown in ${place.name}'s local time."))
-            else -> content.addView(Components.footnote(s, p, "Zmanim and the date after sunset are worked out for this place."))
+            else -> content.addView(Components.footnote(s, p, "This location is used for weather, daily times and calendar dates that change at sunset."))
         }
 
         content.addView(s.heading(p, "Date"))
@@ -48,7 +48,7 @@ class CalendarSettings(private val s: SettingsActivity) {
                 }
             },
         )))
-        content.addView(Components.footnote(s, p, "Its date shows next to today's on the clock."))
+        content.addView(Components.footnote(s, p, "Shows the selected calendar's date below the main date."))
 
         content.addView(s.heading(p, "Daily times"))
         content.addView(s.spacer())
@@ -103,14 +103,14 @@ class CalendarSettings(private val s: SettingsActivity) {
             if (jewish) toggle(R.drawable.ic_calendar, "Daf Yomi", prefs.glanceDaf) { prefs.glanceDaf = it } else null,
         )))
         content.addView(Components.footnote(s, p, if (jewish)
-            "Next to the date. The Omer shows during the Omer, and holidays on the day."
-            else "The temperature, next to the date."))
+            "Shown below the date. Holidays appear on their dates, and the Omer count appears during the Omer."
+            else "Shows the temperature below the date."))
         content.addView(s.spacer())
         content.addView(Components.group(s, p, listOfNotNull(
             toggle(R.drawable.ic_calendar, "Next event", prefs.clockEvent) { prefs.clockEvent = it },
             if (jewish) toggle(R.drawable.ic_sunset, "Candle lighting", prefs.glanceCandles) { prefs.glanceCandles = it } else null,
             toggle(R.drawable.ic_phone_call, "Missed calls and messages", prefs.glanceMissed) { prefs.glanceMissed = it },
-            toggle(R.drawable.ic_time, "Tonight's alarm", prefs.glanceAlarm) { prefs.glanceAlarm = it },
+            toggle(R.drawable.ic_time, "Next alarm", prefs.glanceAlarm) { prefs.glanceAlarm = it },
             if (jewish) toggle(R.drawable.ic_calendar, "Coming holidays", prefs.glanceUpcoming) { prefs.glanceUpcoming = it } else null,
             toggle(R.drawable.ic_time, if (zmanim) "Next zman" else "Next sunrise or sunset", prefs.clockZman) { prefs.clockZman = it },
         )))
@@ -162,7 +162,7 @@ class CalendarSettings(private val s: SettingsActivity) {
         val p = s.palette
         when {
             found == null -> android.widget.Toast.makeText(s, "Couldn't search. Check that you're online.", android.widget.Toast.LENGTH_SHORT).show()
-            found.isEmpty() -> android.widget.Toast.makeText(s, "No places called \"$query\"", android.widget.Toast.LENGTH_SHORT).show()
+            found.isEmpty() -> android.widget.Toast.makeText(s, "No cities found for \"$query\"", android.widget.Toast.LENGTH_SHORT).show()
             else -> {
                 val column = android.widget.LinearLayout(s).apply {
                     orientation = android.widget.LinearLayout.VERTICAL

@@ -62,8 +62,8 @@ object Setup {
         permission(Manifest.permission.READ_CONTACTS, "Contacts", "To find people in Smart Search", R.drawable.ic_contact),
         permission(Manifest.permission.CALL_PHONE, "Phone calls", "So calling from search starts the call right away", R.drawable.ic_phone_call),
         permission(Manifest.permission.POST_NOTIFICATIONS, "Notifications", "To tell you when an app limit stops an app's sound", R.drawable.ic_notification),
-        permission(Manifest.permission.READ_CALENDAR, "Calendar", "To show your next event on the clock", R.drawable.ic_calendar),
-        permission(Manifest.permission.ACCESS_COARSE_LOCATION, "Location", "To work out zmanim where you are", R.drawable.ic_location),
+        permission(Manifest.permission.READ_CALENDAR, "Calendar", "To show calendar events on the clock and in Agenda", R.drawable.ic_calendar),
+        permission(Manifest.permission.ACCESS_COARSE_LOCATION, "Location", "To show local weather and calculate daily times", R.drawable.ic_location),
     )
 
     fun pending(context: Context) = items.filter { !it.done(context) }
