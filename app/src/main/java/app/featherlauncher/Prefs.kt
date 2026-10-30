@@ -244,11 +244,11 @@ class Prefs(context: Context) {
 
     /** The name of where the phone last was, and the position it was looked up for. */
     var lastPlaceName: Pair<String, Pair<Double, Double>>?
-        get() = sp.getString("last_place_name", null)?.let { it to (sp.getFloat("last_name_lat", 0f).toDouble() to sp.getFloat("last_name_lon", 0f).toDouble()) }
+        get() = sp.getString("place_name", null)?.let { it to (sp.getFloat("place_name_lat", 0f).toDouble() to sp.getFloat("place_name_lon", 0f).toDouble()) }
         set(value) {
-            if (value == null) sp.edit().remove("last_place_name").remove("last_name_lat").remove("last_name_lon").apply()
-            else sp.edit().putString("last_place_name", value.first)
-                .putFloat("last_name_lat", value.second.first.toFloat()).putFloat("last_name_lon", value.second.second.toFloat()).apply()
+            if (value == null) sp.edit().remove("place_name").remove("place_name_lat").remove("place_name_lon").apply()
+            else sp.edit().putString("place_name", value.first)
+                .putFloat("place_name_lat", value.second.first.toFloat()).putFloat("place_name_lon", value.second.second.toFloat()).apply()
         }
 
     fun launchCount(key: String): Int = launches.getInt(key, 0)

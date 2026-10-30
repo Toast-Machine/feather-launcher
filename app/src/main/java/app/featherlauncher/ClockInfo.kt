@@ -57,17 +57,14 @@ class ClockInfo(private val context: Context) {
     }
 
     /**
-     * Finds the name of the town at [lat], [lon] in the background: a Jewish community right
-     * there, else the phone's geocoder, else OpenStreetMap's (for phones without one), else a
-     * community nearby.
+     * Finds the name of the town at [lat], [lon] in the background: the phone's geocoder, else
+     * OpenStreetMap's (for phones without one).
      */
     private fun lookUp(lat: Double, lon: Double, named: (() -> Unit)?) {
         if (looking || System.currentTimeMillis() - failedAt < RETRY) return
         looking = true
         Thread {
-            fun community(within: Float) = COMMUNITIES.map { it.first }.filter { metres(it.lat to it.lon, lat, lon) < within }
-                .minByOrNull { metres(it.lat to it.lon, lat, lon) }?.name
-            val name = community(COMMUNITY_HERE) ?: geocoder(lat, lon) ?: osm(lat, lon) ?: community(COMMUNITY_NEAR)
+            val name = geocoder(lat, lon) ?: osm(lat, lon)
             looking = false
             if (name == null) {
                 failedAt = System.currentTimeMillis()
@@ -81,7 +78,8 @@ class ClockInfo(private val context: Context) {
     @Suppress("DEPRECATION") // The listener version only adds a thread; this already runs on one.
     private fun geocoder(lat: Double, lon: Double): String? = if (!Geocoder.isPresent()) null else runCatching {
         Geocoder(context, Locale.getDefault()).getFromLocation(lat, lon, 1)?.firstOrNull()
-            ?.let { it.locality ?: it.subAdminArea ?: it.adminArea }
+            // New York gives no town, only the borough ("Brooklyn") and its county ("Kings County").
+            ?.let { it.locality ?: it.subLocality ?: it.subAdminArea ?: it.adminArea }
     }.getOrNull()
 
     private fun osm(lat: Double, lon: Double): String? = runCatching {
@@ -158,10 +156,6 @@ class ClockInfo(private val context: Context) {
         /** Moving further than this looks the name up again; further than [NAME_KEPT], the old one is dropped. */
         private const val NAME_FRESH = 1_000f
         private const val NAME_KEPT = 5_000f
-        /** A community this close is named over the geocoder's town ("Boro Park", not "Brooklyn")... */
-        private const val COMMUNITY_HERE = 2_500f
-        /** ...and one this close stands in when no geocoder answers. */
-        private const val COMMUNITY_NEAR = 10_000f
         private const val RETRY = 10 * 60_000L
 
         @Volatile private var looking = false
