@@ -25,7 +25,7 @@ class AppIconView(context: Context, val item: HomeItem) : LinearLayout(context) 
         // The keypad highlight is drawn on the icon only, an even square around it.
         icon.setPadding(dp(INSET), dp(INSET), dp(INSET), dp(INSET))
         icon.isDuplicateParentStateEnabled = true
-        icon.background = Ui.focusHighlight(context, ICON_RADIUS + INSET)
+        icon.background = Ui.focusHighlight(context, corner(ICON) + INSET)
         addView(icon, LayoutParams(dp(ICON + 2 * INSET), dp(ICON + 2 * INSET)))
         label.apply {
             setTextSize(TypedValue.COMPLEX_UNIT_SP, NAME_SP)
@@ -44,13 +44,16 @@ class AppIconView(context: Context, val item: HomeItem) : LinearLayout(context) 
 
     /** Icon size in dp: [ICON], or [LARGE_ICON] with names turned off. */
     private var size = ICON
+    /** Its corners' radius in dp, for the keypad highlight around it. */
+    private var corner = 0
 
     fun bind(bitmap: Bitmap?, name: String, showLabel: Boolean, locked: Boolean = false, isNew: Boolean = false,
              badge: Int = 0, iconDp: Int = ICON) {
-        if (iconDp != size) {
+        if (iconDp != size || corner != corner(iconDp)) {
             size = iconDp
+            corner = corner(iconDp)
             icon.layoutParams = LayoutParams(dp(size + 2 * INSET), dp(size + 2 * INSET))
-            icon.background = Ui.focusHighlight(context, ICON_RADIUS * size / ICON + INSET)
+            icon.background = Ui.focusHighlight(context, corner + INSET)
         }
         icon.setImageBitmap(bitmap)
         IconBadges.apply(icon, locked, isNew, size + 2 * INSET, badge)
@@ -92,8 +95,14 @@ class AppIconView(context: Context, val item: HomeItem) : LinearLayout(context) 
          */
         const val LARGE_ICON = 70
         const val INSET = 6
-        /** Roughly the corner radius of a squircle icon at [ICON]. */
-        const val ICON_RADIUS = 18
+        /** The icons' shape, from Settings; set by [HomeScreen]. */
+        var shape = IconShape.SQUIRCLE
+
+        /**
+         * About how round, in dp, the corners of an icon [sizeDp] big are in [shape]. Widgets'
+         * corners, the keypad highlights and the page's outline all follow it.
+         */
+        fun corner(sizeDp: Int) = kotlin.math.round(shape.corner * sizeDp).toInt()
         /** Height of the icon with its highlight, which is also a dock cell's height. */
         const val BOX = ICON + 2 * INSET
         /** Fixed height of the name under the icon, so icons line up across rows. */

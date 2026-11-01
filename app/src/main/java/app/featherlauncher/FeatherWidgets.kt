@@ -75,7 +75,7 @@ abstract class CardWidget(context: Context, val item: HomeItem) : FrameLayout(co
         val end = if (trimsEnd) right - minOf(trim, right - dp(GAP)) else right
         setPadding(left, top - minOf(trim, top - dp(GAP)), end, bottom - minOf(trim, bottom - dp(GAP)))
         // The keypad highlight is white around the card, as it is around app icons.
-        foreground = Ui.focusHighlight(context, WidgetStyle.RADIUS + GAP)
+        foreground = Ui.focusHighlight(context, WidgetStyle.radius + GAP)
     }
 
     /** The card behind everything, inset so cards next to each other have a gap between them. */
@@ -330,8 +330,8 @@ class UpNextWidget(context: Context, item: HomeItem) : CardWidget(context, item)
                 // The weather now: its picture over the temperature, on a square tile in the accent
                 // color, as tall as the card's room. Its corners run parallel to the card's, the
                 // padding in from them.
-                addView(Tile(context, dp(TILE)) { dp(WidgetStyle.RADIUS) - (this@UpNextWidget.paddingRight - dp(GAP)) }.apply {
-                    background = Ui.rounded(context, WidgetStyle.accent(), WidgetStyle.RADIUS - 12)
+                addView(Tile(context, dp(TILE)) { dp(WidgetStyle.radius) - (this@UpNextWidget.paddingRight - dp(GAP)) }.apply {
+                    background = Ui.rounded(context, WidgetStyle.accent(), WidgetStyle.radius - 12)
                     addView(LinearLayout(context).apply {
                         orientation = LinearLayout.VERTICAL
                         gravity = Gravity.CENTER_HORIZONTAL
@@ -576,7 +576,7 @@ class WeatherWidget(context: Context, item: HomeItem) : CardWidget(context, item
         setOnClickListener(null)
         val w = Weather.at(place) { if (isAttachedToWindow) refresh() }
         if (w == null) return loading(place.name)
-        setCard(WeatherArt.sky(w.sky, w.night, dp(WidgetStyle.RADIUS).toFloat()))
+        setCard(WeatherArt.sky(w.sky, w.night, dp(WidgetStyle.radius).toFloat()))
         // Room left over goes between the rows, not above and below them.
         content.spread = true
         val white = WidgetStyle.WHITE
@@ -703,7 +703,7 @@ class WeatherWidget(context: Context, item: HomeItem) : CardWidget(context, item
      * the temperature and the hours will be, on a calm sky.
      */
     private fun loading(name: String) {
-        setCard(WeatherArt.sky(Sky.CLOUDY, false, dp(WidgetStyle.RADIUS).toFloat()))
+        setCard(WeatherArt.sky(Sky.CLOUDY, false, dp(WidgetStyle.radius).toFloat()))
         val soft = WidgetStyle.WHITE
         content.gravity = Gravity.CENTER_VERTICAL
         content.spread = !narrow
@@ -894,7 +894,7 @@ class MediaWidget(context: Context, item: HomeItem) : CardWidget(context, item) 
         }
         // With artwork, the card is a deep shade of its color, with white type; without, the usual card.
         val tint = art?.let(::shadeOf)
-        setCard(if (tint != null) Ui.rounded(context, tint, WidgetStyle.RADIUS) else WidgetStyle.cardBackground(context))
+        setCard(if (tint != null) Ui.rounded(context, tint, WidgetStyle.radius) else WidgetStyle.cardBackground(context))
         val main = if (tint != null) WidgetStyle.WHITE else WidgetStyle.onCard()
         val quiet = if (tint != null) 0xCCFFFFFF.toInt() else WidgetStyle.onCardQuiet()
 

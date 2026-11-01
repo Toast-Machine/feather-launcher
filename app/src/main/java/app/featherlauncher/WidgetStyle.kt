@@ -21,8 +21,11 @@ import android.widget.TextView
 object WidgetStyle {
     const val WHITE = 0xFFFFFFFF.toInt()
     const val SOFT_WHITE = 0xD9FFFFFF.toInt()
-    /** A card's corners, as Android's own widgets have them. */
-    const val RADIUS = 28
+    /**
+     * A card's corners (dp): as round as the home screen's icons, so a widget's corners match
+     * the icons beside it whatever their shape. Set by [HomeScreen].
+     */
+    var radius = 28
 
     /** The home screen's colors, from the wallpaper; set by [HomeScreen]. */
     var palette: () -> Palette? = { null }
@@ -51,7 +54,7 @@ object WidgetStyle {
     /** Text and icons on a solid [accent] fill. */
     fun onAccent() = system(android.R.color.system_accent1_800, android.R.color.system_accent1_0, 0xFF062E6F.toInt())
 
-    fun cardBackground(ctx: Context) = Ui.rounded(ctx, card(), RADIUS)
+    fun cardBackground(ctx: Context) = Ui.rounded(ctx, card(), radius)
 
     val display: Typeface = Typeface.create(Typeface.DEFAULT, 400, false)
     val title: Typeface = Typeface.create(Typeface.DEFAULT, 600, false)

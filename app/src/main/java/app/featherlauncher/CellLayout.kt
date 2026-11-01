@@ -218,12 +218,12 @@ class CellLayout(context: Context, attrs: AttributeSet? = null) : ViewGroup(cont
                 val r = cellRect(cells)
                 val cx = r.exactCenterX()
                 val cy = r.exactCenterY() - iconOffset
-                val radius = Ui.dp(context, AppIconView.ICON_RADIUS * sizeDp / AppIconView.ICON + inset).toFloat()
+                val radius = Ui.dp(context, AppIconView.corner(sizeDp) + inset).toFloat()
                 previewPaint.color = if (dropPreviewGrow) 0x55FFFFFF else 0x33FFFFFF
                 canvas.drawRoundRect(cx - half, cy - half, cx + half, cy + half, radius, radius, previewPaint)
             } else {
                 // Exactly where the widget's card will be, with its corners.
-                val radius = Ui.dp(context, WidgetStyle.RADIUS).toFloat()
+                val radius = Ui.dp(context, WidgetStyle.radius).toFloat()
                 val gap = Ui.dp(context, CardWidget.GAP).toFloat()
                 val r = if (isPage) RectF(widgetRect(cells, dropPreviewBare)).apply { inset(gap, gap) } else RectF(cellRect(cells))
                 canvas.drawRoundRect(r, radius, radius, previewPaint)

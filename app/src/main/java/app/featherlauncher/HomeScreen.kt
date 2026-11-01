@@ -73,7 +73,6 @@ class HomeScreen(
      * only focusable while it has the highlight, so Android's own arrow moves never land on it.
      */
     private val pageTarget by lazy { View(activity).apply {
-        background = Ui.focusHighlight(activity, PAGE_RADIUS)
         contentDescription = "Home screen"
         setOnFocusChangeListener { v, has -> if (!has) v.isFocusable = false }
         setOnKeyListener { v, code, event ->
@@ -232,6 +231,14 @@ class HomeScreen(
 
         val alive = workspace.items.map { it.id }.toSet()
         views.keys.filter { it !in alive }.forEach { id -> views.remove(id)?.let { (it.parent as? ViewGroup)?.removeView(it) } }
+        // New corners (names turned on or off, another icon shape): Feather's widgets are made
+        // again with them, and other apps' are rounded again.
+        if (applyCorners()) {
+            views.entries.filter { it.value is CardWidget || it.value is ClockWidget }.map { it.key }.forEach { id ->
+                views.remove(id)?.let { (it.parent as? ViewGroup)?.removeView(it) }
+            }
+            views.values.filterIsInstance<WidgetView>().forEach { it.requestLayout() }
+        }
 
         // The dock's apps sit together in the middle, as on iOS: their places are just their order.
         var compacted = false
@@ -353,7 +360,7 @@ class HomeScreen(
         } ?: ClockWidget(activity, item).apply {
             setSolid(prefs.widgetSolid(item.id))
             // The keypad highlight follows the card's corner, as it does around the other widgets.
-            foreground = Ui.focusHighlight(activity, WidgetStyle.RADIUS + CardWidget.GAP)
+            foreground = Ui.focusHighlight(activity, WidgetStyle.radius + CardWidget.GAP)
             setOnClickListener { host.startSafely(Intent(AlarmClock.ACTION_SHOW_ALARMS)) }
             dateView.setOnClickListener {
                 val uri = CalendarContract.CONTENT_URI.buildUpon().appendPath("time")
@@ -406,7 +413,25 @@ class HomeScreen(
         }
     }
 
+    /** The page's outline curves around its corners as a widget's highlight does around its card. */
+    private fun pageRadius() = WidgetStyle.radius + CardWidget.GAP
+
+    /**
+     * Every corner on the home screen follows the icons' shape and size: widgets' cards, the
+     * keypad highlights, and the page's outline, the same distance out from each other.
+     * True if they changed.
+     */
+    private fun applyCorners(): Boolean {
+        AppIconView.shape = prefs.iconShape
+        val radius = AppIconView.corner(homeIcon())
+        val changed = radius != WidgetStyle.radius
+        WidgetStyle.radius = radius
+        pageTarget.background = Ui.focusHighlight(activity, pageRadius())
+        return changed
+    }
+
     fun applyTheme() {
+        applyCorners()
         val p = palette()
         // Dock corner = highlight corner + the space around it, so the curves run parallel.
         // The same room from the edges to the icons, left, right, top and bottom (see sizeDock).
@@ -1206,7 +1231,7 @@ class HomeScreen(
             pageOutline = zone(FrameLayout.LayoutParams(page.width(), height, Gravity.TOP or Gravity.START).apply {
                 topMargin = top
                 leftMargin = page.left
-            }, PAGE_RADIUS)
+            }, pageRadius())
             // Slivers: the neighbouring page starts just past the edge of this one.
             val sliver = dp(Ui.BAR_MARGIN) - gap
             fun side(gravity: Int) = zone(FrameLayout.LayoutParams(dp(80), height, gravity or Gravity.TOP).apply {
@@ -1768,7 +1793,7 @@ class HomeScreen(
             val b = bounds()
             // Around a card, its curve runs parallel to the card's, the frame's distance out.
             val radius = when (view) {
-                is CardWidget, is ClockWidget -> dp(WidgetStyle.RADIUS + CardWidget.GAP - 2).toFloat()
+                is CardWidget, is ClockWidget -> dp(WidgetStyle.radius + CardWidget.GAP - 2).toFloat()
                 is WidgetView -> (view.corner + view.cornerInset - dp(2)).coerceAtLeast(dp(18).toFloat())
                 else -> dp(18).toFloat()
             }
@@ -2114,7 +2139,6 @@ class HomeScreen(
         /** Space between the page outline and the dock (and around the slivers). */
         private const val EDGE_GAP = Workspace.PAGE_TOP
         /** The page outline's corners: a widget's own highlight's, as the outline is as far outside the cards. */
-        private const val PAGE_RADIUS = WidgetStyle.RADIUS + CardWidget.GAP
         /** How far into a slide the page outlines have faded out. */
         private const val RING_GONE_BY = 0.3f
         /** How close to a side edge (dp) the finger counts as over that side's sliver. */
