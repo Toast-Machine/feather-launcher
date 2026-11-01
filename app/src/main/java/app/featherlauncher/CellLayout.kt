@@ -80,6 +80,8 @@ class CellLayout(context: Context, attrs: AttributeSet? = null) : ViewGroup(cont
     }
 
     override fun onLayout(changed: Boolean, l: Int, t: Int, r: Int, b: Int) {
+        // A page's cell size, for drawing widgets at their real sizes from a computer (see [WidgetSheet]).
+        if (rows > 1 && cellWidth > 0 && cellHeight > 0) pageCell = cellWidth to cellHeight
         for (i in 0 until childCount) {
             val child = getChildAt(i)
             val rect = cellRect((child.layoutParams as LayoutParams).let { Rect(it.x, it.y, it.x + it.w, it.y + it.h) })
@@ -124,5 +126,10 @@ class CellLayout(context: Context, attrs: AttributeSet? = null) : ViewGroup(cont
     fun place(view: View, x: Int, y: Int, w: Int, h: Int) {
         (view.parent as? ViewGroup)?.removeView(view)
         addView(view, LayoutParams(x, y, w, h))
+    }
+
+    companion object {
+        /** The width and height (px) of a page's cell, as last laid out. */
+        @Volatile var pageCell: Pair<Float, Float>? = null
     }
 }

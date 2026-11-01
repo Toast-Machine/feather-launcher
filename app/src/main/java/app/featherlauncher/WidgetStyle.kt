@@ -151,7 +151,7 @@ class FitRow(context: Context) : ViewGroup(context) {
 /**
  * A column that leaves out its last rows when they don't fit, instead of letting them spill
  * over or get cut in half: on a small screen a card shows fewer rows, not broken ones. A row
- * marked with [dropFirst] goes before the others.
+ * marked with [dropFirst] goes before the others; the first row only goes if it's marked so.
  */
 open class FitColumn(context: Context) : android.widget.LinearLayout(context) {
     companion object {
@@ -193,8 +193,8 @@ open class FitColumn(context: Context) : android.widget.LinearLayout(context) {
         val width = MeasureSpec.makeMeasureSpec(measuredWidth - paddingLeft - paddingRight, MeasureSpec.AT_MOST)
         while (used(width) > room) {
             // The row with the highest [dropFirst] priority goes; among equals, the last.
-            val last = (childCount - 1 downTo 1).map(::getChildAt)
-                .filter { it.visibility == View.VISIBLE && (it.getTag(R.id.fit_priority) as? Int ?: 0) >= 0 }
+            val last = (childCount - 1 downTo 0).map(::getChildAt)
+                .filter { it.visibility == View.VISIBLE && (it.getTag(R.id.fit_priority) as? Int ?: if (it === getChildAt(0)) -1 else 0) >= 0 }
                 .maxByOrNull { it.getTag(R.id.fit_priority) as? Int ?: 0 } ?: break
             last.visibility = View.GONE
             last.setTag(R.id.fit_hidden, true)
@@ -208,5 +208,33 @@ open class FitColumn(context: Context) : android.widget.LinearLayout(context) {
         val lp = it.layoutParams as MarginLayoutParams
         it.measure(width, MeasureSpec.makeMeasureSpec(0, MeasureSpec.UNSPECIFIED))
         it.measuredHeight + lp.topMargin + lp.bottomMargin
+    }
+}
+
+/**
+ * Text that says as much as fits on one line: the first of [options] that fits its width
+ * ("in 25 min · 1:00 – 2:00 PM", then "in 25 min · 1:00 PM", then "1:00 PM"), the last cut short
+ * if even that doesn't.
+ */
+class FitText(context: Context) : TextView(context) {
+    var options: List<String> = emptyList()
+        set(value) {
+            field = value
+            text = value.firstOrNull()
+            requestLayout()
+        }
+
+    init {
+        maxLines = 1
+        ellipsize = android.text.TextUtils.TruncateAt.END
+    }
+
+    override fun onMeasure(widthMeasureSpec: Int, heightMeasureSpec: Int) {
+        if (options.size > 1 && MeasureSpec.getMode(widthMeasureSpec) != MeasureSpec.UNSPECIFIED) {
+            val room = MeasureSpec.getSize(widthMeasureSpec) - paddingLeft - paddingRight
+            val pick = options.firstOrNull { paint.measureText(it) <= room } ?: options.last()
+            if (text.toString() != pick) text = pick
+        }
+        super.onMeasure(widthMeasureSpec, heightMeasureSpec)
     }
 }

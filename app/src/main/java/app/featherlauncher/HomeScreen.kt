@@ -1402,7 +1402,7 @@ class HomeScreen(
     fun startResize(item: HomeItem) {
         finishResize()
         val view = views[item.id] ?: return
-        val min = if (item.type == HomeItem.Type.WIDGET) widgets.minSpan(item.ref.toInt()) else 2 to 1
+        val min = if (item.type == HomeItem.Type.WIDGET) widgets.minSpan(item.ref.toInt()) else FeatherKind.of(item).let { it.minW to it.minH }
         val frame = ResizeFrame(item, view, min)
         root.addView(frame, FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT))
         frame.toolbar = widgetToolbar(item).also {

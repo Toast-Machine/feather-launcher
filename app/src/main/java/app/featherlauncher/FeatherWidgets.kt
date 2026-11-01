@@ -17,14 +17,18 @@ import android.widget.LinearLayout
 import java.util.Calendar
 import java.util.Date
 
-/** Feather's own widgets: the clock, and the ones on cards. [ref] is the [HomeItem.ref] that says which; [about] says what it's for. */
-enum class FeatherKind(val ref: String, val label: String, val w: Int, val h: Int, val about: String) {
+/**
+ * Feather's own widgets: the clock, and the ones on cards. [ref] is the [HomeItem.ref] that says
+ * which; [about] says what it's for. [minW] by [minH] cells is the smallest it can be made: it
+ * looks right at every size from there up.
+ */
+enum class FeatherKind(val ref: String, val label: String, val w: Int, val h: Int, val about: String, val minW: Int = 2, val minH: Int = 1) {
     CLOCK("", "Clock", 4, 2, "The time, the date and what's coming up"),
     UP_NEXT("upnext", "Up next", 4, 1, "Your next event, zman and alarm, with the weather now"),
-    CALENDAR("agenda", "Calendar", 4, 2, "Your upcoming events"),
+    CALENDAR("agenda", "Calendar", 4, 2, "Your upcoming events", minH = 2),
     WEATHER("weather", "Weather", 4, 2, "Current weather with hourly and daily forecasts"),
     MEDIA("media", "Now playing", 4, 1, "Play, pause and skip whatever's playing"),
-    ZMANIM("zmanim", "Zmanim", 4, 2, "Upcoming zmanim"),
+    ZMANIM("zmanim", "Zmanim", 4, 2, "Upcoming zmanim", minH = 2),
     ;
 
     /**
@@ -51,21 +55,49 @@ abstract class CardWidget(context: Context, val item: HomeItem) : FrameLayout(co
         override fun onReceive(c: Context, intent: android.content.Intent) = refresh()
     }
 
+    /** The tallest the card gets, in dp; in a taller space it sits centred. Null: it fills the space. */
+    protected open val maxHeight: Int? = null
+    /** Room above and below the card when the space is taller than [maxHeight]. */
+    private var extra = 0
+    /** The padding inside the card, without [extra]. */
+    private var inside = intArrayOf(0, 0, 0, 0)
+
     init {
         isFocusable = true
+        pad(dp(GAP + 18), dp(GAP + 16), dp(GAP + 18), dp(GAP + 16))
         setCard(WidgetStyle.cardBackground(context))
-        // The keypad highlight is white around the card, as it is around app icons.
-        foreground = Ui.focusHighlight(context, WidgetStyle.RADIUS + GAP)
-        setPadding(dp(GAP + 18), dp(GAP + 16), dp(GAP + 18), dp(GAP + 16))
         addView(content, LayoutParams(LayoutParams.MATCH_PARENT, LayoutParams.MATCH_PARENT))
+    }
+
+    /** The room between the card's edges and what's on it (the gap around the card included). */
+    protected fun pad(left: Int, top: Int, right: Int, bottom: Int) {
+        inside = intArrayOf(left, top, right, bottom)
+        setPadding(left, top + extra, right, bottom + extra)
+        // The keypad highlight is white around the card, as it is around app icons.
+        foreground = InsetDrawable(Ui.focusHighlight(context, WidgetStyle.RADIUS + GAP), 0, extra, 0, extra)
     }
 
     /** The card behind everything, inset so cards next to each other have a gap between them. */
     protected fun setCard(drawable: android.graphics.drawable.Drawable) {
+        background = InsetDrawable(drawable, dp(GAP), dp(GAP) + extra, dp(GAP), dp(GAP) + extra)
         // A new background brings its own padding; the card's stays.
-        val (l, t, r, b) = listOf(paddingLeft, paddingTop, paddingRight, paddingBottom)
-        background = InsetDrawable(drawable, dp(GAP))
-        setPadding(l, t, r, b)
+        pad(inside[0], inside[1], inside[2], inside[3])
+    }
+
+    /** No card: straight on the wallpaper. */
+    protected fun clearCard() {
+        background = null
+        pad(inside[0], inside[1], inside[2], inside[3])
+    }
+
+    override fun onSizeChanged(w: Int, h: Int, oldw: Int, oldh: Int) {
+        super.onSizeChanged(w, h, oldw, oldh)
+        val next = maxHeight?.let { ((h - dp(it)) / 2).coerceAtLeast(0) } ?: 0
+        if (next != extra) {
+            extra = next
+            pad(inside[0], inside[1], inside[2], inside[3])
+            post { refresh() }
+        }
     }
 
     // Holding anywhere on the card picks it up, even on an event or a button, which would
@@ -236,30 +268,27 @@ class UpNextWidget(context: Context, item: HomeItem) : CardWidget(context, item)
         }
 
     private val glance = Glance(context)
-    /** Room left above and below the card, so it's centred in a space taller than [MAX_HEIGHT]. */
-    private var extra = 0
+    override val maxHeight = MAX_HEIGHT
+    /** Wide enough for the weather beside what's coming up. */
+    private var roomy = true
 
     init {
-        place()
+        pad(dp(GAP + 22), dp(GAP + 12), dp(GAP + 12), dp(GAP + 12))
     }
 
     override fun onSizeChanged(w: Int, h: Int, oldw: Int, oldh: Int) {
         super.onSizeChanged(w, h, oldw, oldh)
-        val next = ((h - dp(MAX_HEIGHT)) / 2).coerceAtLeast(0)
-        if (next != extra) {
-            extra = next
+        val next = w >= dp(250)
+        if (next != roomy) {
+            roomy = next
             post { refresh() }
         }
     }
 
-    /** The padding inside the card, plus [extra] above and below it. */
-    private fun place() = setPadding(dp(GAP + 22), dp(GAP + 12) + extra, dp(GAP + 12), dp(GAP + 12) + extra)
-
     override fun refresh() {
         content.removeAllViews()
         content.gravity = Gravity.CENTER_VERTICAL
-        background = if (solid) android.graphics.drawable.InsetDrawable(WidgetStyle.cardBackground(context), dp(GAP), dp(GAP) + extra, dp(GAP), dp(GAP) + extra) else null
-        place()
+        if (solid) setCard(WidgetStyle.cardBackground(context)) else clearCard()
         val main = if (solid) WidgetStyle.onCard() else WidgetStyle.WHITE
         val quiet = if (solid) WidgetStyle.onCardQuiet() else WidgetStyle.SOFT_WHITE
         val now = System.currentTimeMillis()
@@ -269,10 +298,11 @@ class UpNextWidget(context: Context, item: HomeItem) : CardWidget(context, item)
 
         val (icon, title, detail) = when {
             first != null -> Triple(first.icon, first.name, whenText(first, now))
-            lines.place == null -> Triple(R.drawable.ic_location, "Set your location", "For zmanim and weather")
+            lines.place == null -> Triple(R.drawable.ic_location, "Set your location", listOf("For zmanim and weather"))
             else -> Triple(R.drawable.ic_calendar, android.text.format.DateFormat.format("EEEE, MMMM d", now).toString(),
-                lines.detail?.substringBefore(" · ") ?: "Nothing coming up")
+                listOf(lines.detail?.substringBefore(" · ") ?: "Nothing coming up"))
         }
+        // Narrow, the weather makes way for what's coming up ([roomy]).
         setOnClickListener {
             when {
                 first != null -> onTap?.invoke(first, lines.place)
@@ -296,13 +326,13 @@ class UpNextWidget(context: Context, item: HomeItem) : CardWidget(context, item)
                         setImageResource(icon)
                         imageTintList = ColorStateList.valueOf(main)
                     }, LinearLayout.LayoutParams(dp(18), dp(18)).apply { marginEnd = dp(8) })
-                    addView(text(main, 15f).apply { text = detail })
+                    addView(fitText(main, 15f).apply { options = detail })
                 }, LinearLayout.LayoutParams(LinearLayout.LayoutParams.WRAP_CONTENT, LinearLayout.LayoutParams.WRAP_CONTENT).apply { topMargin = dp(6) })
                 // Where the event is, otherwise what comes after, when there's room.
                 val next = coming.getOrNull(1)
                 val (thirdIcon, third) = when {
-                    first?.event?.location != null -> R.drawable.ic_location to first.event.location
-                    next != null -> next.icon to "Then ${next.text}"
+                    first?.event?.location != null -> R.drawable.ic_location to listOf(first.event.location)
+                    next != null -> next.icon to listOf("Then ${next.text}", next.text)
                     else -> null to null
                 }
                 if (third != null) addView(LinearLayout(context).apply {
@@ -312,10 +342,10 @@ class UpNextWidget(context: Context, item: HomeItem) : CardWidget(context, item)
                         setImageResource(thirdIcon!!)
                         imageTintList = ColorStateList.valueOf(quiet)
                     }, LinearLayout.LayoutParams(dp(18), dp(18)).apply { marginEnd = dp(8) })
-                    addView(text(quiet, 15f).apply { text = third })
+                    addView(fitText(quiet, 15f).apply { options = third })
                 }, LinearLayout.LayoutParams(LinearLayout.LayoutParams.WRAP_CONTENT, LinearLayout.LayoutParams.WRAP_CONTENT).apply { topMargin = dp(4) })
             }, LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f).apply { marginEnd = dp(12) })
-            lines.weather?.let { w ->
+            lines.weather?.takeIf { roomy }?.let { w ->
                 // The weather now: its picture over the temperature, on a square tile in the accent
                 // color, as tall as the card's room. Its corners run parallel to the card's, the
                 // padding in from them.
@@ -333,17 +363,30 @@ class UpNextWidget(context: Context, item: HomeItem) : CardWidget(context, item)
         }, LayoutParams(LayoutParams.MATCH_PARENT, LayoutParams.MATCH_PARENT))
     }
 
-    /** "in 25 min · 4:00 PM" when it's within three hours, else "4:00 PM" (or "Tomorrow"). */
-    private fun whenText(c: Glance.Item, now: Long): String {
-        val at = c.clock ?: return c.at.orEmpty()
-        val minutes = ((c.time ?: return at) - now + 59_999) / 60_000
+    /**
+     * When it is, longest first, for [FitText]: "in 25 min · 4:00 – 5:00 PM" (within three hours),
+     * then shorter ways of saying it, down to "4:00 PM" (or "Tomorrow").
+     */
+    private fun whenText(c: Glance.Item, now: Long): List<String> {
+        val at = c.clock ?: return listOf(c.at.orEmpty())
+        // An event's hours; its start alone is shorter.
+        val start = at.substringBefore(" – ")
+        val minutes = ((c.time ?: return listOf(at, start).distinct()) - now + 59_999) / 60_000
         val soon = when {
             minutes < 1 -> "now"
             minutes < 60 -> "in $minutes min"
             minutes < 180 -> if (minutes % 60 == 0L) "in ${minutes / 60} hr" else "in ${minutes / 60} hr ${minutes % 60} min"
-            else -> return at
+            else -> return listOf(at, start).distinct()
         }
-        return "$soon · $at"
+        return listOf("$soon · $at", "$soon · $start", soon).distinct()
+    }
+
+    private fun fitText(color: Int, sp: Float) = FitText(context).apply {
+        setTextColor(color)
+        typeface = WidgetStyle.body
+        includeFontPadding = false
+        setTextSize(android.util.TypedValue.COMPLEX_UNIT_SP, sp)
+        if (!solid) setShadowLayer(dp(6).toFloat(), 0f, dp(1).toFloat(), 0x59000000)
     }
 
     /** Text on the card, or white with a soft shadow on the wallpaper. */
@@ -378,6 +421,17 @@ class UpNextWidget(context: Context, item: HomeItem) : CardWidget(context, item)
 class CalendarWidget(context: Context, item: HomeItem) : CardWidget(context, item) {
     var onEvent: ((ClockInfo.Event) -> Unit)? = null
     var onCalendar: (() -> Unit)? = null
+    /** Too narrow for the date beside the events: it goes on a line above them. */
+    private var narrow = false
+
+    override fun onSizeChanged(w: Int, h: Int, oldw: Int, oldh: Int) {
+        super.onSizeChanged(w, h, oldw, oldh)
+        val next = w < dp(260)
+        if (next != narrow) {
+            narrow = next
+            post { refresh() }
+        }
+    }
 
     override fun refresh() {
         if (context.checkSelfPermission(android.Manifest.permission.READ_CALENDAR) != android.content.pm.PackageManager.PERMISSION_GRANTED) {
@@ -407,7 +461,23 @@ class CalendarWidget(context: Context, item: HomeItem) : CardWidget(context, ite
             setFadingEdgeLength(dp(16))
             addView(events, LayoutParams(LayoutParams.MATCH_PARENT, LayoutParams.WRAP_CONTENT))
         }
-        content.addView(LinearLayout(context).apply {
+        if (narrow) {
+            // "SUN 1 · 21 Cheshvan" over the events, which get the whole width.
+            content.gravity = Gravity.TOP
+            content.addView(LinearLayout(context).apply {
+                orientation = LinearLayout.HORIZONTAL
+                gravity = Gravity.CENTER_VERTICAL
+                addView(WidgetStyle.cardText(context, 13f, WidgetStyle.title, WidgetStyle.accent()).apply {
+                    text = android.text.format.DateFormat.format("EEE d", now).toString().uppercase()
+                    letterSpacing = 0.06f
+                })
+                if (second != null) addView(WidgetStyle.cardText(context, 13f, WidgetStyle.bold, WidgetStyle.onCardQuiet()).apply {
+                    text = second
+                    setPadding(dp(8), 0, 0, 0)
+                })
+            })
+            content.addView(FitColumn.dropFirst(scroll, -1), LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, 0, 1f).apply { topMargin = dp(10) })
+        } else content.addView(LinearLayout(context).apply {
             orientation = LinearLayout.HORIZONTAL
             gravity = Gravity.CENTER_VERTICAL
             addView(LinearLayout(context).apply {
@@ -538,30 +608,49 @@ class WeatherWidget(context: Context, item: HomeItem) : CardWidget(context, item
         content.gravity = Gravity.CENTER_VERTICAL
         if (narrow) {
             content.spread = false
-            content.addView(WidgetStyle.cardText(context, 14f, WidgetStyle.title, white).apply {
+            // When short, the high and low go first, then what the weather is, then the place;
+            // the temperature stays.
+            content.addView(FitColumn.dropFirst(WidgetStyle.cardText(context, 14f, WidgetStyle.title, white).apply {
                 text = place.name
                 isSingleLine = true
                 ellipsize = android.text.TextUtils.TruncateAt.END
-            })
-            content.addView(LinearLayout(context).apply {
+            }, 1))
+            content.addView(FitColumn.dropFirst(LinearLayout(context).apply {
                 orientation = LinearLayout.HORIZONTAL
                 gravity = Gravity.CENTER_VERTICAL
                 addView(WidgetStyle.cardText(context, 40f, WidgetStyle.display, white).apply { text = "${w.temperature}°" },
                     LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f))
                 addView(ImageView(context).apply { setImageDrawable(WeatherArt.icon(w.sky, w.night)) }, LinearLayout.LayoutParams(dp(36), dp(36)))
-            }, LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT).apply { topMargin = dp(2) })
-            content.addView(WidgetStyle.cardText(context, 13f, WidgetStyle.label, white).apply {
+            }, -1), LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT).apply { topMargin = dp(2) })
+            content.addView(FitColumn.dropFirst(WidgetStyle.cardText(context, 13f, WidgetStyle.label, white).apply {
                 text = w.description
                 isSingleLine = true
                 ellipsize = android.text.TextUtils.TruncateAt.END
                 setPadding(0, dp(2), 0, 0)
-            })
-            content.addView(WidgetStyle.cardText(context, 13f, WidgetStyle.label, soft).apply {
+            }, 2))
+            content.addView(FitColumn.dropFirst(WidgetStyle.cardText(context, 13f, WidgetStyle.label, soft).apply {
                 text = listOfNotNull("↑${w.high}°  ↓${w.low}°", w.rainChance.takeIf { it >= 20 }?.let { "$it% rain or snow" }).joinToString("  ·  ")
                 isSingleLine = true
                 ellipsize = android.text.TextUtils.TruncateAt.END
                 setPadding(0, dp(2), 0, 0)
-            })
+            }, 3))
+            // Taller, the coming days under it, as many as fit.
+            w.days.take(5).forEachIndexed { i, d ->
+                content.addView(FitColumn.dropFirst(gapAbove(LinearLayout(context).apply {
+                    orientation = LinearLayout.HORIZONTAL
+                    gravity = Gravity.CENTER_VERTICAL
+                    addView(WidgetStyle.cardText(context, 14f, WidgetStyle.title, white).apply {
+                        text = if (i == 0) "Today" else android.text.format.DateFormat.format("EEE", d.time + 12 * 3_600_000L).toString()
+                    }, LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f))
+                    addView(ImageView(context).apply { setImageDrawable(WeatherArt.icon(d.sky, false)) }, LinearLayout.LayoutParams(dp(22), dp(22)).apply { marginEnd = dp(8) })
+                    addView(WidgetStyle.cardText(context, 14f, WidgetStyle.body, soft).apply { text = "${d.low}°" },
+                        LinearLayout.LayoutParams(dp(34), LinearLayout.LayoutParams.WRAP_CONTENT))
+                    addView(WidgetStyle.cardText(context, 14f, WidgetStyle.title, white).apply {
+                        text = "${d.high}°"
+                        gravity = Gravity.END
+                    }, LinearLayout.LayoutParams(dp(34), LinearLayout.LayoutParams.WRAP_CONTENT))
+                }, if (i == 0) 14 else 6), 4))
+            }
             return
         }
         // In a short card everything up top fits on one line, leaving room for the hours.
@@ -780,9 +869,23 @@ class MediaWidget(context: Context, item: HomeItem) : CardWidget(context, item) 
     }
     private val sessionsChanged = MediaSessionManager.OnActiveSessionsChangedListener { refresh() }
 
+    // All one row: taller than this, it sits centred rather than growing a huge picture.
+    override val maxHeight = 128
+    /** Narrow: a small picture, the title on up to two lines, and only play and pause. */
+    private var narrow = false
+
+    override fun onSizeChanged(w: Int, h: Int, oldw: Int, oldh: Int) {
+        super.onSizeChanged(w, h, oldw, oldh)
+        val next = w < dp(260)
+        if (next != narrow) {
+            narrow = next
+            post { refresh() }
+        }
+    }
+
     init {
         // Less room above and below than other cards: a 1-row card is short, and this one is all one row.
-        setPadding(dp(GAP + 14), dp(GAP + 12), dp(GAP + 14), dp(GAP + 12))
+        pad(dp(GAP + 14), dp(GAP + 12), dp(GAP + 14), dp(GAP + 12))
     }
 
     override fun onAttachedToWindow() {
@@ -826,7 +929,7 @@ class MediaWidget(context: Context, item: HomeItem) : CardWidget(context, item) 
         content.addView(LinearLayout(context).apply {
             orientation = LinearLayout.HORIZONTAL
             gravity = Gravity.CENTER_VERTICAL
-            addView(Square(context, Int.MAX_VALUE).apply {
+            addView(Square(context, if (narrow) dp(48) else Int.MAX_VALUE).apply {
                 scaleType = ImageView.ScaleType.CENTER_CROP
                 clipToOutline = true
                 background = Ui.rounded(context, if (tint != null) 0x33FFFFFF else WidgetStyle.accentFill(), 16)
@@ -843,12 +946,14 @@ class MediaWidget(context: Context, item: HomeItem) : CardWidget(context, item) 
                         scaleType = ImageView.ScaleType.CENTER_INSIDE
                     }
                 }
-            }, LinearLayout.LayoutParams(LinearLayout.LayoutParams.WRAP_CONTENT, LinearLayout.LayoutParams.MATCH_PARENT).apply { marginEnd = dp(14) })
+            }, LinearLayout.LayoutParams(LinearLayout.LayoutParams.WRAP_CONTENT, LinearLayout.LayoutParams.MATCH_PARENT).apply { marginEnd = dp(if (narrow) 10 else 14) })
             addView(LinearLayout(context).apply {
                 orientation = LinearLayout.VERTICAL
-                addView(WidgetStyle.cardText(context, 16f, WidgetStyle.title, main).apply {
+                addView(WidgetStyle.cardText(context, if (narrow) 14f else 16f, WidgetStyle.title, main).apply {
                     text = meta?.getString(MediaMetadata.METADATA_KEY_TITLE) ?: "Nothing playing"
+                    if (narrow) maxLines = 2
                 })
+                if (narrow) return@apply
                 val by = meta?.getString(MediaMetadata.METADATA_KEY_ARTIST) ?: meta?.getString(MediaMetadata.METADATA_KEY_ALBUM)
                     ?: c?.packageName?.let { pkg -> runCatching { context.packageManager.getApplicationLabel(context.packageManager.getApplicationInfo(pkg, 0)).toString() }.getOrNull() }
                     ?: "Music and podcasts show here"
@@ -860,11 +965,11 @@ class MediaWidget(context: Context, item: HomeItem) : CardWidget(context, item) 
             if (c != null) {
                 val fill = if (tint != null) WidgetStyle.WHITE else WidgetStyle.accent()
                 val onFill = tint ?: WidgetStyle.onAccent()
-                addView(button(R.drawable.ic_previous, main, null) { c.transportControls.skipToPrevious() })
+                if (!narrow) addView(button(R.drawable.ic_previous, main, null) { c.transportControls.skipToPrevious() })
                 addView(button(if (playing) R.drawable.ic_pause else R.drawable.ic_play, onFill, fill) {
                     if (playing) c.transportControls.pause() else c.transportControls.play()
                 })
-                addView(button(R.drawable.ic_next, main, null) { c.transportControls.skipToNext() })
+                if (!narrow) addView(button(R.drawable.ic_next, main, null) { c.transportControls.skipToNext() })
             }
         }, LayoutParams(LayoutParams.MATCH_PARENT, LayoutParams.MATCH_PARENT))
     }
@@ -908,6 +1013,17 @@ class MediaWidget(context: Context, item: HomeItem) : CardWidget(context, item) 
 @SuppressLint("ViewConstructor")
 class ZmanimWidget(context: Context, item: HomeItem) : CardWidget(context, item) {
     var onOpen: ((ClockInfo.Place) -> Unit)? = null
+    /** Narrow: smaller type and less room around each time, so their names fit. */
+    private var narrow = false
+
+    override fun onSizeChanged(w: Int, h: Int, oldw: Int, oldh: Int) {
+        super.onSizeChanged(w, h, oldw, oldh)
+        val next = w < dp(260)
+        if (next != narrow) {
+            narrow = next
+            post { refresh() }
+        }
+    }
 
     override fun refresh() {
         content.removeAllViews()
@@ -921,23 +1037,32 @@ class ZmanimWidget(context: Context, item: HomeItem) : CardWidget(context, item)
         content.addView(heading(R.drawable.ic_sunrise, if (zmanim) "Zmanim" else "Sunrise and sunset", place.name))
         setOnClickListener { onOpen?.invoke(place) }
         val now = System.currentTimeMillis()
-        val coming = (info.zmanim(now, place) + info.zmanim(now + 86_400_000L, place)).filter { it.time > now }.take(5)
+        val today = info.zmanim(now, place).filter { it.time > now }
+        val coming = (today + info.zmanim(now + 86_400_000L, place)).take(12)
         coming.forEachIndexed { i, z ->
             val next = i == 0
+            // Where the list goes on into tomorrow, it says so.
+            if (i == today.size) content.addView(gapAbove(WidgetStyle.cardText(context, 12f, WidgetStyle.title, WidgetStyle.accent()).apply {
+                text = "TOMORROW"
+                letterSpacing = 0.06f
+                setPadding(dp(if (narrow) 8 else 12), 0, 0, 0)
+            }, if (i == 0) 10 else 12))
             content.addView(gapAbove(LinearLayout(context).apply {
                 orientation = LinearLayout.HORIZONTAL
                 gravity = Gravity.CENTER_VERTICAL
                 // The next one stands out in a rounded row of the accent's soft fill.
+                val side = dp(if (narrow) 8 else 12)
                 if (next) {
                     background = Ui.rounded(context, WidgetStyle.accentFill(), 14)
-                    setPadding(dp(12), dp(8), dp(12), dp(8))
+                    setPadding(side, dp(8), side, dp(8))
                 } else {
-                    setPadding(dp(12), dp(2), dp(12), dp(2))
+                    setPadding(side, dp(2), side, dp(2))
                 }
+                val sp = if (narrow) 14f else 15f
                 val color = if (next) WidgetStyle.onAccentFill() else WidgetStyle.onCard()
-                addView(WidgetStyle.cardText(context, 15f, if (next) WidgetStyle.title else WidgetStyle.body, color).apply { text = z.name },
-                    LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f).apply { marginEnd = dp(12) })
-                addView(WidgetStyle.cardText(context, 15f, if (next) WidgetStyle.title else WidgetStyle.body,
+                addView(WidgetStyle.cardText(context, sp, if (next) WidgetStyle.title else WidgetStyle.body, color).apply { text = z.name },
+                    LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f).apply { marginEnd = dp(if (narrow) 8 else 12) })
+                addView(WidgetStyle.cardText(context, sp, if (next) WidgetStyle.title else WidgetStyle.body,
                     if (next) color else WidgetStyle.onCardQuiet()).apply { text = time(z.time, place.zone) })
             }, if (next) 10 else 4))
         }

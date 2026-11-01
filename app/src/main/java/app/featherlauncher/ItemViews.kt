@@ -87,7 +87,18 @@ class AppIconView(context: Context, val item: HomeItem) : LinearLayout(context) 
  */
 @SuppressLint("ViewConstructor")
 class ClockWidget(context: Context, val item: HomeItem) : FitColumn(context) {
-    private val time = TextClock(context)
+    /** The time on one line. */
+    private val time = clockText("h:mm", "H:mm")
+    /** The hours over the minutes, as Android's own tall clock has them: two lines drawn apart, so each is measured whole. */
+    private val hours = clockText("hh", "HH")
+    private val minutes = clockText("mm", "mm")
+    private val stackedTime = LinearLayout(context).apply {
+        orientation = LinearLayout.VERTICAL
+        gravity = Gravity.CENTER_HORIZONTAL
+        visibility = GONE
+        addView(hours)
+        addView(minutes)
+    }
     /** "Sun, Nov 1 · 10 Cheshvan · Lech Lecha", over two lines if it must. */
     private val day = WidgetStyle.text(context, 15f, WidgetStyle.body)
     /** The weather and up to two things coming up. */
@@ -98,8 +109,9 @@ class ClockWidget(context: Context, val item: HomeItem) : FitColumn(context) {
     /** The text sizes, in pixels, worked out from the widget's width (see [sizeFor]). */
     private var pillPx = 30f
     private var sizedFor = 0
-    /** The time's size, before it's made smaller to fit. */
+    /** The time's size on one line and stacked, before it's made smaller to fit. */
     private var timePx = 200f
+    private var stackedPx = 200f
 
     /** Tapping something coming up: the day's zmanim, the event, the alarms. */
     var onTap: ((Glance.Item, ClockInfo.Place?) -> Unit)? = null
@@ -110,10 +122,20 @@ class ClockWidget(context: Context, val item: HomeItem) : FitColumn(context) {
         override fun onReceive(c: Context, intent: android.content.Intent) = refresh()
     }
 
+    private fun clockText(format12: String, format24: String) = TextClock(context).apply {
+        format12Hour = format12
+        format24Hour = format24
+        typeface = WidgetStyle.display
+        letterSpacing = -0.02f
+        includeFontPadding = false
+        // Room for the soft shadow, which would otherwise be cut off square at the text's edges
+        // (the margins below take the room back, so nothing moves).
+        setPadding(dp(SHADOW_ROOM), dp(SHADOW_ROOM), dp(SHADOW_ROOM), dp(SHADOW_ROOM))
+    }
+
     init {
         isFocusable = true
         gravity = Gravity.CENTER
-        // In a tight space the pills go first ([FitColumn]); the time never does.
         // The text's soft shadows reach past their own edges.
         clipChildren = false
         clipToPadding = false
@@ -121,100 +143,97 @@ class ClockWidget(context: Context, val item: HomeItem) : FitColumn(context) {
             maxLines = 2
             gravity = Gravity.CENTER
         }
-        time.apply {
-            format12Hour = "h:mm"
-            format24Hour = "H:mm"
-            typeface = WidgetStyle.display
-            letterSpacing = -0.02f
-            includeFontPadding = false
-            // Room for the soft shadow, which would otherwise be cut off square at the text's edges
-            // (the margins below take the room back, so nothing moves).
-            setPadding(dp(SHADOW_ROOM), dp(SHADOW_ROOM), dp(SHADOW_ROOM), dp(SHADOW_ROOM))
-        }
-        addView(day, LayoutParams(LayoutParams.WRAP_CONTENT, LayoutParams.WRAP_CONTENT).apply { gravity = Gravity.CENTER_HORIZONTAL })
+        // In a short clock the line under the time goes first, then this one; the time stays.
+        addView(FitColumn.dropFirst(day, 1), LayoutParams(LayoutParams.WRAP_CONTENT, LayoutParams.WRAP_CONTENT).apply { gravity = Gravity.CENTER_HORIZONTAL })
         val room = -dp(SHADOW_ROOM)
-        addView(FitColumn.dropFirst(time, -1), LayoutParams(LayoutParams.WRAP_CONTENT, LayoutParams.WRAP_CONTENT).apply {
-            setMargins(room, room + dp(2), room, room)
-            gravity = Gravity.CENTER_HORIZONTAL
-        })
-        // The time does what the clock does (its alarms), so the keypad can reach it like the date and pills.
-        time.setOnClickListener { performClick() }
-        time.setOnLongClickListener { performLongClick() }
-        // Its highlight hugs the digits, inside the room left for the shadow, so it stays within the clock.
-        time.foreground = android.graphics.drawable.InsetDrawable(Ui.focusRing(context, Ui.RADIUS_L, WidgetStyle.WHITE), dp(SHADOW_ROOM))
+        for (shown in listOf(time, stackedTime)) {
+            addView(FitColumn.dropFirst(shown, -1), LayoutParams(LayoutParams.WRAP_CONTENT, LayoutParams.WRAP_CONTENT).apply {
+                setMargins(room, room + dp(2), room, room)
+                gravity = Gravity.CENTER_HORIZONTAL
+            })
+            // The time does what the clock does (its alarms), so the keypad can reach it like the date and pills.
+            shown.setOnClickListener { performClick() }
+            shown.setOnLongClickListener { performLongClick() }
+            // Its highlight hugs the digits, inside the room left for the shadow, so it stays within the clock.
+            shown.foreground = android.graphics.drawable.InsetDrawable(Ui.focusRing(context, Ui.RADIUS_L, WidgetStyle.WHITE), dp(SHADOW_ROOM))
+        }
         // Pulled up into the room under the digits (they have no descenders), so the space below the
         // time looks the same as the space above it.
-        addView(pills, LayoutParams(LayoutParams.MATCH_PARENT, LayoutParams.WRAP_CONTENT).apply { topMargin = -dp(5) })
+        addView(FitColumn.dropFirst(pills, 2), LayoutParams(LayoutParams.MATCH_PARENT, LayoutParams.WRAP_CONTENT).apply { topMargin = -dp(5) })
         setSolid(false)
     }
 
-    /** The space last measured for, the time's scale that fitted it, and whether it's stacked, so the next pass changes nothing. */
+    /** The space last measured for and what fitted it, so the next pass changes nothing. */
     private var fitted: Fit? = null
-    private class Fit(val width: Int, val height: Int, val scale: Float, val stacked: Boolean)
+    private class Fit(val width: Int, val height: Int, val choice: Choice)
+    /** The time stacked or on one line, at [scale] of its size for the widget's width. */
+    private data class Choice(val stacked: Boolean, val scale: Float, val px: Float)
 
-    /** The hours over the minutes, as Android's own tall clock has them. */
-    private var stacked = false
-    /** The stacked time's size, before it's made smaller to fit. */
-    private var stackedPx = 200f
+    private val stacked get() = stackedTime.visibility == VISIBLE
 
     /**
-     * The time is as large as the widget lets it be: up to [timePx] for its width, then smaller
-     * until everything fits its height. Only at the smallest are the pills left out. In a tall
-     * widget, where the hours over the minutes can be much larger than both on one line, they're
-     * stacked.
+     * The time is as large as the widget lets it be, on one line or, where that makes it larger,
+     * the hours over the minutes. The lines above and below it stay unless keeping them would make
+     * the time much smaller than without them ([KEEP]); then the one under it goes first.
      */
     override fun onMeasure(widthMeasureSpec: Int, heightMeasureSpec: Int) {
         sizeFor(MeasureSpec.getSize(widthMeasureSpec) - paddingLeft - paddingRight)
-        fitted?.takeIf { it.width == widthMeasureSpec && it.height == heightMeasureSpec }?.let {
-            stack(it.stacked)
-            time.setTextSize(TypedValue.COMPLEX_UNIT_PX, (if (it.stacked) stackedPx else timePx) * it.scale)
-            return super.onMeasure(widthMeasureSpec, heightMeasureSpec)
+        val choice = fitted?.takeIf { it.width == widthMeasureSpec && it.height == heightMeasureSpec }?.choice ?: run {
+            val tall = MeasureSpec.getMode(heightMeasureSpec) != MeasureSpec.UNSPECIFIED
+            fun tries(lines: Boolean) = listOfNotNull(
+                fit(widthMeasureSpec, heightMeasureSpec, false, lines),
+                if (tall) fit(widthMeasureSpec, heightMeasureSpec, true, lines) else null,
+            ).maxByOrNull { it.px }
+            val whole = tries(lines = true)
+            val any = tries(lines = false)
+            (if (whole != null && (any == null || whole.px >= any.px * KEEP)) whole else any) ?: Choice(false, MIN_SCALE, timePx * MIN_SCALE)
         }
-        stack(false)
-        val line = fit(widthMeasureSpec, heightMeasureSpec, timePx) ?: MIN_SCALE
-        if (MeasureSpec.getMode(heightMeasureSpec) != MeasureSpec.UNSPECIFIED) {
-            stack(true)
-            // Stacked only if it fits whole, and is larger than on one line.
-            val tall = fit(widthMeasureSpec, heightMeasureSpec, stackedPx)
-            if (tall != null && stackedPx * tall > timePx * line) {
-                fitted = Fit(widthMeasureSpec, heightMeasureSpec, tall, true)
-                return
-            }
-            stack(false)
-            time.setTextSize(TypedValue.COMPLEX_UNIT_PX, timePx * line)
-            super.onMeasure(widthMeasureSpec, heightMeasureSpec)
-        }
-        fitted = Fit(widthMeasureSpec, heightMeasureSpec, line, false)
+        stack(choice.stacked)
+        setTime(choice.px)
+        super.onMeasure(widthMeasureSpec, heightMeasureSpec)
+        fitted = Fit(widthMeasureSpec, heightMeasureSpec, choice)
     }
 
-    /** The largest scale of [size] at which everything fits, measured at it; null if nothing down to [MIN_SCALE] does. */
-    private fun fit(widthMeasureSpec: Int, heightMeasureSpec: Int, size: Float): Float? {
+    /**
+     * The time [stacked] or not at the largest scale at which it fits, keeping every line if
+     * [lines], else with lines left out as needed; null if nothing down to [MIN_SCALE] does.
+     */
+    private fun fit(widthMeasureSpec: Int, heightMeasureSpec: Int, stacked: Boolean, lines: Boolean): Choice? {
         val height = MeasureSpec.getSize(heightMeasureSpec)
+        val size = if (stacked) stackedPx else timePx
+        stack(stacked)
         var scale = 1f
-        while (true) {
-            time.setTextSize(TypedValue.COMPLEX_UNIT_PX, size * scale)
+        while (scale >= MIN_SCALE - 0.001f) {
+            setTime(size * scale)
             super.onMeasure(widthMeasureSpec, heightMeasureSpec)
             val shown = (0 until childCount).map(::getChildAt)
             val cut = shown.any { it.getTag(R.id.fit_hidden) == true && it.visibility == GONE }
+            // Each row's own height, not squeezed into what's left (which always fits).
+            val across = MeasureSpec.makeMeasureSpec(MeasureSpec.getSize(widthMeasureSpec) - paddingLeft - paddingRight, MeasureSpec.AT_MOST)
             val used = paddingTop + paddingBottom + shown.filter { it.visibility != GONE }.sumOf {
                 val lp = it.layoutParams as MarginLayoutParams
+                it.measure(across, MeasureSpec.makeMeasureSpec(0, MeasureSpec.UNSPECIFIED))
                 it.measuredHeight + lp.topMargin + lp.bottomMargin
             }
             val fits = MeasureSpec.getMode(heightMeasureSpec) == MeasureSpec.UNSPECIFIED || used <= height
-            if (fits && !cut) return scale
-            if (scale <= MIN_SCALE) return null
+            if (fits && (!lines || !cut)) return Choice(stacked, scale, size * scale)
             scale -= 0.05f
         }
+        return null
     }
 
     private fun stack(on: Boolean) {
-        if (on == stacked) return
-        stacked = on
-        time.format12Hour = if (on) "hh\nmm" else "h:mm"
-        time.format24Hour = if (on) "HH\nmm" else "H:mm"
-        // The lines closer than usual: digits have nothing above or below them to make room for.
-        time.setLineSpacing(0f, if (on) 0.72f else 1f)
-        time.gravity = Gravity.CENTER
+        time.visibility = if (on) GONE else VISIBLE
+        stackedTime.visibility = if (on) VISIBLE else GONE
+    }
+
+    /** The time's size in pixels; stacked, the minutes tuck up under the hours, as close as digits allow. */
+    private fun setTime(px: Float) {
+        if (!stacked) return time.setTextSize(TypedValue.COMPLEX_UNIT_PX, px)
+        hours.setTextSize(TypedValue.COMPLEX_UNIT_PX, px)
+        minutes.setTextSize(TypedValue.COMPLEX_UNIT_PX, px)
+        // Digits fill less than a line's height; the room above and below them overlaps, leaving a small gap.
+        (minutes.layoutParams as LinearLayout.LayoutParams).topMargin = -(2 * dp(SHADOW_ROOM) + (0.34f * px).toInt())
     }
 
     override fun onAttachedToWindow() {
@@ -239,11 +258,11 @@ class ClockWidget(context: Context, val item: HomeItem) : FitColumn(context) {
     fun setSolid(solid: Boolean) {
         this.solid = solid
         background = if (solid) android.graphics.drawable.InsetDrawable(WidgetStyle.cardBackground(context), dp(CardWidget.GAP)) else null
-        // The same room on every side of the card.
-        val edge = dp(if (solid) CardWidget.GAP + 20 else 12)
-        setPadding(edge, if (solid) edge else 0, edge, if (solid) edge else 0)
-        time.setTextColor(if (solid) WidgetStyle.accent() else WidgetStyle.WHITE)
-        listOf(time, day).forEach { shade(it) }
+        // The same room on every side of the card, and the same without one, so both styles lay out alike.
+        val edge = dp(CardWidget.GAP + 20)
+        setPadding(edge, edge, edge, edge)
+        listOf(time, hours, minutes).forEach { it.setTextColor(if (solid) WidgetStyle.accent() else WidgetStyle.WHITE) }
+        listOf(time, hours, minutes, day).forEach { shade(it) }
         sizedFor = 0
         fitted = null
         refresh()
@@ -253,7 +272,7 @@ class ClockWidget(context: Context, val item: HomeItem) : FitColumn(context) {
     /** The soft shadow on the wallpaper; none on a card. */
     private fun shade(text: TextView) {
         if (solid) text.setShadowLayer(0f, 0f, 0f, 0)
-        else text.setShadowLayer(dp(if (text === time) 10 else 6).toFloat(), 0f, dp(1).toFloat(), 0x59000000)
+        else text.setShadowLayer(dp(if (text is TextClock) 10 else 6).toFloat(), 0f, dp(1).toFloat(), 0x59000000)
     }
 
     /** Works out the date and details again; runs every minute. */
@@ -309,8 +328,10 @@ class ClockWidget(context: Context, val item: HomeItem) : FitColumn(context) {
         }
         timePx = 100f * width / paint.measureText("00:00")
         stackedPx = 100f * width / paint.measureText("00") * 0.8f
-        day.setTextSize(TypedValue.COMPLEX_UNIT_PX, 4.6f * unit)
-        pillPx = 4.2f * unit
+        // No smaller than can be read easily, however narrow the clock.
+        val least = TypedValue.applyDimension(TypedValue.COMPLEX_UNIT_SP, 12f, resources.displayMetrics)
+        day.setTextSize(TypedValue.COMPLEX_UNIT_PX, maxOf(4.6f * unit, least))
+        pillPx = maxOf(4.2f * unit, least)
         for (i in 0 until pills.childCount) (pills.getChildAt(i) as? TextView)?.let { WidgetStyle.sizePill(it, pillPx) }
     }
 
@@ -318,7 +339,9 @@ class ClockWidget(context: Context, val item: HomeItem) : FitColumn(context) {
 }
 
 /** The smallest the clock's time is made, as a share of its size for the widget's width. */
-private const val MIN_SCALE = 0.4f
+private const val MIN_SCALE = 0.25f
+/** The lines around the time stay unless the time would then be less than this share of its size without them. */
+private const val KEEP = 0.6f
 
 /** Padding around the clock's time so its shadow isn't clipped. */
 private const val SHADOW_ROOM = 12
