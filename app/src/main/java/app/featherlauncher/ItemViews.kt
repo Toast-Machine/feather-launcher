@@ -171,11 +171,12 @@ class ClockWidget(context: Context, val item: HomeItem) : FitColumn(context) {
             return super.onMeasure(widthMeasureSpec, heightMeasureSpec)
         }
         stack(false)
-        val line = fit(widthMeasureSpec, heightMeasureSpec, timePx)
+        val line = fit(widthMeasureSpec, heightMeasureSpec, timePx) ?: MIN_SCALE
         if (MeasureSpec.getMode(heightMeasureSpec) != MeasureSpec.UNSPECIFIED) {
             stack(true)
+            // Stacked only if it fits whole, and is larger than on one line.
             val tall = fit(widthMeasureSpec, heightMeasureSpec, stackedPx)
-            if (stackedPx * tall > timePx * line) {
+            if (tall != null && stackedPx * tall > timePx * line) {
                 fitted = Fit(widthMeasureSpec, heightMeasureSpec, tall, true)
                 return
             }
@@ -186,8 +187,8 @@ class ClockWidget(context: Context, val item: HomeItem) : FitColumn(context) {
         fitted = Fit(widthMeasureSpec, heightMeasureSpec, line, false)
     }
 
-    /** The largest scale of [size] at which everything fits; measures at it. */
-    private fun fit(widthMeasureSpec: Int, heightMeasureSpec: Int, size: Float): Float {
+    /** The largest scale of [size] at which everything fits, measured at it; null if nothing down to [MIN_SCALE] does. */
+    private fun fit(widthMeasureSpec: Int, heightMeasureSpec: Int, size: Float): Float? {
         val height = MeasureSpec.getSize(heightMeasureSpec)
         var scale = 1f
         while (true) {
@@ -200,7 +201,8 @@ class ClockWidget(context: Context, val item: HomeItem) : FitColumn(context) {
                 it.measuredHeight + lp.topMargin + lp.bottomMargin
             }
             val fits = MeasureSpec.getMode(heightMeasureSpec) == MeasureSpec.UNSPECIFIED || used <= height
-            if (fits && !cut || scale <= 0.4f) return scale
+            if (fits && !cut) return scale
+            if (scale <= MIN_SCALE) return null
             scale -= 0.05f
         }
     }
@@ -314,6 +316,9 @@ class ClockWidget(context: Context, val item: HomeItem) : FitColumn(context) {
 
     val dateView: TextView get() = day
 }
+
+/** The smallest the clock's time is made, as a share of its size for the widget's width. */
+private const val MIN_SCALE = 0.4f
 
 /** Padding around the clock's time so its shadow isn't clipped. */
 private const val SHADOW_ROOM = 12
