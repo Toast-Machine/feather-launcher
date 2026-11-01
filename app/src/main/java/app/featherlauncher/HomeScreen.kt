@@ -113,7 +113,7 @@ class HomeScreen(
         pages.addOnLayoutChangeListener { _, _, _, _, _, _, _, _, _ ->
             placePageTarget()
             // The dots sit midway between the last row and the dock.
-            dots.middle = dots.height - pages.page(0).rowGap / 2
+            dots.aboveDock = pages.page(0).rowGap / 2
         }
         pages.onSlide = ::fadeRings
         // A touch ends the keypad's highlight on the page, as it does everywhere else.
