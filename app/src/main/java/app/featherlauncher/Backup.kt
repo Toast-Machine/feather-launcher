@@ -20,7 +20,7 @@ object Backup {
     private const val FORMAT = 1
 
     /** The saved settings, by their store's name. Icon and app list caches are left out; they're rebuilt. */
-    private val STORES = listOf("launcher", "categories", "keys", "notifications", "limits", "limits_state", "new_apps", "launches")
+    private val STORES = listOf("launcher", "categories", "keys", "notifications", "limits", "limits_state", "new_apps", "launches", SearchMemory.STORE)
     private val FILES = listOf("workspace.json", "wallpaper_light.png", "wallpaper_dark.png")
 
     fun export(context: Context): String {
@@ -68,8 +68,23 @@ object Backup {
     fun restore(context: Context, text: String) {
         val json = JSONObject(text)
         val stores = json.getJSONObject("stores")
+        restoreStores(context, stores)
+        val files = json.optJSONObject("files") ?: JSONObject()
+        FILES.forEach { name ->
+            val file = File(context.filesDir, name)
+            val data = files.optString(name).takeIf { it.isNotEmpty() }
+            if (data == null) file.delete() else file.writeBytes(Base64.decode(data, Base64.NO_WRAP))
+        }
+        // The wallpaper pair is applied again for the current mode.
+        context.getSharedPreferences("launcher", Context.MODE_PRIVATE).edit().remove("pair_applied").commit()
+        restart(context)
+    }
+
+    /** The preference portion of restore, also exercised without restarting by regression tests. */
+    internal fun restoreStores(context: Context, stores: JSONObject) {
         STORES.forEach { name ->
-            val values = stores.optJSONObject(name) ?: return@forEach
+            // Older backups predate search memory: restoring one must discard newer selections.
+            val values = stores.optJSONObject(name) ?: if (name == SearchMemory.STORE) JSONObject() else return@forEach
             val editor = context.getSharedPreferences(name, Context.MODE_PRIVATE).edit().clear()
             values.keys().forEach { key ->
                 val entry = values.getJSONObject(key)
@@ -86,15 +101,6 @@ object Backup {
             if (name == "launcher") editor.remove("widgets")
             editor.commit()
         }
-        val files = json.optJSONObject("files") ?: JSONObject()
-        FILES.forEach { name ->
-            val file = File(context.filesDir, name)
-            val data = files.optString(name).takeIf { it.isNotEmpty() }
-            if (data == null) file.delete() else file.writeBytes(Base64.decode(data, Base64.NO_WRAP))
-        }
-        // The wallpaper pair is applied again for the current mode.
-        context.getSharedPreferences("launcher", Context.MODE_PRIVATE).edit().remove("pair_applied").commit()
-        restart(context)
     }
 
     /** Starts the launcher again from scratch, so nothing restored is shadowed by what's in memory. */

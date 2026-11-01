@@ -27,6 +27,7 @@ class DrawerAdapter(
     private val onContact: (Contacts.Contact, ContactAction) -> Unit = { _, _ -> },
     /** Calls a number typed into search. */
     private val onDial: (String) -> Unit = {},
+    private val onResult: (Found) -> Unit = { it.open() },
     private val icon: (AppEntry) -> Bitmap?,
     private val digitFor: (AppEntry) -> Int?,
     /** Locked by an app limit right now: drawn gray with a lock. */
@@ -290,7 +291,7 @@ class DrawerAdapter(
                     })
                 }
             }, LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f).apply { marginStart = dp(Ui.SPACE_L) })
-            setOnClickListener { found.open() }
+            setOnClickListener { onResult(found) }
         }
     }
 

@@ -474,6 +474,19 @@ class SettingsActivity : Activity() {
         content.addView(Components.footnote(this, p, "Call the entered number from a green button beside search, or from a row above the results."))
         content.addView(Components.footnote(this, p,
             "Tap or highlight a contact to show its actions over the row. Shortcuts, settings and files stay below both columns."))
+        content.addView(spacer())
+        content.addView(Components.group(this, p, listOf(
+            Components.toggleRow(this, p, R.drawable.ic_history, "Remember search selections", prefs.rememberSearchSelections) {
+                prefs.rememberSearchSelections = it
+                build()
+            },
+            Components.row(this, p, R.drawable.ic_delete, "Reset search memory", inset = Ui.SPACE_L) {
+                SearchMemory(this).clear()
+                Toast.makeText(this, "Search memory reset", Toast.LENGTH_SHORT).show()
+            },
+        )))
+        content.addView(Components.footnote(this, p,
+            "Show matching selections first in their own category, most recent first. Remembers up to 500 results on this phone and includes them in backups. Turning this off pauses remembering and reordering; Reset forgets the saved selections."))
     }
 
     private fun appList(p: Palette) {

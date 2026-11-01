@@ -66,6 +66,11 @@ class Prefs(context: Context) {
         get() = sp.getBoolean("search_call_row", false)
         set(value) = sp.edit().putBoolean("search_call_row", value).apply()
 
+    /** Remember selections and promote matching results within each search section. */
+    var rememberSearchSelections: Boolean
+        get() = sp.getBoolean("remember_search_selections", false)
+        set(value) = sp.edit().putBoolean("remember_search_selections", value).apply()
+
     /** Contacts and apps occupy two columns in Smart Search. Other sources stay below. */
     var searchColumns: Boolean
         get() = sp.getBoolean("search_columns", false)

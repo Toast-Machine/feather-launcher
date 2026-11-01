@@ -2,4 +2,5 @@
     <instrumentation android:name="app.featherlauncher.SearchUiTests" android:targetPackage="app.featherlauncher" />
     <instrumentation android:name="app.featherlauncher.SearchBarTests" android:targetPackage="app.featherlauncher" />
     <instrumentation android:name="app.featherlauncher.SearchColumnsTests" android:targetPackage="app.featherlauncher" />
+    <instrumentation android:name="app.featherlauncher.SearchMemoryTests" android:targetPackage="app.featherlauncher" />
 </manifest>

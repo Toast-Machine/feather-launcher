@@ -68,6 +68,7 @@ class HomeActivity : Activity(), HomeScreen.Host {
     /** Search sections opened with "Show more". */
     private val expanded = mutableSetOf<String>()
     private lateinit var smartSearch: SmartSearch
+    private val searchMemory by lazy { SearchMemory(this) }
     private var mediaResults: List<Found> = emptyList()
     private var mediaFor: String? = null
     private lateinit var searchIcon: ImageView
@@ -251,6 +252,8 @@ class HomeActivity : Activity(), HomeScreen.Host {
         if (::smartSearch.isInitialized) preloadSearch()
         // Settings may have changed on the settings page.
         prefs.reload()
+        // Re-query files after returning: memory may have been disabled/reset in Settings.
+        mediaFor = null
         WeatherWallpaper.refresh(this)
         Shuffle.next(this)
         val next = currentPalette()
@@ -429,7 +432,8 @@ class HomeActivity : Activity(), HomeScreen.Host {
         adapter = DrawerAdapter(
             this,
             onContact = ::openContact,
-            onDial = ::call,
+            onDial = ::dialSearch,
+            onResult = ::openResult,
             icon = { repo.icon(it) },
             digitFor = { KeyShortcuts.get(this).digitFor(it.key) },
             isLocked = { limits.isLocked(it.packageName) },
@@ -461,7 +465,7 @@ class HomeActivity : Activity(), HomeScreen.Host {
         }
         searchClear.setOnClickListener { search.setText("") }
         searchCall.setOnClickListener {
-            search.text.toString().trim().takeIf { pick == null && it.matches(DIALABLE) }?.let(::call)
+            search.text.toString().trim().takeIf { pick == null && it.matches(DIALABLE) }?.let(::dialSearch)
         }
         findViewById<View>(R.id.drawer_search).setOnClickListener { openSearch() }
         findViewById<View>(R.id.drawer_more).setOnClickListener { appListMenu(it) }
@@ -883,6 +887,7 @@ class HomeActivity : Activity(), HomeScreen.Host {
         chipsScroll.visibility = View.GONE
         val raw = search.text.toString().trim()
         val rows = ArrayList<DrawerAdapter.Row>()
+        val ranks = searchMemory.ranks(raw)
         val pickingApp = pick != null
         val columns = prefs.searchColumns && !pickingApp
         adapter.searchColumns = columns
@@ -914,7 +919,7 @@ class HomeActivity : Activity(), HomeScreen.Host {
         val primaryStart = rows.size
         if (!pickingApp) {
             if (contacts.allowed) {
-                val found = if (raw.isEmpty()) contacts.favorites else contacts.search(raw)
+                val found = SearchMemory.promote(if (raw.isEmpty()) contacts.favorites else contacts.search(raw), ranks, SearchMemory::contact)
                 section("contacts", if (raw.isEmpty()) "Favorites" else "Contacts", found.size, CONTACTS_SHOWN) {
                     limit("contacts", found, CONTACTS_SHOWN).forEach { rows += DrawerAdapter.Row.Person(it) }
                 }
@@ -929,7 +934,7 @@ class HomeActivity : Activity(), HomeScreen.Host {
         }
 
         val contactsEnd = rows.size
-        val apps = if (raw.isEmpty()) {
+        val apps = SearchMemory.promote(if (raw.isEmpty()) {
             repo.apps.filter { it.key !in prefs.hidden }
                 .sortedByDescending { prefs.launchCount(it.key) }
                 .let { if (pickingApp) it.sortedBy { e -> e.label.lowercase() } else it }
@@ -942,7 +947,7 @@ class HomeActivity : Activity(), HomeScreen.Host {
                 .mapNotNull { e -> Search.score(query, if (t9) e.digitWords else e.words)?.let { e to it } }
                 .sortedWith(compareBy<Pair<AppEntry, Int>> { it.second }.thenByDescending { prefs.launchCount(it.first.key) })
                 .map { it.first }
-        }
+        }, ranks) { SearchMemory.app(it.key) }
         val appsShown = if (pickingApp) apps.size else if (columns) 4 else DrawerAdapter.COLS * (if (raw.isEmpty()) 2 else 1)
         section("apps", if (raw.isEmpty() && !pickingApp) "Frequent apps" else "Apps", apps.size, appsShown) {
             val shown = limit("apps", apps, appsShown)
@@ -960,15 +965,15 @@ class HomeActivity : Activity(), HomeScreen.Host {
 
         if (raw.isNotEmpty() && !pickingApp) {
             val hiddenPackages = prefs.hidden.mapNotNull { repo.find(it)?.packageName }.toSet()
-            val shortcutsFound = smartSearch.shortcuts(raw, hiddenPackages)
+            val shortcutsFound = SearchMemory.promote(smartSearch.shortcuts(raw, hiddenPackages), ranks) { it.key }
             section("shortcuts", "Shortcuts", shortcutsFound.size, RESULTS_SHOWN) {
                 limit("shortcuts", shortcutsFound, RESULTS_SHOWN).forEach { rows += DrawerAdapter.Row.Result(it) }
             }
-            val settingsFound = smartSearch.settings(raw)
+            val settingsFound = SearchMemory.promote(smartSearch.settings(raw), ranks) { it.key }
             section("settings", "Settings", settingsFound.size, RESULTS_SHOWN) {
                 limit("settings", settingsFound, RESULTS_SHOWN).forEach { rows += DrawerAdapter.Row.Result(it) }
             }
-            val media = mediaResults.takeIf { mediaFor == raw }.orEmpty()
+            val media = SearchMemory.promote(mediaResults.takeIf { mediaFor == raw }.orEmpty(), ranks) { it.key }
             section("media", "Files", media.size, RESULTS_SHOWN) {
                 limit("media", media, RESULTS_SHOWN).forEach { rows += DrawerAdapter.Row.Result(it) }
             }
@@ -1503,6 +1508,7 @@ class HomeActivity : Activity(), HomeScreen.Host {
     }
 
     private fun openContact(contact: Contacts.Contact, action: ContactAction) {
+        rememberSearchResult(SearchMemory.contact(contact))
         when (action) {
             ContactAction.CALL -> call(contact.number)
             ContactAction.TEXT -> startSafely(Intent(Intent.ACTION_SENDTO, Uri.fromParts("smsto", contact.number, null)))
@@ -1513,6 +1519,20 @@ class HomeActivity : Activity(), HomeScreen.Host {
 
     /** A number waiting for permission to call it. */
     private var pendingCall: String? = null
+
+    private fun rememberSearchResult(key: String) {
+        if (searching && drawerOpen) searchMemory.record(key)
+    }
+
+    private fun openResult(found: Found) {
+        rememberSearchResult(found.key)
+        found.open()
+    }
+
+    private fun dialSearch(number: String) {
+        rememberSearchResult(SearchMemory.dial(number))
+        call(number)
+    }
 
     /**
      * Calls [number] right away. The first time, asks for permission to make calls; if that's
@@ -1548,6 +1568,7 @@ class HomeActivity : Activity(), HomeScreen.Host {
     private fun choose(entry: AppEntry, from: View?) {
         val onPick = pick
         if (onPick != null) {
+            rememberSearchResult(SearchMemory.app(entry.key))
             pick = null
             onPick(entry)
             hideDrawer()
@@ -1579,7 +1600,9 @@ class HomeActivity : Activity(), HomeScreen.Host {
             val contact = generateSequence(currentFocus) { it.parent as? View }.firstNotNullOfOrNull { it.tag as? Contacts.Contact }
             val number = contact?.number ?: search.text.toString().trim().takeIf { it.matches(DIALABLE) }
             if (number != null) {
-                if (event.action == KeyEvent.ACTION_UP && !event.isCanceled) call(number)
+                if (event.action == KeyEvent.ACTION_UP && !event.isCanceled) {
+                    if (contact != null) openContact(contact, ContactAction.CALL) else dialSearch(number)
+                }
                 return true
             }
         }
@@ -2053,10 +2076,18 @@ class HomeActivity : Activity(), HomeScreen.Host {
                         startSafely(Intent(Intent.ACTION_DELETE, Uri.fromParts("package", entry.packageName, null)))
                     },
                 ),
-            ),
+            ).map { group -> group.map { item ->
+                MenuItem(item.label, item.icon, item.danger, item.drawable) {
+                    rememberSearchResult(SearchMemory.app(entry.key))
+                    item.action()
+                }
+            } },
             rectOf(row),
             repo.icon(entry),
-        ) { showAppInfo(entry) }
+        ) {
+            rememberSearchResult(SearchMemory.app(entry.key))
+            showAppInfo(entry)
+        }
     }
 
     /**
@@ -2232,6 +2263,7 @@ class HomeActivity : Activity(), HomeScreen.Host {
     // region Actions
 
     override fun launch(entry: AppEntry, from: View?) {
+        rememberSearchResult(SearchMemory.app(entry.key))
         // Locked apps go straight to the limit's screen, without showing the app first.
         if (limits.isLocked(entry.packageName)) return startActivity(LimitActivity.intent(this, entry.packageName))
         val bounds = from?.let { v -> Rect().also { v.getGlobalVisibleRect(it) } }

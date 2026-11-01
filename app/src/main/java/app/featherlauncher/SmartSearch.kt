@@ -25,6 +25,7 @@ import java.util.concurrent.Executors
 class Found(
     val title: String,
     val subtitle: String?,
+    val key: String,
     /** A line icon (settings, file types)... */
     val iconRes: Int = 0,
     /** ...or a picture (shortcut icons, photo thumbnails). */
@@ -38,6 +39,7 @@ class Found(
  * phone settings, app shortcuts and files on the phone.
  */
 class SmartSearch(private val context: Context, private val start: (Intent) -> Unit) {
+    private val memory = SearchMemory(context)
     private val io = Executors.newSingleThreadExecutor()
     private val main = Handler(Looper.getMainLooper())
     private val launcherApps = context.getSystemService(LauncherApps::class.java)
@@ -81,7 +83,7 @@ class SmartSearch(private val context: Context, private val start: (Intent) -> U
         return settings
             .mapNotNull { s -> Search.score(query, if (t9) s.digitWords else s.words)?.let { s to it } }
             .sortedBy { it.second }
-            .map { (s, _) -> Found(s.name, "Settings", iconRes = s.icon) { start(Intent(s.action)) } }
+            .map { (s, _) -> Found(s.name, "Settings", "setting:${s.action}", iconRes = s.icon) { start(Intent(s.action)) } }
     }
 
     // endregion
@@ -127,7 +129,7 @@ class SmartSearch(private val context: Context, private val start: (Intent) -> U
             .mapNotNull { s -> Search.score(query, if (t9) s.digitWords else s.words)?.let { s to it } }
             .sortedBy { it.second }
             .map { (s, _) ->
-                Found(s.label, s.app, drawable = runCatching { launcherApps.getShortcutIconDrawable(s.info, density) }.getOrNull()) {
+                Found(s.label, s.app, "shortcut:${s.info.`package`}:${s.info.id}", drawable = runCatching { launcherApps.getShortcutIconDrawable(s.info, density) }.getOrNull()) {
                     runCatching { launcherApps.startShortcut(s.info, null, null) }
                 }
             }
@@ -154,7 +156,8 @@ class SmartSearch(private val context: Context, private val start: (Intent) -> U
         if (!mediaAllowed || raw.length < 2) return done(emptyList())
         io.execute {
             if (raw != mediaQuery) return@execute
-            val results = ArrayList<Found>()
+            val results = ArrayList<Pair<Found, Uri?>>()
+            val ranks = memory.ranks(raw).filterKeys { it.startsWith("media:") }
             val uri = MediaStore.Files.getContentUri(MediaStore.VOLUME_EXTERNAL)
             runCatching {
                 context.contentResolver.query(
@@ -165,7 +168,9 @@ class SmartSearch(private val context: Context, private val start: (Intent) -> U
                     arrayOf("%$raw%"),
                     "${MediaStore.Files.FileColumns.DATE_MODIFIED} DESC",
                 )?.use { c ->
-                    while (c.moveToNext() && results.size < limit) {
+                    while (c.moveToNext()) {
+                        if (raw != mediaQuery) return@execute
+                        if (results.size >= limit && ranks.isEmpty()) break
                         val id = c.getLong(0)
                         val name = c.getString(1) ?: continue
                         val type = c.getInt(2)
@@ -177,17 +182,22 @@ class SmartSearch(private val context: Context, private val start: (Intent) -> U
                             else -> Triple(R.drawable.ic_media_file, "File", uri)
                         }
                         val itemUri = ContentUris.withAppendedId(base, id)
-                        val found = Found(name, kind, iconRes = icon) {
+                        val key = "media:$itemUri"
+                        // Include remembered matches even beyond the normal recent-files limit.
+                        if (results.size >= limit && key !in ranks) continue
+                        val found = Found(name, kind, key, iconRes = icon) {
                             start(Intent(Intent.ACTION_VIEW).setDataAndType(itemUri, mime).addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION))
                         }
-                        if (type == MediaStore.Files.FileColumns.MEDIA_TYPE_IMAGE || type == MediaStore.Files.FileColumns.MEDIA_TYPE_VIDEO) {
-                            found.bitmap = runCatching { context.contentResolver.loadThumbnail(itemUri, Size(128, 128), null) }.getOrNull()
-                        }
-                        results += found
+                        val thumbnail = if (type == MediaStore.Files.FileColumns.MEDIA_TYPE_IMAGE || type == MediaStore.Files.FileColumns.MEDIA_TYPE_VIDEO) itemUri else null
+                        results += found to thumbnail
                     }
                 }
             }
-            main.post { if (raw == mediaQuery) done(results) }
+            val selected = SearchMemory.promote(results, ranks) { it.first.key }.take(limit).map { (found, thumbnail) ->
+                if (thumbnail != null) found.bitmap = runCatching { context.contentResolver.loadThumbnail(thumbnail, Size(128, 128), null) }.getOrNull()
+                found
+            }
+            main.post { if (raw == mediaQuery) done(selected) }
         }
     }
 

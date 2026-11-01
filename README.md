@@ -29,6 +29,7 @@ Plain Kotlin and platform Views, no AndroidX and no third-party libraries, so it
 - Apps, contacts (any of their numbers), app shortcuts, phone settings and files, with T9 and letter matching.
 - Settings → Search can place contacts and apps side by side. Tap or highlight a contact for its actions, or tap its picture to open its details; settings and files stay below.
 - Type a number on the home screen to dial it; the Call key places the call.
+- Optional search memory puts matching selections first within their category, most recent first. Turn it on or reset it in **Settings → Search**; saved selections are included in backups.
 
 **Made for keypads**
 - Every screen works with the arrow keys and OK, with a clear highlight. Hold OK on anything for its menu, and move icons, widgets, categories and apps with the arrows.
