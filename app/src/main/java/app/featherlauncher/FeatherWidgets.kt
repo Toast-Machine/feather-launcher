@@ -21,7 +21,7 @@ import java.util.Date
 enum class FeatherKind(val ref: String, val label: String, val w: Int, val h: Int, val about: String) {
     CLOCK("", "Clock", 4, 2, "The time, the date and what's coming up"),
     UP_NEXT("upnext", "Up next", 4, 1, "Your next event, zman and alarm, with the weather now"),
-    AGENDA("agenda", "Agenda", 4, 2, "Upcoming calendar events"),
+    CALENDAR("agenda", "Calendar", 4, 2, "Your upcoming events"),
     WEATHER("weather", "Weather", 4, 2, "Current weather with hourly and daily forecasts"),
     MEDIA("media", "Now playing", 4, 1, "Play, pause and skip whatever's playing"),
     ZMANIM("zmanim", "Zmanim", 4, 2, "Upcoming zmanim"),
@@ -140,6 +140,51 @@ abstract class CardWidget(context: Context, val item: HomeItem) : FrameLayout(co
         if (end != null) addView(WidgetStyle.cardText(context, 13f, WidgetStyle.body, WidgetStyle.onCardQuiet()).apply { this.text = end })
     }
 
+    /**
+     * What the widget shows when it can't show itself yet: an icon on a soft tile, its name, and
+     * one line saying what it needs. Tapping anywhere on it does [onTap].
+     */
+    protected fun prompt(icon: Int, title: String, line: String, onTap: () -> Unit) {
+        content.removeAllViews()
+        content.gravity = Gravity.CENTER_VERTICAL
+        content.spread = false
+        setCard(WidgetStyle.cardBackground(context))
+        setOnClickListener { onTap() }
+        content.addView(LinearLayout(context).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER_VERTICAL
+            addView(FrameLayout(context).apply {
+                background = Ui.rounded(context, WidgetStyle.accentFill(), 16)
+                addView(ImageView(context).apply {
+                    setImageResource(icon)
+                    imageTintList = ColorStateList.valueOf(WidgetStyle.onAccentFill())
+                }, LayoutParams(dp(24), dp(24), Gravity.CENTER))
+            }, LinearLayout.LayoutParams(dp(48), dp(48)).apply { marginEnd = dp(14) })
+            addView(LinearLayout(context).apply {
+                orientation = LinearLayout.VERTICAL
+                addView(WidgetStyle.cardText(context, 16f, WidgetStyle.title).apply { text = title })
+                addView(quiet(line, 14f).apply { setPadding(0, dp(3), 0, 0) })
+            }, LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f))
+        })
+    }
+
+    /** Opens Calendar and times, where the location is chosen. */
+    protected fun chooseLocation() {
+        context.startActivity(android.content.Intent(context, SettingsActivity::class.java)
+            .putExtra(SettingsActivity.EXTRA_PAGE, SettingsActivity.Page.CALENDAR.name))
+    }
+
+    /** Asks for what [item] turns on, from the home screen. */
+    protected fun allow(item: Setup.Item) {
+        (context as? android.app.Activity)?.let(item.start)
+    }
+
+    /** A soft rounded shape where text will be, while it loads. */
+    protected fun placeholder(w: Int, h: Int, color: Int) = View(context).apply {
+        background = Ui.rounded(context, (color and 0xFFFFFF) or 0x26000000, h / 2)
+        layoutParams = LinearLayout.LayoutParams(dp(w), dp(h))
+    }
+
     protected fun quiet(text: String, sp: Float = 15f) = WidgetStyle.cardText(context, sp, WidgetStyle.body, WidgetStyle.onCardQuiet()).apply {
         this.text = text
         maxLines = 2
@@ -161,7 +206,7 @@ abstract class CardWidget(context: Context, val item: HomeItem) : FrameLayout(co
         /** The view for a Feather widget that sits on a card, or null for the clock. */
         fun create(context: Context, item: HomeItem): CardWidget? = when (FeatherKind.of(item)) {
             FeatherKind.UP_NEXT -> UpNextWidget(context, item)
-            FeatherKind.AGENDA -> AgendaWidget(context, item)
+            FeatherKind.CALENDAR -> CalendarWidget(context, item)
             FeatherKind.WEATHER -> WeatherWidget(context, item)
             FeatherKind.MEDIA -> MediaWidget(context, item)
             FeatherKind.ZMANIM -> ZmanimWidget(context, item)
@@ -330,13 +375,16 @@ class UpNextWidget(context: Context, item: HomeItem) : CardWidget(context, item)
  * day's name. The events scroll when there are more than fit.
  */
 @SuppressLint("ViewConstructor")
-class AgendaWidget(context: Context, item: HomeItem) : CardWidget(context, item) {
+class CalendarWidget(context: Context, item: HomeItem) : CardWidget(context, item) {
     var onEvent: ((ClockInfo.Event) -> Unit)? = null
     var onCalendar: (() -> Unit)? = null
-    /** Without calendar access: where to allow it. */
-    var onAllow: (() -> Unit)? = null
 
     override fun refresh() {
+        if (context.checkSelfPermission(android.Manifest.permission.READ_CALENDAR) != android.content.pm.PackageManager.PERMISSION_GRANTED) {
+            return prompt(R.drawable.ic_calendar, "Calendar", "Allow calendar access to see your events") {
+                allow(Setup.items.first { it.title == "Calendar" })
+            }
+        }
         content.removeAllViews()
         content.gravity = Gravity.CENTER_VERTICAL
         setOnClickListener { onCalendar?.invoke() }
@@ -392,12 +440,6 @@ class AgendaWidget(context: Context, item: HomeItem) : CardWidget(context, item)
             addView(scroll, LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.MATCH_PARENT, 1f))
         }, LayoutParams(LayoutParams.MATCH_PARENT, LayoutParams.MATCH_PARENT))
 
-        if (context.checkSelfPermission(android.Manifest.permission.READ_CALENDAR) != android.content.pm.PackageManager.PERMISSION_GRANTED) {
-            events.addView(WidgetStyle.cardText(context, 15f, WidgetStyle.title).apply { text = "Your events" })
-            events.addView(gapAbove(quiet("Tap to allow calendar access", 13f), 4))
-            setOnClickListener { onAllow?.invoke() }
-            return
-        }
         val midnight = Calendar.getInstance().apply {
             timeInMillis = now
             add(Calendar.DAY_OF_YEAR, 1)
@@ -405,13 +447,13 @@ class AgendaWidget(context: Context, item: HomeItem) : CardWidget(context, item)
         }.timeInMillis
         val today = info.events(now, midnight, 20)
         today.forEachIndexed { i, e -> events.addView(gapAbove(event(e), if (i == 0) 0 else 10)) }
-        if (today.isEmpty()) events.addView(WidgetStyle.cardText(context, 15f, WidgetStyle.title).apply { text = "No more events today" })
         // The days after, each under its name, as far as two weeks ahead.
         val later = info.events(midnight, midnight + 14 * DAY, 40).filter { it.begin >= midnight || it.allDay }
         if (later.isEmpty() && today.isEmpty()) {
-            events.addView(gapAbove(quiet("No upcoming events in the next two weeks", 13f), 4))
+            events.addView(quiet("No events in the next two weeks"))
             return
         }
+        if (today.isEmpty()) events.addView(quiet("Nothing else today"))
         var day = -1L
         later.forEach { e ->
             val start = dayOf(maxOf(e.begin, midnight))
@@ -484,17 +526,10 @@ class WeatherWidget(context: Context, item: HomeItem) : CardWidget(context, item
         content.removeAllViews()
         content.spread = false
         val place = ClockInfo(context).place { if (isAttachedToWindow) refresh() }
-        if (place == null) {
-            content.addView(heading(R.drawable.ic_location, "Weather"))
-            content.addView(gapAbove(quiet("Choose a location in Settings, under Calendar and times."), 10))
-            return
-        }
+        if (place == null) return prompt(R.drawable.ic_location, "Weather", "Set your location to see the weather", ::chooseLocation)
+        setOnClickListener(null)
         val w = Weather.at(place) { if (isAttachedToWindow) refresh() }
-        if (w == null) {
-            content.addView(heading(R.drawable.ic_location, place.name))
-            content.addView(gapAbove(quiet("Loading the weather…"), 10))
-            return
-        }
+        if (w == null) return loading(place.name)
         setCard(WeatherArt.sky(w.sky, w.night, dp(WidgetStyle.RADIUS).toFloat()))
         // Room left over goes between the rows, not above and below them.
         content.spread = true
@@ -596,6 +631,50 @@ class WeatherWidget(context: Context, item: HomeItem) : CardWidget(context, item
                 content.addView(FitColumn.dropFirst(gapAbove(if (i == 0) divided(line) else line, if (i == 0) 10 else 4)))
             }
         }
+    }
+
+    /**
+     * While the weather loads: the card as it will look, the place's name and soft shapes where
+     * the temperature and the hours will be, on a calm sky.
+     */
+    private fun loading(name: String) {
+        setCard(WeatherArt.sky(Sky.CLOUDY, false, dp(WidgetStyle.RADIUS).toFloat()))
+        val soft = WidgetStyle.WHITE
+        content.gravity = Gravity.CENTER_VERTICAL
+        content.spread = !narrow
+        content.addView(LinearLayout(context).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER_VERTICAL
+            addView(LinearLayout(context).apply {
+                orientation = LinearLayout.VERTICAL
+                addView(WidgetStyle.cardText(context, 14f, WidgetStyle.label, WidgetStyle.WHITE).apply {
+                    text = name
+                    isSingleLine = true
+                    ellipsize = android.text.TextUtils.TruncateAt.END
+                })
+                addView(placeholder(84, 40, soft).apply { (layoutParams as LinearLayout.LayoutParams).topMargin = dp(8) })
+                addView(placeholder(64, 12, soft).apply { (layoutParams as LinearLayout.LayoutParams).topMargin = dp(10) })
+            }, LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f))
+            if (!narrow) addView(View(context).apply {
+                background = android.graphics.drawable.GradientDrawable().apply {
+                    shape = android.graphics.drawable.GradientDrawable.OVAL
+                    setColor(0x26FFFFFF)
+                }
+            }, LinearLayout.LayoutParams(dp(56), dp(56)))
+        })
+        if (narrow) return
+        content.addView(FitColumn.dropFirst(gapAbove(LinearLayout(context).apply {
+            orientation = LinearLayout.HORIZONTAL
+            repeat(5) {
+                addView(LinearLayout(context).apply {
+                    orientation = LinearLayout.VERTICAL
+                    gravity = Gravity.CENTER_HORIZONTAL
+                    addView(placeholder(24, 10, soft))
+                    addView(placeholder(24, 24, soft).apply { (layoutParams as LinearLayout.LayoutParams).topMargin = dp(6) })
+                    addView(placeholder(24, 10, soft).apply { (layoutParams as LinearLayout.LayoutParams).topMargin = dp(6) })
+                }, LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f))
+            }
+        }, 12)))
     }
 
     /** [row] under a thin line across the card, setting the days apart from what's above in a tall card. */
@@ -721,12 +800,9 @@ class MediaWidget(context: Context, item: HomeItem) : CardWidget(context, item) 
     override fun refresh() {
         content.removeAllViews()
         content.gravity = Gravity.CENTER_VERTICAL
-        if (!NotificationService.isEnabled(context)) {
-            setCard(WidgetStyle.cardBackground(context))
-            content.addView(heading(R.drawable.ic_media_music, "Now playing"))
-            content.addView(gapAbove(quiet("Allow notification access to see what's playing", 14f), 6))
-            return
-        }
+        if (!NotificationService.isEnabled(context)) return prompt(R.drawable.ic_media_music, "Now playing",
+            "Allow notification access to control what's playing") { allow(Setup.NOTIFICATIONS) }
+        setOnClickListener(null)
         // The one playing, else the last one that was.
         val all = runCatching { sessions.getActiveSessions(listener) }.getOrDefault(emptyList())
         val c = all.firstOrNull { it.playbackState?.state == PlaybackState.STATE_PLAYING } ?: all.firstOrNull { it.metadata != null }
@@ -839,11 +915,10 @@ class ZmanimWidget(context: Context, item: HomeItem) : CardWidget(context, item)
         val info = ClockInfo(context)
         val place = info.place { if (isAttachedToWindow) refresh() }
         val zmanim = Prefs(context).dailyZmanim
-        content.addView(heading(R.drawable.ic_sunrise, if (zmanim) "Zmanim" else "Sunrise and sunset", place?.name))
-        if (place == null) {
-            content.addView(gapAbove(quiet("Choose a location in Settings, under Calendar and times."), 10))
-            return
-        }
+        if (place == null) return prompt(R.drawable.ic_sunrise, if (zmanim) "Zmanim" else "Sunrise and sunset",
+            if (zmanim) "Set your location to see today's zmanim" else "Set your location to see today's times", ::chooseLocation)
+        setCard(WidgetStyle.cardBackground(context))
+        content.addView(heading(R.drawable.ic_sunrise, if (zmanim) "Zmanim" else "Sunrise and sunset", place.name))
         setOnClickListener { onOpen?.invoke(place) }
         val now = System.currentTimeMillis()
         val coming = (info.zmanim(now, place) + info.zmanim(now + 86_400_000L, place)).filter { it.time > now }.take(5)

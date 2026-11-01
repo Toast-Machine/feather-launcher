@@ -196,16 +196,12 @@ class HomeScreen(
         // Feather's widgets on cards; the clock and At a glance below.
         HomeItem.Type.CLOCK -> CardWidget.create(activity, item)?.apply {
             when (this) {
-                is AgendaWidget -> {
+                is CalendarWidget -> {
                     onEvent = { e -> host.startSafely(Intent(Intent.ACTION_VIEW, ContentUris.withAppendedId(CalendarContract.Events.CONTENT_URI, e.id))) }
                     onCalendar = {
                         val uri = CalendarContract.CONTENT_URI.buildUpon().appendPath("time")
                         ContentUris.appendId(uri, System.currentTimeMillis())
                         host.startSafely(Intent(Intent.ACTION_VIEW, uri.build()))
-                    }
-                    onAllow = {
-                        activity.startActivity(Intent(activity, SettingsActivity::class.java)
-                            .putExtra(SettingsActivity.EXTRA_PAGE, SettingsActivity.Page.CALENDAR.name))
                     }
                 }
                 is ZmanimWidget -> onOpen = { place -> ZmanimSheet.show(activity, palette(), overlays, place) }
