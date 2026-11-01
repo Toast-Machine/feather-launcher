@@ -335,7 +335,11 @@ class DrawerAdapter(
                     ellipsize = TextUtils.TruncateAt.END
                 })
                 addView(TextView(context).apply {
-                    text = contact.number
+                    // Names win in Contacts.search; only pick out the number for a number match.
+                    text = if (Search.isT9(query) && query.length >= 3 &&
+                        Search.score(query, contact.digitWords) == null) {
+                        SmartSearch.highlight(contact.number, query, p.onWall, p.onWallSecondary)
+                    } else contact.number
                     style(TextStyle.Secondary, p.onWallSecondary)
                     setPadding(0, dp(4), 0, 0)
                     maxLines = 1
