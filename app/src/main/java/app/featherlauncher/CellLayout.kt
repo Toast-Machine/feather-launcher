@@ -44,6 +44,14 @@ class CellLayout(context: Context, attrs: AttributeSet? = null) : ViewGroup(cont
     var edgeGap = -1
     /** Size of the icons (px), needed for [edgeGap] spacing. */
     var iconSize = 0
+    /**
+     * For the dock: how many of its places are in use. They sit together in the middle, as on
+     * iOS, as far apart as when it's full.
+     */
+    var slots = cols
+        set(value) {
+            if (field != value) { field = value; requestLayout() }
+        }
     /** Height (dp) of one icon with its highlight, for the dock's wrapped height and drop preview. */
     var boxDp = AppIconView.BOX
 
@@ -81,12 +89,18 @@ class CellLayout(context: Context, attrs: AttributeSet? = null) : ViewGroup(cont
 
     /** Center-to-center distance of columns. */
     val cellWidth: Float
-        get() = if (edgeGap >= 0 && cols > 1) (width - 2f * edgeGap - iconSize) / (cols - 1)
-        else (width - paddingLeft - paddingRight) / cols.toFloat()
-    val cellHeight get() = if (isPage) content + rowGap else (height - paddingTop - paddingBottom) / rows.toFloat()
-    /** Where column 0 starts (px); with [edgeGap] it's placed so the first icon is exactly that far in. */
+        get() = if (edgeGap >= 0 && cols > 1) (measuredWidth - 2f * edgeGap - iconSize) / (cols - 1)
+        else (measuredWidth - paddingLeft - paddingRight) / cols.toFloat()
+    val cellHeight get() = if (isPage) content + rowGap else (measuredHeight - paddingTop - paddingBottom) / rows.toFloat()
+    /**
+     * Where column 0 starts (px). With [edgeGap], a full dock's first icon is exactly that far in,
+     * and fewer [slots] sit in the middle.
+     */
     val originX: Float
-        get() = if (edgeGap >= 0) edgeGap + iconSize / 2f - cellWidth / 2f else paddingLeft.toFloat()
+        get() = if (edgeGap >= 0) originFor(slots) else paddingLeft.toFloat()
+
+    /** Where column 0 would start with [count] slots in use. */
+    fun originFor(count: Int) = (measuredWidth - count * cellWidth) / 2
     /** Where row 0 starts (px). On a page, a row runs from halfway up the gap above it to halfway down the gap below. */
     val originY: Float
         get() = if (isPage) rowGap / 2 - roomAbove else paddingTop.toFloat()

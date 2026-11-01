@@ -233,6 +233,14 @@ class HomeScreen(
         val alive = workspace.items.map { it.id }.toSet()
         views.keys.filter { it !in alive }.forEach { id -> views.remove(id)?.let { (it.parent as? ViewGroup)?.removeView(it) } }
 
+        // The dock's apps sit together in the middle, as on iOS: their places are just their order.
+        var compacted = false
+        workspace.on(Workspace.DOCK).sortedBy { it.x }.forEachIndexed { i, item ->
+            if (item.x != i) { item.x = i; compacted = true }
+        }
+        if (compacted) workspace.save()
+        dock.slots = workspace.on(Workspace.DOCK).size
+
         val limits = AppLimits.get(activity)
         val newApps = NewApps.get(activity)
         val now = System.currentTimeMillis()
@@ -886,6 +894,10 @@ class HomeScreen(
         private var grabX = 0f
         private var grabY = 0f
         private var target: Triple<Int, Int, Int>? = null
+        /** The place in the dock opened up for the app being dragged, if any. */
+        private var dockGap: Int? = null
+        /** The dock was arranged during this drag (see [leaveDock]). */
+        private var dockArranged = false
         private var lastX = 0f
         private var lastY = 0f
         private val slop = ViewConfiguration.get(activity).scaledTouchSlop * 1.5f
@@ -943,7 +955,7 @@ class HomeScreen(
             if (page == Workspace.DOCK) return when {
                 // Up out of the dock, onto the bottom row of the page.
                 dy < 0 -> pages.currentPage.let { Triple(it, x.coerceAtMost(workspace.cols(it) - w), workspace.rows(it) - h) }
-                dx != 0 && x + dx in 0 until workspace.cols(page) -> Triple(page, x + dx, 0)
+                dx != 0 && x + dx in 0..dockLast() -> Triple(page, x + dx, 0)
                 else -> null
             }
             val cols = workspace.cols(page)
@@ -958,7 +970,7 @@ class HomeScreen(
                 }
                 y + dy < 0 -> null
                 // Below the page: into the dock, for an app or folder.
-                y + dy > rows - h -> if (w == 1 && h == 1) Triple(Workspace.DOCK, x.coerceAtMost(workspace.cols(Workspace.DOCK) - 1), 0) else null
+                y + dy > rows - h -> if (w == 1 && h == 1) Triple(Workspace.DOCK, x.coerceAtMost(dockLast()), 0) else null
                 else -> Triple(page, x + dx, y + dy)
             }
         }
@@ -1114,11 +1126,13 @@ class HomeScreen(
                 y >= dockRect.top -> null
                 else -> pages.currentPage
             }
+            if (page != Workspace.DOCK) leaveDock()
             if (page == null) {
                 clearReorder(commit = false)
                 setTarget(null)
                 return
             }
+            if (page == Workspace.DOCK) return moveOverDock(view)
             val cells = containerFor(page)
             val origin = rectInRoot(cells)
             val centerX = view.x + view.width / 2f - origin.left - cells.originX
@@ -1275,7 +1289,11 @@ class HomeScreen(
                 val cells = containerFor(it.page)
                 cells.dropPreviewIsIcon = true
                 cells.dropPreviewGrow = true
-                cells.dropPreview = Rect(it.x, it.y, it.x + 1, it.y + 1)
+                // Where its icon is now: in the dock, the others may have slid aside.
+                val at = views[it.id]?.layoutParams as? CellLayout.LayoutParams
+                val x = at?.x ?: it.x
+                val y = at?.y ?: it.y
+                cells.dropPreview = Rect(x, y, x + 1, y + 1)
             }
         }
 
@@ -1307,6 +1325,11 @@ class HomeScreen(
 
         private fun applyReorder() {
             val (page, x, y) = hoverCell ?: return
+            if (page == Workspace.DOCK && w == 1 && h == 1) {
+                setShifted(emptyMap())
+                return overDock(x)
+            }
+            leaveDock()
             val plan = if (w == 1 && h == 1) planReorder(page, x, y) else planWidgetReorder(page, x, y)
             when (plan) {
                 null -> {
@@ -1479,6 +1502,9 @@ class HomeScreen(
                 ?: src.kind?.let { workspace.add(t.first, t.second, t.third, it.w, h, HomeItem.Type.CLOCK, it.ref) }
                 ?: workspace.add(t.first, t.second, t.third, 1, 1, HomeItem.Type.APP, src.entry!!.key)
             src.folder?.let { removeFromFolder(it, src.entry!!.key) }
+            // Into the dock: the apps from its place on move along one, as they slid while it was held there.
+            if (t.first == Workspace.DOCK) workspace.on(Workspace.DOCK).filter { it !== item }.sortedBy { it.x }
+                .forEachIndexed { i, other -> other.x = if (i >= t.second) i + 1 else i }
             item.page = t.first
             item.x = t.second
             item.y = t.third
@@ -1519,7 +1545,85 @@ class HomeScreen(
             hideEdgeZones()
             clearReorder(commit = false)
             setTarget(null)
+            // Back into the dock: its place opens up again.
+            if (dockArranged) {
+                dockGap = null
+                arrangeDock(null, null)
+            }
             source?.item?.let { goBack(it) } ?: fadeOut()
+        }
+
+        /** How many apps are in the dock, besides the one being dragged. */
+        private fun dockCount() = workspace.on(Workspace.DOCK).count { it !== source?.item }
+
+        /** The last place in the dock the dragged app can go: after the others, while there's room. */
+        private fun dockLast() = minOf(dockCount(), workspace.cols(Workspace.DOCK) - 1)
+
+        /** Over the dock with an app: onto an app's icon makes a folder; elsewhere, the others make room. */
+        private fun moveOverDock(view: View) {
+            clearReorder(commit = false)
+            val x = view.x + view.width / 2f
+            val y = view.y + view.height / 2f
+            val onto = if (source?.item?.type == HomeItem.Type.FOLDER) null else workspace.on(Workspace.DOCK).firstOrNull { other ->
+                other !== source?.item && other !== source?.folder &&
+                    (views[other.id] as? AppIconView)?.let { v ->
+                        val r = rectInRoot(v.iconView)
+                        hypot(x - r.exactCenterX(), y - r.exactCenterY()) < dp(AppIconView.ICON) * 0.45f
+                    } == true
+            }
+            setFolderTarget(onto)
+            if (onto != null) return setTarget(null)
+            // Which place it's over, with the others spread out to make room for it.
+            val slot = ((x - rectInRoot(dock).left - dock.originFor(dockCount() + 1)) / dock.cellWidth).toInt()
+            overDock(slot)
+        }
+
+        /** Opens up place [slot] in the dock for the dragged app, sliding the others aside; none when it's full. */
+        private fun overDock(slot: Int) {
+            val count = dockCount()
+            if (count >= workspace.cols(Workspace.DOCK)) {
+                leaveDock()
+                return setTarget(null)
+            }
+            val place = slot.coerceIn(0, count)
+            if (dockGap != place) {
+                dockGap = place
+                dockArranged = true
+                arrangeDock(place, source?.item)
+            }
+            setTarget(Triple(Workspace.DOCK, place, 0))
+        }
+
+        /** Away from the dock: the others close up, over the dragged app's place too if it came from there. */
+        private fun leaveDock() {
+            if (dockGap == null && (dockArranged || source?.item?.inDock != true)) return
+            dockGap = null
+            dockArranged = true
+            arrangeDock(null, source?.item)
+        }
+
+        /**
+         * Lays the dock's apps out in order, leaving out [skip] and leaving place [gap] free,
+         * together in the middle. They slide to their new places.
+         */
+        private fun arrangeDock(gap: Int?, skip: HomeItem?) {
+            val apps = workspace.on(Workspace.DOCK).filter { it !== skip }.sortedBy { it.x }
+            val was = apps.associateWith { item -> views[item.id]?.let { it.left + it.translationX } }
+            apps.forEachIndexed { i, item ->
+                (views[item.id]?.layoutParams as? CellLayout.LayoutParams)?.x = if (gap != null && i >= gap) i + 1 else i
+            }
+            dock.slots = apps.size + if (gap != null) 1 else 0
+            // Laid out at once, so where they go is known straight away (for an app dropped back in).
+            dock.measure(View.MeasureSpec.makeMeasureSpec(dock.width, View.MeasureSpec.EXACTLY),
+                View.MeasureSpec.makeMeasureSpec(dock.height, View.MeasureSpec.EXACTLY))
+            dock.layout(dock.left, dock.top, dock.right, dock.bottom)
+            for ((item, from) in was) {
+                val view = views[item.id] ?: continue
+                if (from == null) continue
+                view.animate().cancel()
+                view.translationX = from - view.left
+                view.animate().translationX(0f).setDuration(180).setInterpolator(DecelerateInterpolator(2f)).start()
+            }
         }
 
         private fun finish() {
@@ -1529,6 +1633,8 @@ class HomeScreen(
             setTarget(null)
             source?.item?.let { views[it.id]?.visibility = View.VISIBLE }
             workspace.items.forEach { views[it.id]?.visibility = View.VISIBLE }
+            dockGap = null
+            dockArranged = false
             active = false
         }
 
