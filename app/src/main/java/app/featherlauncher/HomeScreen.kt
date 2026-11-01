@@ -416,6 +416,7 @@ class HomeScreen(
             style(TextStyle.Body, p.text)
             setHintTextColor(p.textTertiary)
             hint = defaultName
+            Ui.cursor(this, p.text)
             background = Ui.rounded(activity, p.surfaceHigh, Ui.RADIUS_M)
             setPadding(dp(Ui.SPACE_L), 0, dp(Ui.SPACE_L), 0)
         }

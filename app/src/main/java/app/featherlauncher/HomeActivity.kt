@@ -186,6 +186,7 @@ class HomeActivity : Activity(), HomeScreen.Host {
         window.insetsController?.setSystemBarsAppearance(if (palette.wallpaperIsLight) light else 0, light)
         search.setTextColor(palette.onWall)
         search.setHintTextColor(palette.onWallSecondary)
+        Ui.cursor(search, palette.onWall)
         searchIcon.imageTintList = android.content.res.ColorStateList.valueOf(palette.onWallSecondary)
         searchClear.imageTintList = android.content.res.ColorStateList.valueOf(palette.onWallSecondary)
         searchClear.background = Ui.pressable(this, Ui.RADIUS_PILL, focusColor = palette.onWall)
