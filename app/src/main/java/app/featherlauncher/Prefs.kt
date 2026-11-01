@@ -61,6 +61,11 @@ class Prefs(context: Context) {
         get() = sp.getBoolean("drawer_categories", true)
         set(value) = sp.edit().putBoolean("drawer_categories", value).apply()
 
+    /** Show the typed number as a result row instead of a button beside search. */
+    var searchCallRow: Boolean
+        get() = sp.getBoolean("search_call_row", false)
+        set(value) = sp.edit().putBoolean("search_call_row", value).apply()
+
     /** Hash of the PIN that guards hidden apps; null means no PIN. */
     var hiddenPin: String?
         get() = sp.getString("hidden_pin", null)

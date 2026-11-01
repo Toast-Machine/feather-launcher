@@ -72,6 +72,7 @@ class HomeActivity : Activity(), HomeScreen.Host {
     private var mediaFor: String? = null
     private lateinit var searchIcon: ImageView
     private lateinit var searchClear: ImageView
+    private lateinit var searchCall: ImageView
     private lateinit var categories: Categories
     /** Category chosen with the chips; null is All. */
     private var category: String? = null
@@ -109,6 +110,7 @@ class HomeActivity : Activity(), HomeScreen.Host {
         smartSearch = SmartSearch(this) { startSafely(it) }
         searchIcon = findViewById(R.id.search_icon)
         searchClear = findViewById(R.id.search_clear)
+        searchCall = findViewById(R.id.search_call)
         overlays = Overlays(findViewById(R.id.root)) { palette }
         shortcuts = Shortcuts(this)
         categories = Categories(this)
@@ -190,6 +192,9 @@ class HomeActivity : Activity(), HomeScreen.Host {
         searchIcon.imageTintList = android.content.res.ColorStateList.valueOf(palette.onWallSecondary)
         searchClear.imageTintList = android.content.res.ColorStateList.valueOf(palette.onWallSecondary)
         searchClear.background = Ui.pressable(this, Ui.RADIUS_PILL, focusColor = palette.onWall)
+        searchCall.imageTintList = android.content.res.ColorStateList.valueOf(0xFFFFFFFF.toInt())
+        searchCall.background = Ui.pressable(this, Ui.RADIUS_PILL,
+            Ui.rounded(this, 0xFF2E9E5B.toInt(), Ui.RADIUS_PILL), focusColor = 0xFFFFFFFF.toInt())
         // With the keypad, the search bar (not the text box in it) holds the highlight, with the same
         // ring as everything else; see openSearch.
         findViewById<View>(R.id.search_bar).apply {
@@ -455,6 +460,9 @@ class HomeActivity : Activity(), HomeScreen.Host {
             true
         }
         searchClear.setOnClickListener { search.setText("") }
+        searchCall.setOnClickListener {
+            search.text.toString().trim().takeIf { pick == null && it.matches(DIALABLE) }?.let(::call)
+        }
         findViewById<View>(R.id.drawer_search).setOnClickListener { openSearch() }
         findViewById<View>(R.id.drawer_more).setOnClickListener { appListMenu(it) }
 
@@ -622,7 +630,7 @@ class HomeActivity : Activity(), HomeScreen.Host {
     }
 
     private fun setPanelLook() {
-        findViewById<View>(R.id.search_bar).visibility = if (searching) View.VISIBLE else View.GONE
+        findViewById<View>(R.id.search_header).visibility = if (searching) View.VISIBLE else View.GONE
         findViewById<View>(R.id.drawer_header).visibility = if (searching) View.GONE else View.VISIBLE
         // Both panels sit on the same see-through wallpaper tint.
         drawer.setBackgroundColor(palette.searchScrim)
@@ -752,7 +760,7 @@ class HomeActivity : Activity(), HomeScreen.Host {
 
     private fun updateResults(keepFocus: Boolean = true) {
         if (!::adapter.isInitialized) return
-        val key = "$searching|$showingHidden|$category|$chipCategory|${search.text}|${prefs.drawerCategories}"
+        val key = "$searching|$showingHidden|$category|$chipCategory|${search.text}|${prefs.drawerCategories}|${prefs.searchCallRow}"
         // Results arrive in stages (contacts, shortcuts, files); each refresh rebuilds the rows,
         // so the highlighted item is found again afterwards instead of being lost.
         val focused = currentFocus?.takeIf { keepFocus && isInside(it, list) }
@@ -890,8 +898,12 @@ class HomeActivity : Activity(), HomeScreen.Host {
         }
         fun <T> limit(key: String, list: List<T>, n: Int) = if (key in expanded) list else list.take(n)
 
-        // Numbers typed in search can be called straight away, like on a dial pad.
-        if (!pickingApp && raw.matches(DIALABLE)) {
+        val dialable = !pickingApp && raw.matches(DIALABLE)
+        val showCallButton = dialable && !prefs.searchCallRow
+        if (!showCallButton && searchCall.hasFocus()) findViewById<View>(R.id.search_bar).requestFocusFromTouch()
+        searchCall.visibility = if (showCallButton) View.VISIBLE else View.GONE
+        searchCall.contentDescription = "Call $raw"
+        if (dialable && prefs.searchCallRow) {
             rows += DrawerAdapter.Row.Dial(raw)
             sections++
         }
@@ -1774,7 +1786,7 @@ class HomeActivity : Activity(), HomeScreen.Host {
 
     /**
      * Left or right in a panel: only to something in the same row, never up or down. In the
-     * search bar, right goes to its clear button and left comes back.
+     * search bar, right steps through Clear and Call and left comes back.
      */
     private fun moveSideways(direction: Int) {
         val from = currentFocus
@@ -1782,12 +1794,9 @@ class HomeActivity : Activity(), HomeScreen.Host {
         // beginning too, as up and down do.
         if (from == null || from === list || from === focusPark) return moveInList(true)
         val bar = findViewById<View>(R.id.search_bar)
-        if (from === bar && direction == View.FOCUS_RIGHT) {
-            if (searchClear.visibility == View.VISIBLE) searchClear.requestFocusFromTouch()
-            return
-        }
-        if (from === searchClear && direction == View.FOCUS_LEFT) {
-            bar.requestFocusFromTouch()
+        if (from === bar || from === searchCall || from === searchClear) {
+            val stops = listOf(bar, searchClear, searchCall).filter { it.visibility == View.VISIBLE }
+            stops.getOrNull(stops.indexOf(from) + if (direction == View.FOCUS_RIGHT) 1 else -1)?.requestFocusFromTouch()
             return
         }
         // A row with its own buttons (a contact): right steps onto them one by one, left comes back.
