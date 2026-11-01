@@ -29,7 +29,7 @@ object WidgetSheet {
         var id = -90_000L
         val views = samples.associateWith { s ->
             // Only the sizes it can be made.
-            (s.kind.minH..Workspace.ROWS).flatMap { h -> (s.kind.minW..Workspace.COLS).map { w -> w to h } }.map { (w, h) ->
+            (s.kind.minH..minOf(s.kind.maxH, Workspace.ROWS)).flatMap { h -> (s.kind.minW..Workspace.COLS).map { w -> w to h } }.map { (w, h) ->
                 val item = HomeItem(id--, 0, 0, 0, w, h, HomeItem.Type.CLOCK, s.kind.ref)
                 val view = CardWidget.create(context, item) ?: ClockWidget(context, item)
                 when (view) {

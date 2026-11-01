@@ -1696,7 +1696,8 @@ class HomeScreen(
         finishResize()
         val view = views[item.id] ?: return
         val min = if (item.type == HomeItem.Type.WIDGET) widgets.minSpan(item.ref.toInt()) else FeatherKind.of(item).let { it.minW to it.minH }
-        val frame = ResizeFrame(item, view, min)
+        val maxRows = if (item.type == HomeItem.Type.WIDGET) Workspace.ROWS else FeatherKind.of(item).maxH
+        val frame = ResizeFrame(item, view, min, maxRows)
         root.addView(frame, FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT))
         frame.toolbar = widgetToolbar(item).also {
             root.addView(it, FrameLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT))
@@ -1767,6 +1768,8 @@ class HomeScreen(
         val item: HomeItem,
         val view: View,
         val min: Pair<Int, Int>,
+        /** The most rows it can take. */
+        val maxRows: Int,
     ) : View(activity) {
         var toolbar: View? = null
         private val stroke = Paint(Paint.ANTI_ALIAS_FLAG).apply {
@@ -1799,8 +1802,11 @@ class HomeScreen(
             }
             canvas.drawRoundRect(b, radius, radius, stroke)
             val r = dp(7).toFloat()
-            handles(b).forEach { (x, y) -> canvas.drawCircle(x, y, r, knob) }
+            handles(b).forEachIndexed { i, (x, y) -> if (i % 2 == 0 || tall) canvas.drawCircle(x, y, r, knob) }
         }
+
+        /** It can be made taller or shorter: the top and bottom handles show. */
+        private val tall get() = min.second < maxRows
 
         private fun handles(b: RectF) = listOf(
             b.left to b.centerY(), b.centerX() to b.top, b.right to b.centerY(), b.centerX() to b.bottom,
@@ -1832,7 +1838,7 @@ class HomeScreen(
             when (ev.actionMasked) {
                 MotionEvent.ACTION_DOWN -> {
                     passThrough = false
-                    val hit = handles(bounds()).indexOfFirst { (x, y) -> hypot(ev.x - x, ev.y - y) < dp(32) }
+                    val hit = handles(bounds()).withIndex().indexOfFirst { (i, at) -> (i % 2 == 0 || tall) && hypot(ev.x - at.first, ev.y - at.second) < dp(32) }
                     if (hit >= 0) {
                         handle = hit
                         return true
@@ -1856,7 +1862,7 @@ class HomeScreen(
         /** With the keypad: right and down make it bigger by a cell, left and up smaller. */
         fun step(dw: Int, dh: Int) {
             val w = (item.w + dw).coerceIn(min.first, Workspace.COLS - item.x)
-            val h = (item.h + dh).coerceIn(min.second, Workspace.ROWS - item.y)
+            val h = (item.h + dh).coerceIn(min.second, minOf(maxRows, Workspace.ROWS - item.y))
             setSpan(item.x, item.y, w, h)
         }
 
@@ -1871,9 +1877,9 @@ class HomeScreen(
             var h = item.h
             when (handle) {
                 0 -> { val right = x + w; x = gx.coerceIn(0, right - min.first); w = right - x }
-                1 -> { val bottom = y + h; y = gy.coerceIn(0, bottom - min.second); h = bottom - y }
+                1 -> { val bottom = y + h; y = gy.coerceIn(maxOf(0, bottom - maxRows), bottom - min.second); h = bottom - y }
                 2 -> w = (gx - x).coerceIn(min.first, Workspace.COLS - x)
-                3 -> h = (gy - y).coerceIn(min.second, Workspace.ROWS - y)
+                3 -> h = (gy - y).coerceIn(min.second, minOf(maxRows, Workspace.ROWS - y))
             }
             setSpan(x, y, w, h)
         }

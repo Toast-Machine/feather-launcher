@@ -20,11 +20,12 @@ import java.util.Date
 /**
  * Feather's own widgets: the clock, and the ones on cards. [ref] is the [HomeItem.ref] that says
  * which; [about] says what it's for. [minW] by [minH] cells is the smallest it can be made: it
- * looks right at every size from there up.
+ * looks right at every size from there up, to [maxH] rows.
  */
-enum class FeatherKind(val ref: String, val label: String, val w: Int, val h: Int, val about: String, val minW: Int = 2, val minH: Int = 1) {
+enum class FeatherKind(val ref: String, val label: String, val w: Int, val h: Int, val about: String, val minW: Int = 2, val minH: Int = 1, val maxH: Int = Int.MAX_VALUE) {
     CLOCK("", "Clock", 4, 2, "The time, the date and what's coming up"),
-    UP_NEXT("upnext", "Up next", 4, 1, "Your next event, zman and alarm, with the weather now"),
+    // One row only, as Google's At a Glance: taller, it's mostly empty card.
+    UP_NEXT("upnext", "Up next", 4, 1, "Your next event, zman and alarm, with the weather now", maxH = 1),
     CALENDAR("agenda", "Calendar", 4, 2, "Your upcoming events", minH = 2),
     WEATHER("weather", "Weather", 4, 2, "Current weather with hourly and daily forecasts"),
     MEDIA("media", "Now playing", 4, 1, "Play, pause and skip whatever's playing"),
