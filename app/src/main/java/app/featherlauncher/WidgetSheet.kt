@@ -40,30 +40,36 @@ object WidgetSheet {
                 (w to h) to view
             }
         }
-        // Laid out once, they settle what fits (some work it out after their first layout).
+        // Every piece of work is its own short turn on the main thread (refreshing one widget,
+        // drawing one), and saving a picture is done off it, so the home screen keeps answering
+        // touches the whole time. Some widgets work out what fits after their first layout, so
+        // each is laid out again before it's drawn.
         val main = Handler(Looper.getMainLooper())
-        main.postDelayed({
-            val folder = java.io.File(context.getExternalFilesDir(null), "widgets").apply { mkdirs() }
-            views.forEach { (s, list) ->
-                list.forEach { (_, v) ->
-                    (v as? CardWidget)?.refresh()
-                    (v as? ClockWidget)?.refresh()
-                    lay(v, v.width, v.height)
-                }
+        val folder = java.io.File(context.getExternalFilesDir(null), "widgets").apply { mkdirs() }
+        val steps = ArrayDeque<((next: () -> Unit) -> Unit)>()
+        views.values.flatten().forEach { (_, v) ->
+            steps += { next ->
+                (v as? CardWidget)?.refresh()
+                (v as? ClockWidget)?.refresh()
+                lay(v, v.width, v.height)
+                next()
             }
-            // One picture at a time, each drawn on its own turn and saved off the main thread, so the
-            // home screen keeps answering touches meanwhile.
-            val queue = ArrayDeque(views.entries.toList())
-            fun next() {
-                val (sample, list) = queue.removeFirstOrNull() ?: return done(folder.path)
-                val sheet = draw(list, cellW, cellH)
+        }
+        views.forEach { (sample, list) ->
+            val sheet = Sheet(list, cellW, cellH)
+            list.forEach { (size, v) -> steps += { next -> sheet.draw(size, v); next() } }
+            steps += { next ->
                 Thread {
-                    java.io.File(folder, "${sample.name}.png").outputStream().use { sheet.compress(Bitmap.CompressFormat.PNG, 100, it) }
-                    main.post { next() }
+                    java.io.File(folder, "${sample.name}.png").outputStream().use { sheet.bitmap.compress(Bitmap.CompressFormat.PNG, 100, it) }
+                    next()
                 }.start()
             }
-            main.postDelayed({ next() }, 500)
-        }, 1500)
+        }
+        fun next() {
+            val step = steps.removeFirstOrNull()
+            main.post { if (step != null) step(::next) else done(folder.path) }
+        }
+        main.postDelayed({ next() }, 1500)
     }
 
     private fun lay(view: View, w: Int, h: Int) {
@@ -72,34 +78,38 @@ object WidgetSheet {
     }
 
     /** One row per height, the widths side by side, each on a slice of sky like a wallpaper, with its size above it. */
-    private fun draw(list: List<Pair<Pair<Int, Int>, View>>, cellW: Float, cellH: Float): Bitmap {
-        val gap = 24
-        val label = 28
-        val rows = list.groupBy { it.first.second }
-        val width = (1..Workspace.COLS).sumOf { (it * cellW).toInt() + gap } + gap
-        val height = rows.keys.sumOf { (it * cellH).toInt() + label + gap } + gap
-        val sheet = Bitmap.createBitmap(width, height, Bitmap.Config.ARGB_8888)
-        val canvas = Canvas(sheet)
-        canvas.drawColor(0xFF20242C.toInt())
-        val text = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = -1; textSize = 20f }
-        val sky = Paint().apply {
-            shader = android.graphics.LinearGradient(0f, 0f, 0f, height.toFloat(), 0xFF8FB4E3.toInt(), 0xFF3F6FB5.toInt(), android.graphics.Shader.TileMode.CLAMP)
-        }
-        var y = gap
-        rows.toSortedMap().forEach { (h, row) ->
-            var x = gap
-            row.sortedBy { it.first.first }.forEach { (size, v) ->
-                canvas.drawText("${size.first} × ${size.second}", x.toFloat(), (y + 20).toFloat(), text)
-                val top = y + label
-                canvas.drawRect(x.toFloat(), top.toFloat(), (x + v.width).toFloat(), (top + v.height).toFloat(), sky)
-                canvas.save()
-                canvas.translate(x.toFloat(), top.toFloat())
-                v.draw(canvas)
-                canvas.restore()
-                x += (size.first * cellW).toInt() + gap
+    private class Sheet(list: List<Pair<Pair<Int, Int>, View>>, private val cellW: Float, private val cellH: Float) {
+        private val gap = 24
+        private val label = 28
+        private val heights = list.map { it.first.second }.distinct().sorted()
+        private val minW = list.minOf { it.first.first }
+        val bitmap: Bitmap
+        private val canvas: Canvas
+        private val text = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = -1; textSize = 20f }
+        private val sky: Paint
+
+        init {
+            val width = (1..Workspace.COLS).sumOf { (it * cellW).toInt() + gap } + gap
+            val height = heights.sumOf { (it * cellH).toInt() + label + gap } + gap
+            bitmap = Bitmap.createBitmap(width, height, Bitmap.Config.ARGB_8888)
+            canvas = Canvas(bitmap)
+            canvas.drawColor(0xFF20242C.toInt())
+            sky = Paint().apply {
+                shader = android.graphics.LinearGradient(0f, 0f, 0f, height.toFloat(), 0xFF8FB4E3.toInt(), 0xFF3F6FB5.toInt(), android.graphics.Shader.TileMode.CLAMP)
             }
-            y += (h * cellH).toInt() + label + gap
         }
-        return sheet
+
+        fun draw(size: Pair<Int, Int>, v: View) {
+            val (w, h) = size
+            val x = gap + (minW until w).sumOf { (it * cellW).toInt() + gap }
+            val y = gap + heights.takeWhile { it < h }.sumOf { (it * cellH).toInt() + label + gap }
+            canvas.drawText("$w × $h", x.toFloat(), (y + 20).toFloat(), text)
+            val top = y + label
+            canvas.drawRect(x.toFloat(), top.toFloat(), (x + v.width).toFloat(), (top + v.height).toFloat(), sky)
+            canvas.save()
+            canvas.translate(x.toFloat(), top.toFloat())
+            v.draw(canvas)
+            canvas.restore()
+        }
     }
 }
