@@ -202,10 +202,6 @@ class Prefs(context: Context) {
         get() = sp.getBoolean("glance_alarm", true)
         set(value) = sp.edit().putBoolean("glance_alarm", value).apply()
 
-    var glanceMissed: Boolean
-        get() = sp.getBoolean("glance_missed", true)
-        set(value) = sp.edit().putBoolean("glance_missed", value).apply()
-
     var clockZman: Boolean
         get() = sp.getBoolean("clock_zman", true)
         set(value) = sp.edit().putBoolean("clock_zman", value).apply()

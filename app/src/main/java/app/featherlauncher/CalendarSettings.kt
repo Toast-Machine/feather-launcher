@@ -115,19 +115,17 @@ class CalendarSettings(private val s: SettingsActivity) {
         content.addView(s.spacer())
         content.addView(Components.group(s, p, listOfNotNull(
             toggle(R.drawable.ic_calendar, "Next event", prefs.clockEvent) { prefs.clockEvent = it },
-            if (jewish) toggle(R.drawable.ic_sunset, "Candle lighting", prefs.glanceCandles) { prefs.glanceCandles = it } else null,
-            toggle(R.drawable.ic_phone_call, "Missed calls and messages", prefs.glanceMissed) { prefs.glanceMissed = it },
             toggle(R.drawable.ic_time, "Next alarm", prefs.glanceAlarm) { prefs.glanceAlarm = it },
+            if (jewish) toggle(R.drawable.ic_sunset, "Candle lighting", prefs.glanceCandles) { prefs.glanceCandles = it } else null,
             if (jewish) toggle(R.drawable.ic_calendar, "Coming holidays", prefs.glanceUpcoming) { prefs.glanceUpcoming = it } else null,
             toggle(R.drawable.ic_time, if (zmanim) "Next zman" else "Next sunrise or sunset", prefs.clockZman) { prefs.clockZman = it },
         )))
         content.addView(Components.footnote(s, p, buildString {
-            append("The clock shows the two most pressing under the time. Up next shows as many as fit, without missed calls and messages.")
+            append("Up next shows the most pressing of these. The clock shows two under the time, but not events or the alarm.")
             if (jewish) append(" Candle lighting shows on Friday and Erev Yom Tov.")
             append(" The alarm shows in the evening.")
         }))
         if (prefs.clockEvent && !granted(Manifest.permission.READ_CALENDAR)) needs(p, Setup.items.first { it.title == "Calendar" })
-        if (prefs.glanceMissed && !NotificationService.isEnabled(s)) needs(p, Setup.NOTIFICATIONS)
     }
 
     /** Where the phone is, or a city searched for by name. */

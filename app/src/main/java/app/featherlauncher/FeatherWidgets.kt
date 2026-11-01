@@ -176,8 +176,7 @@ abstract class CardWidget(context: Context, val item: HomeItem) : FrameLayout(co
  * the weather now in a tile on the right. On a card (Solid) or straight on the wallpaper
  * (Transparent). It grows no taller than [MAX_HEIGHT]: in a bigger space it sits centred, as
  * Google's and the clock do. With nothing coming up, it shows the day; without a location,
- * where to choose one. Missed calls and messages stay on the clock: they've already
- * happened.
+ * where to choose one.
  */
 @SuppressLint("ViewConstructor")
 class UpNextWidget(context: Context, item: HomeItem) : CardWidget(context, item) {
@@ -220,7 +219,7 @@ class UpNextWidget(context: Context, item: HomeItem) : CardWidget(context, item)
         val quiet = if (solid) WidgetStyle.onCardQuiet() else WidgetStyle.SOFT_WHITE
         val now = System.currentTimeMillis()
         val lines = glance.lines(now) { if (isAttachedToWindow) refresh() }
-        val coming = lines.coming.filter { it.tap != Glance.Tap.CALLS && it.tap != Glance.Tap.MESSAGES }
+        val coming = lines.coming
         val first = coming.firstOrNull()
 
         val (icon, title, detail) = when {

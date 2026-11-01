@@ -259,10 +259,6 @@ class HomeScreen(
                 host.startSafely(Intent(Intent.ACTION_VIEW, ContentUris.withAppendedId(CalendarContract.Events.CONTENT_URI, e.id)))
             }
             Glance.Tap.ALARMS -> host.startSafely(Intent(AlarmClock.ACTION_SHOW_ALARMS))
-            Glance.Tap.CALLS -> host.startSafely(Intent(Intent.ACTION_VIEW).setType(android.provider.CallLog.Calls.CONTENT_TYPE))
-            // The phone's messages app.
-            Glance.Tap.MESSAGES -> android.provider.Telephony.Sms.getDefaultSmsPackage(activity)
-                ?.let { activity.packageManager.getLaunchIntentForPackage(it) }?.let(host::startSafely)
         }
     }
 

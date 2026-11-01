@@ -14,7 +14,7 @@ import java.util.Date
  */
 class Glance(private val context: Context) {
     /** What tapping something does. */
-    enum class Tap { ZMANIM, EVENT, ALARMS, CALLS, MESSAGES }
+    enum class Tap { ZMANIM, EVENT, ALARMS }
 
     /**
      * One thing coming up; lower [rank] is more pressing. [name] and [at] ("in 25 min", "5:42 PM")
@@ -78,21 +78,10 @@ class Glance(private val context: Context) {
             }
         }
 
-        // In the last hour before shkiah (the end of Mincha), it comes before messages and the like.
+        // In the last hour before shkiah (the end of Mincha), it comes before the alarm and the like.
         val shkiahSoon = prefs.clockZman && sunset != null && now < sunset && sunset - now <= HOUR
         if (shkiahSoon) coming += Item(R.drawable.ic_sunset, "Shkiah", placeTime.format(Date(sunset!!)), Tap.ZMANIM, 2,
             time = sunset, clock = placeTime.format(Date(sunset)))
-
-        if (prefs.glanceMissed) {
-            val calls = NotificationBadges.missedCalls
-            val texts = NotificationBadges.messages
-            val parts = listOfNotNull(
-                calls.takeIf { it > 0 }?.let { if (it == 1) "1 missed call" else "$it missed calls" },
-                texts.takeIf { it > 0 }?.let { if (it == 1) "1 message" else "$it messages" },
-            )
-            if (parts.isNotEmpty()) coming += Item(if (calls > 0) R.drawable.ic_phone_call else R.drawable.ic_message,
-                parts.joinToString(" · "), null, if (calls > 0) Tap.CALLS else Tap.MESSAGES, 3)
-        }
 
         // Tonight's alarm, once it's evening.
         if (prefs.glanceAlarm) {
