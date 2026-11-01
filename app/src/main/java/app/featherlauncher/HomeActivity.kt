@@ -974,8 +974,9 @@ class HomeActivity : Activity(), HomeScreen.Host {
             }
         }
 
-        // Numbers typed in search can be called straight away, like on a dial pad.
-        if (shows(SearchSection.CALL) && raw.length >= 3 && raw.matches(DIALABLE)) {
+        // A phone number typed in search can be called straight away, like on a dial pad. Shorter
+        // digits are most likely T9 for a name; the Call key still calls them.
+        if (shows(SearchSection.CALL) && raw.matches(DIALABLE) && (raw.length >= 7 || raw[0] in "+*#")) {
             title(SearchSection.CALL.title)
             val number = android.telephony.PhoneNumberUtils.formatNumber(raw, java.util.Locale.getDefault().country) ?: raw
             rows += DrawerAdapter.Row.Result(Found(number, "Call this number", "call:$raw", iconRes = R.drawable.ic_phone_call) { call(raw) })
