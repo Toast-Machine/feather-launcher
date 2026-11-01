@@ -91,8 +91,53 @@ class WidgetView(context: Context) : AppWidgetHostView(context) {
         }
     }
 
+    /**
+     * The widget draws nothing around its edges: it's straight on the wallpaper, with no card,
+     * so it has no name under it (see [CellLayout.widgetRect]). Worked out from what it draws,
+     * whenever that changes.
+     */
+    var bare = false
+        private set
+    var onBareChanged: (() -> Unit)? = null
+
+    private val checkBare = Runnable {
+        val inner = getChildAt(0) ?: return@Runnable
+        if (inner.width <= 0 || inner.height <= 0) return@Runnable
+        // A small picture of it is enough: how much of a band around its edges is see-through.
+        val scale = 0.25f
+        val w = (inner.width * scale).toInt().coerceAtLeast(1)
+        val h = (inner.height * scale).toInt().coerceAtLeast(1)
+        val picture = android.graphics.Bitmap.createBitmap(w, h, android.graphics.Bitmap.Config.ARGB_8888)
+        val drawn = runCatching {
+            android.graphics.Canvas(picture).apply { scale(scale, scale) }.let(inner::draw)
+        }.isSuccess
+        if (!drawn) return@Runnable picture.recycle()
+        val band = (minOf(w, h) * 0.12f).toInt().coerceAtLeast(1)
+        var edge = 0
+        var clear = 0
+        for (y in 0 until h) for (x in 0 until w) {
+            if (x >= band && x < w - band && y >= band && y < h - band) continue
+            edge++
+            if (android.graphics.Color.alpha(picture.getPixel(x, y)) < 32) clear++
+        }
+        picture.recycle()
+        val next = edge > 0 && clear > edge * 0.85f
+        if (next != bare) {
+            bare = next
+            onBareChanged?.invoke()
+        }
+    }
+
+    override fun updateAppWidget(remoteViews: android.widget.RemoteViews?) {
+        super.updateAppWidget(remoteViews)
+        removeCallbacks(checkBare)
+        postDelayed(checkBare, 300)
+    }
+
     override fun onSizeChanged(w: Int, h: Int, oldw: Int, oldh: Int) {
         super.onSizeChanged(w, h, oldw, oldh)
+        removeCallbacks(checkBare)
+        postDelayed(checkBare, 300)
         // Tell the widget its real size so it can pick a layout that fits.
         if (w > 0 && h > 0) {
             val density = resources.displayMetrics.density

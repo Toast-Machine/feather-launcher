@@ -358,6 +358,7 @@ class HomeScreen(
             isFocusable = true
             foreground = Ui.focusRing(activity, Ui.RADIUS_L, 0xFFFFFFFF.toInt())
             onLongPress = { onItemLongPress(item, this) }
+            onBareChanged = { name(item, this) }
             // Holding OK on it with the keypad (a touch hold is caught above).
             setOnLongClickListener { if (it.isInTouchMode) false else { onItemLongPress(item, it); true } }
             // OK on it with the keypad opens its app: a widget's own buttons can't be reached with
@@ -372,11 +373,12 @@ class HomeScreen(
     }?.also { name(item, it) }
 
     /**
-     * A widget's name under it, as an app's. One straight on the wallpaper (Transparent) has
-     * none: with no card, there's nothing for it to name, and the widget takes its room.
+     * A widget's name under it, as an app's. One straight on the wallpaper (Transparent, or
+     * another app's with nothing around its edges) has none: with no card, there's nothing for
+     * it to name, and the widget takes its room.
      */
     private fun name(item: HomeItem, view: View) {
-        val bare = (view as? ClockWidget)?.solid == false || (view as? UpNextWidget)?.solid == false
+        val bare = (view as? ClockWidget)?.solid == false || (view as? UpNextWidget)?.solid == false || (view as? WidgetView)?.bare == true
         view.setTag(R.id.home_name, if (bare) null else widgetName(item))
         view.setTag(R.id.home_bare, bare)
         (view.parent as? View)?.apply { requestLayout(); invalidate() }
