@@ -1670,6 +1670,8 @@ class HomeScreen(
                 inside = null
             } else {
                 // Text that scrolls (an opened notification's) scrolls first; at its end, the highlight moves on.
+                // A notification's line takes left and right, to clear it.
+                if ((from as? SwipesAway)?.swipeAway(direction) == true) return true
                 if (!scrollIn(from, direction)) nearest(from, parts - from, direction)?.requestFocusFromTouch()
                 return true
             }

@@ -18,11 +18,16 @@ import android.text.style.ForegroundColorSpan
 import android.text.style.TypefaceSpan
 import android.view.Gravity
 import android.view.View
+import android.view.MotionEvent
+import android.view.VelocityTracker
+import android.view.ViewConfiguration
 import android.view.ViewGroup
 import android.widget.ImageView
 import android.widget.LinearLayout
 import android.widget.ScrollView
 import android.widget.TextView
+import kotlin.math.abs
+import kotlin.math.sign
 
 /**
  * The notifications showing now, in the order Android's own shade puts them. Kept up to date
@@ -61,6 +66,12 @@ object ActiveNotifications {
     private fun changed() = listeners.toList().forEach { it() }
 }
 
+/** Something in a widget that the keypad's left or right sends away (a notification, cleared). */
+interface SwipesAway {
+    /** Returns true when it took the key. */
+    fun swipeAway(direction: Int): Boolean
+}
+
 /** One notification, as the widget and the sheet show it. */
 class Note(private val context: Context, val sbn: StatusBarNotification) {
     private val n = sbn.notification
@@ -79,6 +90,8 @@ class Note(private val context: Context, val sbn: StatusBarNotification) {
         n.extras.getString(Notification.EXTRA_TEMPLATE)?.contains("MediaStyle") == true
     /** One with buttons, which opens up in the widget to show them. */
     val expandable = actions.isNotEmpty()
+    /** Whether it can be cleared: not one an app keeps showing, such as music that's playing. */
+    val clearable = sbn.isClearable
 
     fun icon(): Drawable? = runCatching { context.packageManager.getApplicationIcon(sbn.packageName) }.getOrNull()
     /** The picture an app puts on it: album art, a contact's photo. */
@@ -98,6 +111,10 @@ class Note(private val context: Context, val sbn: StatusBarNotification) {
         }
         if (n.flags and Notification.FLAG_AUTO_CANCEL != 0) runCatching { NotificationService.running?.cancelNotification(key) }
     }
+
+    /** Clears it, as swiping it away in the shade does. Returns false when it can't be. */
+    fun clear(): Boolean = clearable &&
+        NotificationService.running?.let { runCatching { it.cancelNotification(key) }.isSuccess } == true
 
     /** Presses one of its buttons. A reply needs typing, which its app is for. */
     fun press(a: Notification.Action) {
@@ -130,7 +147,8 @@ class Note(private val context: Context, val sbn: StatusBarNotification) {
  * The notifications showing, a line each: its title and text, cut short with … when it's long.
  * A tap opens its app; one with buttons, or more text than fits, has a › and opens up instead,
  * filling the card with all of its text (scrolling, if it must) and its buttons. When they don't all fit,
- * the last line says how many more, and opens them all in a sheet.
+ * the last line says how many more, and opens them all in a sheet. Swiping a line to the side,
+ * or left or right on the keypad, clears it.
  */
 @SuppressLint("ViewConstructor")
 class NotificationsWidget(context: Context, item: HomeItem) : CardWidget(context, item) {
@@ -143,6 +161,8 @@ class NotificationsWidget(context: Context, item: HomeItem) : CardWidget(context
 
     /** The one open to show its buttons, if any. */
     private var expanded: String? = null
+    /** Where the keypad goes once the line it was on is cleared. */
+    private var refocus: String? = null
     private val changed = { refresh() }
 
     override fun onAttachedToWindow() {
@@ -173,7 +193,9 @@ class NotificationsWidget(context: Context, item: HomeItem) : CardWidget(context
         setOnClickListener { if (expanded == null) onMore?.invoke() }
         // One column filling the card, so the card's own column never leaves it out.
         content.addView(if (open != null) expandedView(open) else listView(all), LayoutParams(LayoutParams.MATCH_PARENT, LayoutParams.MATCH_PARENT))
-        focused?.let { tag -> findViewWithTag<View>(tag)?.requestFocusFromTouch() }
+        // One cleared with the keypad hands the highlight to the line that took its place.
+        (focused?.let { findViewWithTag<View>(it) } ?: refocus?.let { findViewWithTag<View>(it) })?.requestFocusFromTouch()
+        refocus = null
         onRebuilt?.invoke()
     }
 
@@ -221,7 +243,7 @@ class NotificationsWidget(context: Context, item: HomeItem) : CardWidget(context
      * A line: the app's icon, then the title and its text, cut short with … when it's long, then
      * when. One with buttons, or text that doesn't fit, has a › after the time, and opens up.
      */
-    private inner class Row(val note: Note) : LinearLayout(context) {
+    private inner class Row(val note: Note) : LinearLayout(context), SwipesAway {
         private val words = WidgetStyle.cardText(context, 14f, WidgetStyle.body, WidgetStyle.onCardQuiet()).apply {
             text = styled(note.title.ifEmpty { note.app }, note.text)
         }
@@ -244,6 +266,88 @@ class NotificationsWidget(context: Context, item: HomeItem) : CardWidget(context
             addView(words, LayoutParams(0, LayoutParams.WRAP_CONTENT, 1f))
             addView(time, LayoutParams(LayoutParams.WRAP_CONTENT, LayoutParams.WRAP_CONTENT).apply { marginStart = dp(8) })
             addView(more, LayoutParams(dp(18), dp(18)).apply { marginStart = dp(8) })
+        }
+
+        // Swiping it to either side clears it, as in the shade; one that can't be cleared stays,
+        // and the swipe is the page's.
+        private val slop = ViewConfiguration.get(context).scaledTouchSlop
+        private var downX = 0f
+        private var downY = 0f
+        private var swiping = false
+        private var velocity: VelocityTracker? = null
+
+        override fun onTouchEvent(ev: MotionEvent): Boolean {
+            if (!note.clearable) return super.onTouchEvent(ev)
+            velocity = (velocity ?: VelocityTracker.obtain()).also { it.addMovement(ev) }
+            // Raw positions: the row itself moves under the finger.
+            val dx = ev.rawX - downX
+            val dy = ev.rawY - downY
+            when (ev.actionMasked) {
+                MotionEvent.ACTION_DOWN -> {
+                    downX = ev.rawX
+                    downY = ev.rawY
+                    swiping = false
+                    // Sideways is the row's until the finger shows it's going up or down instead;
+                    // otherwise the pages would take it first.
+                    parent.requestDisallowInterceptTouchEvent(true)
+                }
+                MotionEvent.ACTION_MOVE -> if (!swiping) {
+                    if (abs(dx) > slop && abs(dx) > abs(dy)) {
+                        swiping = true
+                        // No tap, press or hold once it's a swipe.
+                        val cancel = MotionEvent.obtain(ev).apply { action = MotionEvent.ACTION_CANCEL }
+                        super.onTouchEvent(cancel)
+                        cancel.recycle()
+                    } else if (abs(dy) > slop) {
+                        parent.requestDisallowInterceptTouchEvent(false)
+                    }
+                }
+                MotionEvent.ACTION_UP, MotionEvent.ACTION_CANCEL -> {
+                    val vx = velocity?.let { it.computeCurrentVelocity(1000); it.xVelocity } ?: 0f
+                    velocity?.recycle()
+                    velocity = null
+                    if (swiping) {
+                        swiping = false
+                        val flung = abs(vx) > dp(FLING) && sign(vx) == sign(dx)
+                        if (ev.actionMasked == MotionEvent.ACTION_UP && (abs(dx) > width / 3 || flung)) {
+                            away(if (dx > 0) 1 else -1, keypad = false)
+                        } else {
+                            animate().translationX(0f).alpha(1f).setDuration(150).start()
+                        }
+                        return true
+                    }
+                }
+            }
+            if (swiping) {
+                translationX = dx
+                alpha = 1f - (abs(dx) / width).coerceIn(0f, 0.8f)
+                return true
+            }
+            return super.onTouchEvent(ev)
+        }
+
+        override fun swipeAway(direction: Int): Boolean {
+            if (direction != View.FOCUS_LEFT && direction != View.FOCUS_RIGHT) return false
+            // Left or right on one that can't be cleared does nothing, rather than leaving the widget.
+            if (note.clearable) away(if (direction == View.FOCUS_RIGHT) 1 else -1, keypad = true)
+            return true
+        }
+
+        /** Slides off to the [side] (1 right, -1 left) and clears it; it slides back if it can't be. */
+        private fun away(side: Int, keypad: Boolean) {
+            if (keypad) {
+                // The highlight goes to the next line, or the one before when it was the last.
+                val rows = (parent as ViewGroup).let { p -> (0 until p.childCount).map(p::getChildAt) }
+                    .filter { it.visibility == View.VISIBLE && it.isClickable }
+                val i = rows.indexOf(this)
+                refocus = (rows.getOrNull(i + 1) ?: rows.getOrNull(i - 1))?.tag as? String
+            }
+            animate().translationX(side * width.toFloat()).alpha(0f).setDuration(180).withEndAction {
+                if (!note.clear()) {
+                    refocus = null
+                    animate().translationX(0f).alpha(1f).setDuration(150).start()
+                }
+            }.start()
         }
 
         override fun onMeasure(widthMeasureSpec: Int, heightMeasureSpec: Int) {
@@ -395,6 +499,8 @@ class NotificationsWidget(context: Context, item: HomeItem) : CardWidget(context
         const val ROW_PAD = 6
         /** A row's app icon. */
         const val ICON = 20
+        /** How fast a swipe (dp a second) clears a row however short it is. */
+        const val FLING = 1000
     }
 }
 
