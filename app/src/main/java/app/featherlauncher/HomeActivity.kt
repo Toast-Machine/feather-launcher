@@ -1932,10 +1932,13 @@ class HomeActivity : Activity(), HomeScreen.Host {
                 var row: View = focused
                 while (row.parent !== list) row = row.parent as? View ?: return
                 val step = if (down) 1 else -1
-                var target = list.getPositionForView(row) + step
+                val at = list.getPositionForView(row)
+                var target = at + step
                 while (target in 0 until adapter.count && !canFocusRow(target)) target += step
+                // From "Show more" on the right, on to the row's first item on the left.
+                val fromX = if (adapter.getItem(at) is DrawerAdapter.Row.Title) 0 else x
                 when {
-                    target in 0 until adapter.count -> focusRow(target, x, down)
+                    target in 0 until adapter.count -> focusRow(target, fromX, down)
                     down -> focusSelectedIn(findViewById(R.id.tabs_scroll))
                     chipsScroll.visibility == View.VISIBLE -> focusSelectedIn(chipsScroll)
                     // In Smart Search, above the results is the search bar.
@@ -1946,7 +1949,7 @@ class HomeActivity : Activity(), HomeScreen.Host {
         }
     }
 
-    /** Rows the arrows stop on: not dividers, and only section titles with "Show more". */
+    /** Rows the arrows stop on: not dividers, and section titles only for their "Show more" button. */
     private fun canFocusRow(position: Int) = when (val row = adapter.getItem(position)) {
         is DrawerAdapter.Row.Title -> row.action != null
         DrawerAdapter.Row.Divider -> false

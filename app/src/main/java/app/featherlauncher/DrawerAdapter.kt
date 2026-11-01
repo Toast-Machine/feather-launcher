@@ -99,11 +99,10 @@ class DrawerAdapter(
                         style(TextStyle.Label, p.onWall)
                         setTextSize(TypedValue.COMPLEX_UNIT_SP, 13f)
                         setPadding(dp(Ui.SPACE_M), dp(6), dp(Ui.SPACE_M), dp(6))
+                        background = Ui.pressable(context, Ui.RADIUS_PILL, focusColor = p.onWall)
+                        isFocusable = true
+                        setOnClickListener { row.onAction?.invoke() }
                     })
-                    // The whole title is the button, so the arrows stop on it like any other row.
-                    foreground = Ui.pressable(context, Ui.RADIUS_L, focusColor = p.onWall)
-                    isFocusable = true
-                    setOnClickListener { row.onAction?.invoke() }
                 }
             }
             is Row.Person -> person(row.contact, p)
