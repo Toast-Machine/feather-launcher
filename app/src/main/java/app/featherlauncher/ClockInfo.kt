@@ -33,7 +33,8 @@ class ClockInfo(private val context: Context) {
         }
     }
     /** [color] is its calendar's, as the calendar app shows it. */
-    class Event(val id: Long, val title: String, val begin: Long, val allDay: Boolean = false, val end: Long = begin, val color: Int = 0)
+    class Event(val id: Long, val title: String, val begin: Long, val allDay: Boolean = false, val end: Long = begin, val color: Int = 0,
+                val location: String? = null)
 
     private val prefs = Prefs(context)
 
@@ -144,10 +145,14 @@ class ClockInfo(private val context: Context) {
         }.build()
         return runCatching {
             context.contentResolver.query(uri,
-                arrayOf(CalendarContract.Instances.EVENT_ID, CalendarContract.Instances.TITLE, CalendarContract.Instances.BEGIN),
+                arrayOf(CalendarContract.Instances.EVENT_ID, CalendarContract.Instances.TITLE, CalendarContract.Instances.BEGIN,
+                    CalendarContract.Instances.END, CalendarContract.Instances.EVENT_LOCATION),
                 "${CalendarContract.Instances.ALL_DAY} = 0 AND ${CalendarContract.Instances.BEGIN} >= ? AND ${CalendarContract.Instances.VISIBLE} = 1",
                 arrayOf(now.toString()), "${CalendarContract.Instances.BEGIN} ASC",
-            )?.use { c -> if (c.moveToFirst()) Event(c.getLong(0), c.getString(1).orEmpty().ifEmpty { "Event" }, c.getLong(2)) else null }
+            )?.use { c ->
+                if (c.moveToFirst()) Event(c.getLong(0), c.getString(1).orEmpty().ifEmpty { "Event" }, c.getLong(2), end = c.getLong(3),
+                    location = c.getString(4)?.trim()?.ifEmpty { null }) else null
+            }
         }.getOrNull()
     }
 

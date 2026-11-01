@@ -36,8 +36,8 @@ class WidgetView(context: Context) : AppWidgetHostView(context) {
     }
 
     /**
-     * Every widget gets rounded corners, square ones too (as on the Pixel launcher), at least as
-     * round as Feather's cards: some phones set Android's own widget corner to almost nothing.
+     * Every widget gets rounded corners, square ones too (as on the Pixel launcher), exactly as
+     * round as Feather's own ([WidgetStyle.RADIUS]), whatever the phone sets Android's to.
      * A widget that marks its background is rounded around that, the way Android does it.
      */
     private val rounded = object : ViewOutlineProvider() {
@@ -48,7 +48,7 @@ class WidgetView(context: Context) : AppWidgetHostView(context) {
                 box.set(0, 0, bg.width, bg.height)
                 view.offsetDescendantRectToMyCoords(bg, box)
             }
-            val radius = maxOf(resources.getDimension(android.R.dimen.system_app_widget_background_radius), WidgetStyle.RADIUS * resources.displayMetrics.density)
+            val radius = WidgetStyle.RADIUS * resources.displayMetrics.density
             corner = minOf(radius, minOf(box.width(), box.height()) / 2f)
             cornerBox.set(box)
             cornerBox.offset(view.left, view.top)

@@ -64,7 +64,7 @@ class Glance(private val context: Context) {
             val minutes = (e.begin - now) / 60_000
             val at = if (minutes < 60) "in ${minutes.coerceAtLeast(1)} min" else time.format(Date(e.begin))
             coming += Item(R.drawable.ic_calendar, e.title, at, Tap.EVENT, if (minutes < 60) 0 else 6, e,
-                time = e.begin, clock = time.format(Date(e.begin)))
+                time = e.begin, clock = if (e.end > e.begin) "${time.format(Date(e.begin))} – ${time.format(Date(e.end))}" else time.format(Date(e.begin)))
         }
 
         // Candle lighting on Friday and Erev Yom Tov, until it's time.

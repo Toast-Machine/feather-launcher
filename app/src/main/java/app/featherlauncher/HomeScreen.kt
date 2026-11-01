@@ -210,7 +210,7 @@ class HomeScreen(
                 }
                 is ZmanimWidget -> onOpen = { place -> ZmanimSheet.show(activity, palette(), overlays, place) }
                 is UpNextWidget -> {
-                    solid = prefs.widgetSolid(item.id, default = true)
+                    solid = prefs.widgetSolid(item.id)
                     onTap = ::openGlance
                     onLocation = {
                         activity.startActivity(Intent(activity, SettingsActivity::class.java)
@@ -220,8 +220,9 @@ class HomeScreen(
             }
             setOnLongClickListener { onItemLongPress(item, it); true }
         } ?: ClockWidget(activity, item).apply {
-            setSolid(prefs.widgetSolid(item.id, default = false))
-            foreground = Ui.focusRing(activity, Ui.RADIUS_L, 0xFFFFFFFF.toInt())
+            setSolid(prefs.widgetSolid(item.id))
+            // The keypad highlight follows the card's corner, as it does around the other widgets.
+            foreground = Ui.focusHighlight(activity, WidgetStyle.RADIUS + CardWidget.GAP)
             setOnClickListener { host.startSafely(Intent(AlarmClock.ACTION_SHOW_ALARMS)) }
             dateView.setOnClickListener {
                 val uri = CalendarContract.CONTENT_URI.buildUpon().appendPath("time")
@@ -638,7 +639,7 @@ class HomeScreen(
     /** Solid, on a card, or Transparent, straight on the wallpaper, as Android's own Clock offers. */
     private fun widgetStyle(item: HomeItem) {
         val p = palette()
-        val solid = prefs.widgetSolid(item.id, default = FeatherKind.of(item) == FeatherKind.UP_NEXT)
+        val solid = prefs.widgetSolid(item.id)
         Components.choiceSheet(activity, p, overlays, "${clockName(item)} style", listOf("Solid" to null, "Transparent" to null), if (solid) 0 else 1) {
             prefs.setWidgetSolid(item.id, it == 0)
             (views[item.id] as? ClockWidget)?.setSolid(it == 0)
@@ -1504,7 +1505,7 @@ class HomeScreen(
             val b = bounds()
             // Around a card, its curve runs parallel to the card's, the frame's distance out.
             val radius = when (view) {
-                is CardWidget -> dp(WidgetStyle.RADIUS + CardWidget.GAP - 2).toFloat()
+                is CardWidget, is ClockWidget -> dp(WidgetStyle.RADIUS + CardWidget.GAP - 2).toFloat()
                 is WidgetView -> (view.corner + view.cornerInset - dp(2)).coerceAtLeast(dp(18).toFloat())
                 else -> dp(18).toFloat()
             }

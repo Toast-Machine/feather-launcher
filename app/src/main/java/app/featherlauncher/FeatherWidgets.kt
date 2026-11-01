@@ -171,10 +171,10 @@ abstract class CardWidget(context: Context, val item: HomeItem) : FrameLayout(co
 }
 
 /**
- * What's coming up, in the spirit of Google's At a Glance: the most pressing thing in readable
- * type, when it is under it ("in 25 min · 4:00 PM"), and the weather now in a scalloped badge
- * on the right. A pill on a card (Solid) or straight on the wallpaper (Transparent). Taller,
- * the next few things follow in quieter lines. With nothing coming up, it shows the day; without
+ * What's coming up, in the spirit of Google's At a Glance: the most pressing thing in bold, when
+ * it is under it ("in 25 min · 4:00 – 5:00 PM"), then where an event is or what comes after, and
+ * the weather now in a scalloped badge on the right. On a card (Solid) or straight on the
+ * wallpaper (Transparent). Taller, the next few things follow in quieter lines. With nothing coming up, it shows the day; without
  * a location, where to choose one. Missed calls and messages stay on the clock: they've already
  * happened.
  */
@@ -210,11 +210,7 @@ class UpNextWidget(context: Context, item: HomeItem) : CardWidget(context, item)
     override fun refresh() {
         content.removeAllViews()
         content.gravity = Gravity.CENTER_VERTICAL
-        // A pill, as round at the ends as it is tall; with more in it, a card like the others.
-        if (solid) setCard(android.graphics.drawable.GradientDrawable().apply {
-            setColor(WidgetStyle.card())
-            cornerRadius = if (tall) dp(WidgetStyle.RADIUS).toFloat() else 10_000f
-        }) else background = null
+        if (solid) setCard(WidgetStyle.cardBackground(context)) else background = null
         val main = if (solid) WidgetStyle.onCard() else WidgetStyle.WHITE
         val quiet = if (solid) WidgetStyle.onCardQuiet() else WidgetStyle.SOFT_WHITE
         val now = System.currentTimeMillis()
@@ -238,9 +234,9 @@ class UpNextWidget(context: Context, item: HomeItem) : CardWidget(context, item)
         content.addView(LinearLayout(context).apply {
             orientation = LinearLayout.HORIZONTAL
             gravity = Gravity.CENTER_VERTICAL
-            addView(LinearLayout(context).apply {
-                orientation = LinearLayout.VERTICAL
-                addView(text(main, 18f).apply {
+            // Lines that don't fit are left out, the last first.
+            addView(FitColumn(context).apply {
+                addView(text(main, 18f, WidgetStyle.title).apply {
                     text = title
                     maxLines = 2
                 })
@@ -253,6 +249,22 @@ class UpNextWidget(context: Context, item: HomeItem) : CardWidget(context, item)
                     }, LinearLayout.LayoutParams(dp(18), dp(18)).apply { marginEnd = dp(8) })
                     addView(text(main, 15f).apply { text = detail })
                 }, LinearLayout.LayoutParams(LinearLayout.LayoutParams.WRAP_CONTENT, LinearLayout.LayoutParams.WRAP_CONTENT).apply { topMargin = dp(6) })
+                // Where the event is; otherwise what comes after (taller, that's in the list below).
+                val next = coming.getOrNull(1)
+                val (thirdIcon, third) = when {
+                    first?.event?.location != null -> R.drawable.ic_location to first.event.location
+                    !tall && next != null -> next.icon to "Then ${next.text}"
+                    else -> null to null
+                }
+                if (third != null) addView(LinearLayout(context).apply {
+                    orientation = LinearLayout.HORIZONTAL
+                    gravity = Gravity.CENTER_VERTICAL
+                    addView(ImageView(context).apply {
+                        setImageResource(thirdIcon!!)
+                        imageTintList = ColorStateList.valueOf(quiet)
+                    }, LinearLayout.LayoutParams(dp(18), dp(18)).apply { marginEnd = dp(8) })
+                    addView(text(quiet, 15f).apply { text = third })
+                }, LinearLayout.LayoutParams(LinearLayout.LayoutParams.WRAP_CONTENT, LinearLayout.LayoutParams.WRAP_CONTENT).apply { topMargin = dp(4) })
             }, LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f).apply { marginEnd = dp(12) })
             lines.weather?.let { w ->
                 addView(Badge(context, dp(76)).apply {
@@ -299,8 +311,8 @@ class UpNextWidget(context: Context, item: HomeItem) : CardWidget(context, item)
     }
 
     /** Text on the card, or white with a soft shadow on the wallpaper. */
-    private fun text(color: Int, sp: Float) = (if (solid) WidgetStyle.cardText(context, sp, WidgetStyle.body, color)
-        else WidgetStyle.text(context, sp, WidgetStyle.body, color))
+    private fun text(color: Int, sp: Float, face: android.graphics.Typeface = WidgetStyle.body) =
+        if (solid) WidgetStyle.cardText(context, sp, face, color) else WidgetStyle.text(context, sp, face, color)
 
     /** As wide as it is tall: as tall as the card lets it be, up to [max] pixels. */
     private class Badge(context: Context, private val max: Int) : FrameLayout(context) {
