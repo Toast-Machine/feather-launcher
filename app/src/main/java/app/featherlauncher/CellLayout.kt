@@ -64,7 +64,7 @@ class CellLayout(context: Context, attrs: AttributeSet? = null) : ViewGroup(cont
             if (field != value) { field = value; requestLayout() }
         }
     /**
-     * Room (px) above and below the page, up to the status bar and the page dots, that counts
+     * Room (px) above and below the page, up to the status bar and the dock, that counts
      * toward the gaps at its top and bottom: the gaps above the first row, between rows and
      * under the last row's names all come out the same.
      */
@@ -72,7 +72,8 @@ class CellLayout(context: Context, attrs: AttributeSet? = null) : ViewGroup(cont
     var roomBelow = 0
 
     /** On a page: the gap (px) between one row's names and the next row's icons. */
-    private var rowGap = 0f
+    var rowGap = 0f
+        private set
 
     private val icon get() = Ui.dp(context, iconDp).toFloat()
     /** An icon's picture with its name under it (px). */

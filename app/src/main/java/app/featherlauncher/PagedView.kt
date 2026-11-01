@@ -186,6 +186,10 @@ class PageDots(context: Context, attrs: AttributeSet?) : View(context, attrs) {
 
     private val paint = android.graphics.Paint(android.graphics.Paint.ANTI_ALIAS_FLAG)
 
+    /** Where the dots' middle is (px from the top), which may be above this view; NaN: its middle. */
+    var middle = Float.NaN
+        set(value) { if (field != value) { field = value; invalidate() } }
+
     override fun onDraw(canvas: android.graphics.Canvas) {
         if (count < 2) return
         val r = Ui.dp(context, RADIUS).toFloat()
@@ -193,7 +197,7 @@ class PageDots(context: Context, attrs: AttributeSet?) : View(context, attrs) {
         val active = Ui.dp(context, 16).toFloat()
         val total = (count - 1) * (2 * r + gap) + active
         var x = (width - total) / 2
-        val cy = height / 2f
+        val cy = if (middle.isNaN()) height / 2f else middle
         for (i in 0 until count) {
             val w = if (i == current) active else 2 * r
             paint.color = if (i == current) 0xFFFFFFFF.toInt() else 0x73FFFFFF
@@ -205,7 +209,5 @@ class PageDots(context: Context, attrs: AttributeSet?) : View(context, attrs) {
     companion object {
         /** The dots' radius (dp). */
         private const val RADIUS = 3
-        /** The room (dp) above the dots, in their 20dp row (activity_home.xml). */
-        const val ABOVE = 10 - RADIUS
     }
 }

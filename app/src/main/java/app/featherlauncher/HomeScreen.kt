@@ -111,7 +111,11 @@ class HomeScreen(
         bindAll()
         root.addView(pageTarget, FrameLayout.LayoutParams(0, 0, Gravity.TOP or Gravity.START))
         pageRings += pageTarget
-        pages.addOnLayoutChangeListener { _, _, _, _, _, _, _, _, _ -> placePageTarget() }
+        pages.addOnLayoutChangeListener { _, _, _, _, _, _, _, _, _ ->
+            placePageTarget()
+            // The dots sit midway between the last row and the dock.
+            dots.middle = dots.height - pages.page(0).rowGap / 2
+        }
         pages.onSlide = ::fadeRings
         // A touch ends the keypad's highlight on the page, as it does everywhere else.
         root.viewTreeObserver.addOnTouchModeChangeListener { touch -> if (touch && pageTarget.isFocused) pageTarget.clearFocus() }
@@ -288,10 +292,10 @@ class HomeScreen(
         rows = Workspace.ROWS
         isPage = true
         // In line with the dock at the sides. Above and below, the gaps to the status bar (past
-        // the pages' top margin) and to the page dots are as wide as those between rows.
+        // the pages' top margin) and to the dock (past the page dots) are as wide as those between rows.
         setPadding(dp(Ui.BAR_MARGIN), 0, dp(Ui.BAR_MARGIN), 0)
         roomAbove = (pages.layoutParams as ViewGroup.MarginLayoutParams).topMargin
-        roomBelow = dp(PageDots.ABOVE)
+        roomBelow = dots.layoutParams.height
     }
 
     private fun containerFor(page: Int): CellLayout = if (page == Workspace.DOCK) dock else pages.page(page)
