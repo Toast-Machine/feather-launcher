@@ -186,21 +186,32 @@ class PageDots(context: Context, attrs: AttributeSet?) : View(context, attrs) {
 
     private val paint = android.graphics.Paint(android.graphics.Paint.ANTI_ALIAS_FLAG)
 
+    /**
+     * How far (px) above this view's bottom, the top of the dock, the dots' middle is; it may be
+     * above this view. NaN: its middle.
+     */
+    var aboveDock = Float.NaN
+        set(value) { if (field != value) { field = value; invalidate() } }
+
     override fun onDraw(canvas: android.graphics.Canvas) {
         if (count < 2) return
-        val r = Ui.dp(context, 3).toFloat()
+        val r = Ui.dp(context, RADIUS).toFloat()
         val gap = Ui.dp(context, 8).toFloat()
         val active = Ui.dp(context, 16).toFloat()
         val total = (count - 1) * (2 * r + gap) + active
         var x = (width - total) / 2
-        // Cards end a gap short of the page, so the dots go up half that to sit midway between
-        // the cards and the dock.
-        val cy = height / 2f - Ui.dp(context, CardWidget.GAP / 2f)
+        // From its own height as it's drawn: set before this view is laid out, it may not have one yet.
+        val cy = if (aboveDock.isNaN()) height / 2f else height - aboveDock
         for (i in 0 until count) {
             val w = if (i == current) active else 2 * r
             paint.color = if (i == current) 0xFFFFFFFF.toInt() else 0x73FFFFFF
             canvas.drawRoundRect(x, cy - r, x + w, cy + r, r, r, paint)
             x += w + gap
         }
+    }
+
+    companion object {
+        /** The dots' radius (dp). */
+        private const val RADIUS = 3
     }
 }

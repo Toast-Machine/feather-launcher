@@ -20,7 +20,7 @@ object WidgetSheet {
     private class Sample(val name: String, val kind: FeatherKind, val solid: Boolean)
 
     fun draw(context: Context, done: (String) -> Unit) {
-        val (cellW, cellH) = CellLayout.pageCell ?: return done("Open the home screen first")
+        val grid = CellLayout.grid ?: return done("Open the home screen first")
         val samples = FeatherKind.entries.flatMap { kind ->
             if (kind == FeatherKind.CLOCK || kind == FeatherKind.UP_NEXT)
                 listOf(Sample("${kind.name.lowercase()}-solid", kind, true), Sample("${kind.name.lowercase()}-transparent", kind, false))
@@ -29,14 +29,15 @@ object WidgetSheet {
         var id = -90_000L
         val views = samples.associateWith { s ->
             // Only the sizes it can be made.
-            (s.kind.minH..Workspace.ROWS).flatMap { h -> (s.kind.minW..Workspace.COLS).map { w -> w to h } }.map { (w, h) ->
+            (s.kind.minH..minOf(s.kind.maxH, Workspace.ROWS)).flatMap { h -> (s.kind.minW..Workspace.COLS).map { w -> w to h } }.map { (w, h) ->
                 val item = HomeItem(id--, 0, 0, 0, w, h, HomeItem.Type.CLOCK, s.kind.ref)
                 val view = CardWidget.create(context, item) ?: ClockWidget(context, item)
                 when (view) {
                     is ClockWidget -> view.setSolid(s.solid)
                     is UpNextWidget -> view.solid = s.solid
                 }
-                lay(view, (w * cellW).toInt(), (h * cellH).toInt())
+                val (pw, ph) = grid.widgetSize(w, h)
+                lay(view, pw, ph)
                 (w to h) to view
             }
         }
@@ -56,7 +57,7 @@ object WidgetSheet {
             }
         }
         views.forEach { (sample, list) ->
-            val sheet = Sheet(list, cellW, cellH)
+            val sheet = Sheet(list, grid)
             list.forEach { (size, v) -> steps += { next -> sheet.draw(size, v); next() } }
             steps += { next ->
                 Thread {
@@ -78,7 +79,7 @@ object WidgetSheet {
     }
 
     /** One row per height, the widths side by side, each on a slice of sky like a wallpaper, with its size above it. */
-    private class Sheet(list: List<Pair<Pair<Int, Int>, View>>, private val cellW: Float, private val cellH: Float) {
+    private class Sheet(list: List<Pair<Pair<Int, Int>, View>>, private val grid: CellLayout.Grid) {
         private val gap = 24
         private val label = 28
         private val heights = list.map { it.first.second }.distinct().sorted()
@@ -89,8 +90,8 @@ object WidgetSheet {
         private val sky: Paint
 
         init {
-            val width = (1..Workspace.COLS).sumOf { (it * cellW).toInt() + gap } + gap
-            val height = heights.sumOf { (it * cellH).toInt() + label + gap } + gap
+            val width = (1..Workspace.COLS).sumOf { grid.widgetSize(it, 1).first + gap } + gap
+            val height = heights.sumOf { grid.widgetSize(1, it).second + label + gap } + gap
             bitmap = Bitmap.createBitmap(width, height, Bitmap.Config.ARGB_8888)
             canvas = Canvas(bitmap)
             canvas.drawColor(0xFF20242C.toInt())
@@ -101,8 +102,8 @@ object WidgetSheet {
 
         fun draw(size: Pair<Int, Int>, v: View) {
             val (w, h) = size
-            val x = gap + (minW until w).sumOf { (it * cellW).toInt() + gap }
-            val y = gap + heights.takeWhile { it < h }.sumOf { (it * cellH).toInt() + label + gap }
+            val x = gap + (minW until w).sumOf { grid.widgetSize(it, 1).first + gap }
+            val y = gap + heights.takeWhile { it < h }.sumOf { grid.widgetSize(1, it).second + label + gap }
             canvas.drawText("$w × $h", x.toFloat(), (y + 20).toFloat(), text)
             val top = y + label
             canvas.drawRect(x.toFloat(), top.toFloat(), (x + v.width).toFloat(), (top + v.height).toFloat(), sky)

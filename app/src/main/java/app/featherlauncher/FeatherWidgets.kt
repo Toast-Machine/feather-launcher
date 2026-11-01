@@ -20,11 +20,12 @@ import java.util.Date
 /**
  * Feather's own widgets: the clock, and the ones on cards. [ref] is the [HomeItem.ref] that says
  * which; [about] says what it's for. [minW] by [minH] cells is the smallest it can be made: it
- * looks right at every size from there up.
+ * looks right at every size from there up, to [maxH] rows.
  */
-enum class FeatherKind(val ref: String, val label: String, val w: Int, val h: Int, val about: String, val minW: Int = 2, val minH: Int = 1) {
+enum class FeatherKind(val ref: String, val label: String, val w: Int, val h: Int, val about: String, val minW: Int = 2, val minH: Int = 1, val maxH: Int = Int.MAX_VALUE) {
     CLOCK("", "Clock", 4, 2, "The time, the date and what's coming up"),
-    UP_NEXT("upnext", "Up next", 4, 1, "Your next event, zman and alarm, with the weather now"),
+    // One row only, as Google's At a Glance: taller, it's mostly empty card.
+    UP_NEXT("upnext", "Up next", 4, 1, "Your next event, zman and alarm, with the weather now", maxH = 1),
     CALENDAR("agenda", "Calendar", 4, 2, "Your upcoming events", minH = 2),
     WEATHER("weather", "Weather", 4, 2, "Current weather with hourly and daily forecasts"),
     MEDIA("media", "Now playing", 4, 1, "Play, pause and skip whatever's playing"),
@@ -55,12 +56,12 @@ abstract class CardWidget(context: Context, val item: HomeItem) : FrameLayout(co
         override fun onReceive(c: Context, intent: android.content.Intent) = refresh()
     }
 
-    /** The tallest the card gets, in dp; in a taller space it sits centred. Null: it fills the space. */
-    protected open val maxHeight: Int? = null
-    /** Room above and below the card when the space is taller than [maxHeight]. */
-    private var extra = 0
-    /** The padding inside the card, without [extra]. */
+    /** The padding inside the card. */
     private var inside = intArrayOf(0, 0, 0, 0)
+    /** How much less room above and below what's on a short card (one row, an icon's height) than on a taller one. */
+    private var trim = 0
+    /** The room at the end is trimmed as much, for a card that ends in a tile, so the tile is evenly inset. */
+    protected var trimsEnd = false
 
     init {
         isFocusable = true
@@ -72,14 +73,15 @@ abstract class CardWidget(context: Context, val item: HomeItem) : FrameLayout(co
     /** The room between the card's edges and what's on it (the gap around the card included). */
     protected fun pad(left: Int, top: Int, right: Int, bottom: Int) {
         inside = intArrayOf(left, top, right, bottom)
-        setPadding(left, top + extra, right, bottom + extra)
+        val end = if (trimsEnd) right - minOf(trim, right - dp(GAP)) else right
+        setPadding(left, top - minOf(trim, top - dp(GAP)), end, bottom - minOf(trim, bottom - dp(GAP)))
         // The keypad highlight is white around the card, as it is around app icons.
-        foreground = InsetDrawable(Ui.focusHighlight(context, WidgetStyle.RADIUS + GAP), 0, extra, 0, extra)
+        foreground = Ui.focusHighlight(context, WidgetStyle.radius + GAP)
     }
 
     /** The card behind everything, inset so cards next to each other have a gap between them. */
     protected fun setCard(drawable: android.graphics.drawable.Drawable) {
-        background = InsetDrawable(drawable, dp(GAP), dp(GAP) + extra, dp(GAP), dp(GAP) + extra)
+        background = InsetDrawable(drawable, dp(GAP))
         // A new background brings its own padding; the card's stays.
         pad(inside[0], inside[1], inside[2], inside[3])
     }
@@ -90,14 +92,28 @@ abstract class CardWidget(context: Context, val item: HomeItem) : FrameLayout(co
         pad(inside[0], inside[1], inside[2], inside[3])
     }
 
-    override fun onSizeChanged(w: Int, h: Int, oldw: Int, oldh: Int) {
-        super.onSizeChanged(w, h, oldw, oldh)
-        val next = maxHeight?.let { ((h - dp(it)) / 2).coerceAtLeast(0) } ?: 0
-        if (next != extra) {
-            extra = next
-            pad(inside[0], inside[1], inside[2], inside[3])
-            post { refresh() }
+    /**
+     * The card's new size in pixels, as it's measured: true when what's on it must be worked out
+     * again for that size. It is, then and there, so a card being resized changes all at once.
+     */
+    protected open fun sizeChanged(w: Int, h: Int): Boolean = false
+    private var measuredFor = 0L
+
+    // Worked out as it's measured, so a card being resized lays out once, at its new size.
+    override fun onMeasure(widthMeasureSpec: Int, heightMeasureSpec: Int) {
+        val size = MeasureSpec.getSize(widthMeasureSpec).toLong() shl 32 or MeasureSpec.getSize(heightMeasureSpec).toLong()
+        if (size != measuredFor && MeasureSpec.getMode(widthMeasureSpec) == MeasureSpec.EXACTLY) {
+            measuredFor = size
+            if (sizeChanged(MeasureSpec.getSize(widthMeasureSpec), MeasureSpec.getSize(heightMeasureSpec))) refresh()
         }
+        // On a short card the room above and below what's on it is a share of its height.
+        val h = MeasureSpec.getSize(heightMeasureSpec)
+        val next = (inside[1] - dp(GAP) - ((h - 2 * dp(GAP)) * SHORT_ROOM).toInt()).coerceAtLeast(0)
+        if (next != trim) {
+            trim = next
+            pad(inside[0], inside[1], inside[2], inside[3])
+        }
+        super.onMeasure(widthMeasureSpec, heightMeasureSpec)
     }
 
     private val hold = WholeHold(this)
@@ -196,8 +212,13 @@ abstract class CardWidget(context: Context, val item: HomeItem) : FrameLayout(co
     }
 
     companion object {
-        /** Half the space between two cards. */
-        const val GAP = 5
+        /**
+         * The room around a card for its keypad highlight: as far out as an icon's highlight is
+         * from the icon ([AppIconView.INSET]), and the page's outline from what's on it.
+         */
+        const val GAP = AppIconView.INSET
+        /** The room above and below what's on a short card, as a share of its height. */
+        private const val SHORT_ROOM = 0.1f
 
         /** The view for a Feather widget that sits on a card, or null for the clock. */
         fun create(context: Context, item: HomeItem): CardWidget? = when (FeatherKind.of(item)) {
@@ -215,8 +236,7 @@ abstract class CardWidget(context: Context, val item: HomeItem) : FrameLayout(co
  * What's coming up, in the spirit of Google's At a Glance: the most pressing thing in bold, when
  * it is under it ("in 25 min · 4:00 – 5:00 PM"), then where an event is or what comes after, and
  * the weather now in a tile on the right. On a card (Solid) or straight on the wallpaper
- * (Transparent). It grows no taller than [MAX_HEIGHT]: in a bigger space it sits centred, as
- * Google's and the clock do. With nothing coming up, it shows the day; without a location,
+ * (Transparent). In a taller space it sits in the middle of its card. With nothing coming up, it shows the day; without a location,
  * where to choose one.
  */
 @SuppressLint("ViewConstructor")
@@ -232,21 +252,19 @@ class UpNextWidget(context: Context, item: HomeItem) : CardWidget(context, item)
         }
 
     private val glance = Glance(context)
-    override val maxHeight = MAX_HEIGHT
     /** Wide enough for the weather beside what's coming up. */
     private var roomy = true
 
     init {
+        trimsEnd = true
         pad(dp(GAP + 22), dp(GAP + 12), dp(GAP + 12), dp(GAP + 12))
     }
 
-    override fun onSizeChanged(w: Int, h: Int, oldw: Int, oldh: Int) {
-        super.onSizeChanged(w, h, oldw, oldh)
+    override fun sizeChanged(w: Int, h: Int): Boolean {
         val next = w >= dp(250)
-        if (next != roomy) {
-            roomy = next
-            post { refresh() }
-        }
+        if (next == roomy) return false
+        roomy = next
+        return true
     }
 
     override fun refresh() {
@@ -313,8 +331,8 @@ class UpNextWidget(context: Context, item: HomeItem) : CardWidget(context, item)
                 // The weather now: its picture over the temperature, on a square tile in the accent
                 // color, as tall as the card's room. Its corners run parallel to the card's, the
                 // padding in from them.
-                addView(Tile(context, dp(TILE)).apply {
-                    background = Ui.rounded(context, WidgetStyle.accent(), WidgetStyle.RADIUS - 12)
+                addView(Tile(context, dp(TILE)) { dp(WidgetStyle.radius) - (this@UpNextWidget.paddingRight - dp(GAP)) }.apply {
+                    background = Ui.rounded(context, WidgetStyle.accent(), WidgetStyle.radius - 12)
                     addView(LinearLayout(context).apply {
                         orientation = LinearLayout.VERTICAL
                         gravity = Gravity.CENTER_HORIZONTAL
@@ -357,9 +375,10 @@ class UpNextWidget(context: Context, item: HomeItem) : CardWidget(context, item)
     private fun text(color: Int, sp: Float, face: android.graphics.Typeface = WidgetStyle.body) =
         if (solid) WidgetStyle.cardText(context, sp, face, color) else WidgetStyle.text(context, sp, face, color)
 
-    /** A square as tall as the card's room, up to [max] pixels. */
-    private class Tile(context: Context, private val max: Int) : FrameLayout(context) {
+    /** A square as tall as the card's room, up to [max] pixels, with corners [radius] pixels round. */
+    private class Tile(context: Context, private val max: Int, private val radius: () -> Int) : FrameLayout(context) {
         override fun onMeasure(widthMeasureSpec: Int, heightMeasureSpec: Int) {
+            (background as? android.graphics.drawable.GradientDrawable)?.cornerRadius = radius().toFloat()
             val room = MeasureSpec.getSize(heightMeasureSpec)
             val size = if (MeasureSpec.getMode(heightMeasureSpec) == MeasureSpec.UNSPECIFIED || room == 0) max else minOf(room, max)
             val exact = MeasureSpec.makeMeasureSpec(size, MeasureSpec.EXACTLY)
@@ -368,8 +387,6 @@ class UpNextWidget(context: Context, item: HomeItem) : CardWidget(context, item)
     }
 
     private companion object {
-        /** The tallest it gets, card and all, in dp. */
-        const val MAX_HEIGHT = 112
         /** The weather tile's size, in dp. */
         const val TILE = 64
     }
@@ -388,13 +405,11 @@ class CalendarWidget(context: Context, item: HomeItem) : CardWidget(context, ite
     /** Too narrow for the date beside the events: it goes on a line above them. */
     private var narrow = false
 
-    override fun onSizeChanged(w: Int, h: Int, oldw: Int, oldh: Int) {
-        super.onSizeChanged(w, h, oldw, oldh)
+    override fun sizeChanged(w: Int, h: Int): Boolean {
         val next = w < dp(260)
-        if (next != narrow) {
-            narrow = next
-            post { refresh() }
-        }
+        if (next == narrow) return false
+        narrow = next
+        return true
     }
 
     override fun refresh() {
@@ -545,15 +560,13 @@ class WeatherWidget(context: Context, item: HomeItem) : CardWidget(context, item
     /** A narrow card: just the weather now, stacked, as in iOS's small widget. */
     private var narrow = false
 
-    override fun onSizeChanged(w: Int, h: Int, oldw: Int, oldh: Int) {
-        super.onSizeChanged(w, h, oldw, oldh)
+    override fun sizeChanged(w: Int, h: Int): Boolean {
         val nextCompact = h < dp(250)
         val nextNarrow = w < dp(260)
-        if (nextCompact != compact || nextNarrow != narrow) {
-            compact = nextCompact
-            narrow = nextNarrow
-            post { refresh() }
-        }
+        if (nextCompact == compact && nextNarrow == narrow) return false
+        compact = nextCompact
+        narrow = nextNarrow
+        return true
     }
 
     override fun refresh() {
@@ -564,7 +577,7 @@ class WeatherWidget(context: Context, item: HomeItem) : CardWidget(context, item
         setOnClickListener(null)
         val w = Weather.at(place) { if (isAttachedToWindow) refresh() }
         if (w == null) return loading(place.name)
-        setCard(WeatherArt.sky(w.sky, w.night, dp(WidgetStyle.RADIUS).toFloat()))
+        setCard(WeatherArt.sky(w.sky, w.night, dp(WidgetStyle.radius).toFloat()))
         // Room left over goes between the rows, not above and below them.
         content.spread = true
         val white = WidgetStyle.WHITE
@@ -691,7 +704,7 @@ class WeatherWidget(context: Context, item: HomeItem) : CardWidget(context, item
      * the temperature and the hours will be, on a calm sky.
      */
     private fun loading(name: String) {
-        setCard(WeatherArt.sky(Sky.CLOUDY, false, dp(WidgetStyle.RADIUS).toFloat()))
+        setCard(WeatherArt.sky(Sky.CLOUDY, false, dp(WidgetStyle.radius).toFloat()))
         val soft = WidgetStyle.WHITE
         content.gravity = Gravity.CENTER_VERTICAL
         content.spread = !narrow
@@ -833,18 +846,14 @@ class MediaWidget(context: Context, item: HomeItem) : CardWidget(context, item) 
     }
     private val sessionsChanged = MediaSessionManager.OnActiveSessionsChangedListener { refresh() }
 
-    // All one row: taller than this, it sits centred rather than growing a huge picture.
-    override val maxHeight = 128
     /** Narrow: a small picture, the title on up to two lines, and only play and pause. */
     private var narrow = false
 
-    override fun onSizeChanged(w: Int, h: Int, oldw: Int, oldh: Int) {
-        super.onSizeChanged(w, h, oldw, oldh)
+    override fun sizeChanged(w: Int, h: Int): Boolean {
         val next = w < dp(260)
-        if (next != narrow) {
-            narrow = next
-            post { refresh() }
-        }
+        if (next == narrow) return false
+        narrow = next
+        return true
     }
 
     init {
@@ -886,14 +895,15 @@ class MediaWidget(context: Context, item: HomeItem) : CardWidget(context, item) 
         }
         // With artwork, the card is a deep shade of its color, with white type; without, the usual card.
         val tint = art?.let(::shadeOf)
-        setCard(if (tint != null) Ui.rounded(context, tint, WidgetStyle.RADIUS) else WidgetStyle.cardBackground(context))
+        setCard(if (tint != null) Ui.rounded(context, tint, WidgetStyle.radius) else WidgetStyle.cardBackground(context))
         val main = if (tint != null) WidgetStyle.WHITE else WidgetStyle.onCard()
         val quiet = if (tint != null) 0xCCFFFFFF.toInt() else WidgetStyle.onCardQuiet()
 
         content.addView(LinearLayout(context).apply {
             orientation = LinearLayout.HORIZONTAL
             gravity = Gravity.CENTER_VERTICAL
-            addView(Square(context, if (narrow) dp(48) else Int.MAX_VALUE).apply {
+            // As tall as the card's room, short of a huge picture on a tall card.
+            addView(Square(context, dp(if (narrow) 48 else ART)).apply {
                 scaleType = ImageView.ScaleType.CENTER_CROP
                 clipToOutline = true
                 background = Ui.rounded(context, if (tint != null) 0x33FFFFFF else WidgetStyle.accentFill(), 16)
@@ -971,6 +981,11 @@ class MediaWidget(context: Context, item: HomeItem) : CardWidget(context, item) 
             setMeasuredDimension(size, size)
         }
     }
+
+    private companion object {
+        /** The artwork's largest size (dp), on a wide card. */
+        const val ART = 96
+    }
 }
 
 /** The day's coming zmanim: the next one in a highlighted row, then the ones after it. */
@@ -980,13 +995,11 @@ class ZmanimWidget(context: Context, item: HomeItem) : CardWidget(context, item)
     /** Narrow: smaller type and less room around each time, so their names fit. */
     private var narrow = false
 
-    override fun onSizeChanged(w: Int, h: Int, oldw: Int, oldh: Int) {
-        super.onSizeChanged(w, h, oldw, oldh)
+    override fun sizeChanged(w: Int, h: Int): Boolean {
         val next = w < dp(260)
-        if (next != narrow) {
-            narrow = next
-            post { refresh() }
-        }
+        if (next == narrow) return false
+        narrow = next
+        return true
     }
 
     override fun refresh() {

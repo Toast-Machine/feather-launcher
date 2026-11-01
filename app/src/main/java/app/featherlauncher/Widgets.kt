@@ -33,8 +33,8 @@ class Widgets(
     private val overlays: Overlays,
     private val palette: () -> Palette,
     private val appIcon: (packageName: String) -> Bitmap?,
-    /** Size of one home grid cell in dp, for working out how many cells a widget needs. */
-    private val cellSizeDp: () -> Pair<Float, Float>,
+    /** The home screen's grid, for working out how many cells a widget needs. */
+    private val grid: () -> CellLayout.Grid,
 ) {
     /** A widget was bound (and set up, if it needed it) and should be placed on the home screen. */
     var onAdded: ((appWidgetId: Int, spanX: Int, spanY: Int) -> Unit)? = null
@@ -83,11 +83,17 @@ class Widgets(
         return cells(w / density, true) to cells(h / density, false)
     }
 
+    /** The cells a widget needs to be [dp] wide or tall: its card spans one icon, plus a cell for each more. */
     private fun cells(dp: Float, horizontal: Boolean): Int {
-        val (cw, ch) = cellSizeDp()
-        val size = if (horizontal) cw else ch
-        return ceil((dp - 8) / size).toInt().coerceIn(1, if (horizontal) Workspace.COLS else Workspace.ROWS)
+        val grid = grid()
+        val size = if (horizontal) grid.cellWidth else grid.cellHeight
+        // Less the 8dp Android pads widgets with, which they don't get here.
+        val need = (dp - 8) * density
+        return (ceil((need - grid.icon) / size).toInt() + 1).coerceIn(1, if (horizontal) Workspace.COLS else Workspace.ROWS)
     }
+
+    /** A page cell's height in dp, for the rows Feather's widgets take ([FeatherKind.height]). */
+    private val cellHeightDp get() = grid().cellHeight / density
 
     private fun spanX(info: AppWidgetProviderInfo) = targetCells(info).first.let { target ->
         if (target > 0) target.coerceAtMost(Workspace.COLS) else cells(info.minWidth / density, true)
@@ -320,10 +326,9 @@ class Widgets(
                 clipToOutline = true
                 setPadding(dp(Ui.SPACE_S), dp(Ui.SPACE_S), dp(Ui.SPACE_S), dp(Ui.SPACE_S))
                 // The size it takes on the home screen, so it shows just what it will there.
-                val (cellW, cellH) = cellSizeDp()
+                val (w, h) = grid().widgetSize(kind.w, kind.height(cellHeightDp))
                 addView(sample(kind), FrameLayout.LayoutParams(
-                    if (kind.w < Workspace.COLS) dp((cellW * kind.w).toInt()) else ViewGroup.LayoutParams.MATCH_PARENT,
-                    dp((cellH * kind.height(cellH)).toInt()), Gravity.CENTER))
+                    if (kind.w < Workspace.COLS) w else ViewGroup.LayoutParams.MATCH_PARENT, h, Gravity.CENTER))
             }
             val card = LinearLayout(activity).apply {
                 orientation = LinearLayout.VERTICAL
@@ -337,7 +342,7 @@ class Widgets(
                     setPadding(dp(Ui.SPACE_XS), 0, dp(Ui.SPACE_XS), 0)
                     addView(TextView(activity).apply { style(TextStyle.Body, p.text); text = kind.label; maxLines = 1 },
                         LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f))
-                    addView(TextView(activity).apply { style(TextStyle.Caption, p.textTertiary); text = "${kind.w} × ${kind.height(cellSizeDp().second)}" })
+                    addView(TextView(activity).apply { style(TextStyle.Caption, p.textTertiary); text = "${kind.w} × ${kind.height(cellHeightDp)}" })
                 }, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply {
                     topMargin = dp(Ui.SPACE_M)
                 })
@@ -357,7 +362,7 @@ class Widgets(
 
         /** The widget itself. */
         private fun sample(kind: FeatherKind): View {
-            val item = HomeItem(PREVIEW_ID - kind.ordinal, 0, 0, 0, kind.w, kind.height(cellSizeDp().second), HomeItem.Type.CLOCK, kind.ref)
+            val item = HomeItem(PREVIEW_ID - kind.ordinal, 0, 0, 0, kind.w, kind.height(cellHeightDp), HomeItem.Type.CLOCK, kind.ref)
             return CardWidget.create(activity, item) ?: ClockWidget(activity, item).apply { setSolid(true) }
         }
 

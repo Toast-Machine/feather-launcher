@@ -2,6 +2,10 @@
     <item name="sheet" type="id" />
     <!-- A row FitColumn left out for lack of room, to try again next time. -->
     <item name="fit_hidden" type="id" />
+    <!-- A widget's name, drawn under it on the home screen (CellLayout). -->
+    <item name="home_name" type="id" />
+    <!-- A widget straight on the wallpaper, with no name, that reaches over the room for one (CellLayout). -->
+    <item name="home_bare" type="id" />
     <!-- On a widget list row: the live preview a drag picks up. -->
     <item name="widget_preview" type="id" />
     <!-- How readily FitColumn leaves a row out when space is short. -->

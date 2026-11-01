@@ -18,11 +18,15 @@ import kotlin.math.sin
 /** How icons are drawn: as the app made them, dark (iOS-style), or one color in the accent. */
 enum class IconLook { NORMAL, DARK, TINTED }
 
-enum class IconShape(val label: String) {
-    SQUIRCLE("Squircle"),
-    ROUNDED("Rounded"),
-    CIRCLE("Circle"),
-    SQUARE("Square");
+/**
+ * [corner]: about how round an icon's corners are, as a share of its size. Everything on the
+ * home screen with corners takes them from it (see [AppIconView.corner]).
+ */
+enum class IconShape(val label: String, val corner: Float) {
+    SQUIRCLE("Squircle", 0.28f),
+    ROUNDED("Rounded", 0.26f),
+    CIRCLE("Circle", 0.5f),
+    SQUARE("Square", 0.12f);
 
     fun path(size: Float): Path = Path().apply {
         when (this@IconShape) {

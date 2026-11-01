@@ -119,7 +119,7 @@ class HomeActivity : Activity(), HomeScreen.Host {
 
         widgets = Widgets(this, overlays, { palette }, { pkg ->
             repo.apps.firstOrNull { it.packageName == pkg }?.let(repo::icon)
-        }) { homeScreen.cellSizeDp() }
+        }) { homeScreen.grid() }
         // The dock's apps were cached on disk last time; decode their icons before the first frame.
         val dockKeys = Workspace(this).items.filter { it.inDock }.map { it.ref }
         repo.start(dockKeys.ifEmpty { prefs.dock.filterNotNull() })

@@ -25,32 +25,35 @@ class AppIconView(context: Context, val item: HomeItem) : LinearLayout(context) 
         // The keypad highlight is drawn on the icon only, an even square around it.
         icon.setPadding(dp(INSET), dp(INSET), dp(INSET), dp(INSET))
         icon.isDuplicateParentStateEnabled = true
-        icon.background = Ui.focusHighlight(context, ICON_RADIUS + INSET)
+        icon.background = Ui.focusHighlight(context, corner(ICON) + INSET)
         addView(icon, LayoutParams(dp(ICON + 2 * INSET), dp(ICON + 2 * INSET)))
         label.apply {
-            setTextSize(TypedValue.COMPLEX_UNIT_SP, 12f)
+            setTextSize(TypedValue.COMPLEX_UNIT_SP, NAME_SP)
             setTextColor(0xFFFFFFFF.toInt())
             setShadowLayer(dp(3).toFloat(), 0f, dp(1).toFloat(), 0x99000000.toInt())
             isSingleLine = true
             ellipsize = android.text.TextUtils.TruncateAt.END
             gravity = Gravity.CENTER
             includeFontPadding = false
-            setPadding(dp(4), 0, dp(4), 0)
+            setPadding(dp(NAME_PADDING), 0, dp(NAME_PADDING), 0)
             height = dp(LABEL_HEIGHT)
         }
         addView(label, LayoutParams(LayoutParams.MATCH_PARENT, LayoutParams.WRAP_CONTENT))
         pressScale()
     }
 
-    /** Icon size in dp: [ICON] on pages, [DOCK_ICON] in the dock. */
+    /** Icon size in dp: [ICON], or [LARGE_ICON] with names turned off. */
     private var size = ICON
+    /** Its corners' radius in dp, for the keypad highlight around it. */
+    private var corner = 0
 
     fun bind(bitmap: Bitmap?, name: String, showLabel: Boolean, locked: Boolean = false, isNew: Boolean = false,
              badge: Int = 0, iconDp: Int = ICON) {
-        if (iconDp != size) {
+        if (iconDp != size || corner != corner(iconDp)) {
             size = iconDp
+            corner = corner(iconDp)
             icon.layoutParams = LayoutParams(dp(size + 2 * INSET), dp(size + 2 * INSET))
-            icon.background = Ui.focusHighlight(context, ICON_RADIUS * size / ICON + INSET)
+            icon.background = Ui.focusHighlight(context, corner + INSET)
         }
         icon.setImageBitmap(bitmap)
         IconBadges.apply(icon, locked, isNew, size + 2 * INSET, badge)
@@ -66,9 +69,7 @@ class AppIconView(context: Context, val item: HomeItem) : LinearLayout(context) 
     private class NameView(context: Context) : TextView(context) {
         override fun onMeasure(widthMeasureSpec: Int, heightMeasureSpec: Int) {
             val room = MeasureSpec.getSize(widthMeasureSpec) - totalPaddingLeft - totalPaddingRight
-            val name = text.toString()
-            fun width(spacing: Float) = android.text.TextPaint(paint).apply { letterSpacing = spacing }.measureText(name)
-            val spacing = if (width(0f) > room && width(TIGHT) <= room) TIGHT else 0f
+            val spacing = nameSpacing(paint, text.toString(), room.toFloat())
             // Only when it changes, since setting it asks for another layout.
             if (letterSpacing != spacing) letterSpacing = spacing
             super.onMeasure(widthMeasureSpec, heightMeasureSpec)
@@ -76,15 +77,32 @@ class AppIconView(context: Context, val item: HomeItem) : LinearLayout(context) 
     }
 
     companion object {
-        const val ICON = 56
+        /** An icon's name, a widget's too ([CellLayout]): its text size (sp) and the room at its sides (dp). */
+        const val NAME_SP = 12f
+        const val NAME_PADDING = 4
+
+        /** The letter spacing for [name] in [room] px: a little closer when that makes it fit. */
+        fun nameSpacing(paint: android.graphics.Paint, name: String, room: Float): Float {
+            fun width(spacing: Float) = android.text.TextPaint(paint).apply { letterSpacing = spacing }.measureText(name)
+            return if (width(0f) > room && width(TIGHT) <= room) TIGHT else 0f
+        }
+
+        /** The home screen's icons, on pages and in the dock alike, as on iOS. */
+        const val ICON = 62
         /**
-         * Dock icons are larger, as in Smart Launcher: with the same padding around them,
-         * smaller icons leave wide gaps between them and the dock looks spread out.
+         * The home screen's icons with names turned off: bigger, into the room the names leave,
+         * as iOS's Large icons, in the dock too.
          */
-        const val DOCK_ICON = 62
+        const val LARGE_ICON = 70
         const val INSET = 6
-        /** Roughly the corner radius of a squircle icon at [ICON]. */
-        const val ICON_RADIUS = 16
+        /** The icons' shape, from Settings; set by [HomeScreen]. */
+        var shape = IconShape.SQUIRCLE
+
+        /**
+         * About how round, in dp, the corners of an icon [sizeDp] big are in [shape]. Widgets'
+         * corners, the keypad highlights and the page's outline all follow it.
+         */
+        fun corner(sizeDp: Int) = kotlin.math.round(shape.corner * sizeDp).toInt()
         /** Height of the icon with its highlight, which is also a dock cell's height. */
         const val BOX = ICON + 2 * INSET
         /** Fixed height of the name under the icon, so icons line up across rows. */
@@ -120,7 +138,8 @@ class ClockWidget(context: Context, val item: HomeItem) : FitColumn(context) {
     private val pills = FitRow(context).apply { gap = Ui.dp(context, 14) }
     private val glance = Glance(context)
     private var place: ClockInfo.Place? = null
-    private var solid = false
+    var solid = false
+        private set
     /** The text sizes, in pixels, worked out from the widget's width (see [sizeFor]). */
     private var pillPx = 30f
     private var sizedFor = 0
@@ -199,6 +218,8 @@ class ClockWidget(context: Context, val item: HomeItem) : FitColumn(context) {
      * the time much smaller than without them ([KEEP]); then the one under it goes first.
      */
     override fun onMeasure(widthMeasureSpec: Int, heightMeasureSpec: Int) {
+        // As it's measured, so a clock being resized lays out once, at its new size.
+        if (MeasureSpec.getMode(heightMeasureSpec) != MeasureSpec.UNSPECIFIED) pad(MeasureSpec.getSize(heightMeasureSpec))
         sizeFor(MeasureSpec.getSize(widthMeasureSpec) - paddingLeft - paddingRight)
         val choice = fitted?.takeIf { it.width == widthMeasureSpec && it.height == heightMeasureSpec }?.choice ?: run {
             val tall = MeasureSpec.getMode(heightMeasureSpec) != MeasureSpec.UNSPECIFIED
@@ -281,8 +302,7 @@ class ClockWidget(context: Context, val item: HomeItem) : FitColumn(context) {
         this.solid = solid
         background = if (solid) android.graphics.drawable.InsetDrawable(WidgetStyle.cardBackground(context), dp(CardWidget.GAP)) else null
         // The same room on every side of the card, and the same without one, so both styles lay out alike.
-        val edge = dp(CardWidget.GAP + 20)
-        setPadding(edge, edge, edge, edge)
+        pad()
         listOf(time, hours, minutes).forEach { it.setTextColor(if (solid) WidgetStyle.accent() else WidgetStyle.WHITE) }
         listOf(time, hours, minutes, day).forEach { shade(it) }
         sizedFor = 0
@@ -290,6 +310,18 @@ class ClockWidget(context: Context, val item: HomeItem) : FitColumn(context) {
         refresh()
         requestLayout()
     }
+
+    /**
+     * The room around the time, the same on every side; on a short clock (one row, an icon's
+     * height) the room above and below is a share of its height, as on the other cards.
+     */
+    private fun pad(height: Int = 0) {
+        val edge = dp(CardWidget.GAP + EDGE)
+        val card = height - 2 * dp(CardWidget.GAP)
+        val vertical = dp(CardWidget.GAP) + if (card > 0) minOf(dp(EDGE), (card * 0.15f).toInt()) else dp(EDGE)
+        setPadding(edge, vertical, edge, vertical)
+    }
+
 
     /** The soft shadow on the wallpaper; none on a card. */
     private fun shade(text: TextView) {
@@ -364,6 +396,9 @@ class ClockWidget(context: Context, val item: HomeItem) : FitColumn(context) {
 private const val MIN_SCALE = 0.25f
 /** The lines around the time stay unless the time would then be less than this share of its size without them. */
 private const val KEEP = 0.6f
+
+/** The room (dp) between the clock's card and what's on it. */
+private const val EDGE = 20
 
 /** Padding around the clock's time so its shadow isn't clipped. */
 private const val SHADOW_ROOM = 12

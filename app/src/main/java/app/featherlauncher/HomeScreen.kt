@@ -73,7 +73,6 @@ class HomeScreen(
      * only focusable while it has the highlight, so Android's own arrow moves never land on it.
      */
     private val pageTarget by lazy { View(activity).apply {
-        background = Ui.focusHighlight(activity, PAGE_RADIUS)
         contentDescription = "Home screen"
         setOnFocusChangeListener { v, has -> if (!has) v.isFocusable = false }
         setOnKeyListener { v, code, event ->
@@ -111,7 +110,11 @@ class HomeScreen(
         bindAll()
         root.addView(pageTarget, FrameLayout.LayoutParams(0, 0, Gravity.TOP or Gravity.START))
         pageRings += pageTarget
-        pages.addOnLayoutChangeListener { _, _, _, _, _, _, _, _, _ -> placePageTarget() }
+        pages.addOnLayoutChangeListener { _, _, _, _, _, _, _, _, _ ->
+            placePageTarget()
+            // The dots sit midway between the last row and the dock.
+            dots.aboveDock = pages.page(0).rowGap / 2
+        }
         pages.onSlide = ::fadeRings
         // A touch ends the keypad's highlight on the page, as it does everywhere else.
         root.viewTreeObserver.addOnTouchModeChangeListener { touch -> if (touch && pageTarget.isFocused) pageTarget.clearFocus() }
@@ -132,7 +135,15 @@ class HomeScreen(
             y += v.top
             v = v.parent as View
         }
-        return Rect(x + dp(Ui.BAR_MARGIN), y + dp(Workspace.PAGE_TOP), x + pages.width - dp(Ui.BAR_MARGIN), y + pages.height)
+        // Around what's on it, as far out as a widget's highlight is from its card: from the
+        // first row's icons to the last row's names, and from the first column's to the last's.
+        val cells = pages.page(0)
+        val gap = dp(CardWidget.GAP)
+        val r = cells.pictureRect(Rect(0, 0, cells.cols, cells.rows))
+        x += cells.left
+        y += cells.top
+        return Rect(x + r.left.roundToInt() - gap, y + r.top.roundToInt() - gap,
+            x + r.right.roundToInt() + gap, y + cells.namesBottom(cells.rows - 1).roundToInt() + gap)
     }
 
     private fun placePageTarget() {
@@ -220,6 +231,22 @@ class HomeScreen(
 
         val alive = workspace.items.map { it.id }.toSet()
         views.keys.filter { it !in alive }.forEach { id -> views.remove(id)?.let { (it.parent as? ViewGroup)?.removeView(it) } }
+        // New corners (names turned on or off, another icon shape): Feather's widgets are made
+        // again with them, and other apps' are rounded again.
+        if (applyCorners()) {
+            views.entries.filter { it.value is CardWidget || it.value is ClockWidget }.map { it.key }.forEach { id ->
+                views.remove(id)?.let { (it.parent as? ViewGroup)?.removeView(it) }
+            }
+            views.values.filterIsInstance<WidgetView>().forEach { it.requestLayout() }
+        }
+
+        // The dock's apps sit together in the middle, as on iOS: their places are just their order.
+        var compacted = false
+        workspace.on(Workspace.DOCK).sortedBy { it.x }.forEachIndexed { i, item ->
+            if (item.x != i) { item.x = i; compacted = true }
+        }
+        if (compacted) workspace.save()
+        dock.slots = workspace.on(Workspace.DOCK).size
 
         val limits = AppLimits.get(activity)
         val newApps = NewApps.get(activity)
@@ -235,14 +262,14 @@ class HomeScreen(
                     val badge = item.apps.mapNotNull(repo::find).distinctBy { it.packageName }
                         .filter { !limits.isLocked(it.packageName, now) }.sumOf { prefs.badgeCount(it.packageName) }
                     view.bind(folderIcon(item), item.label ?: FOLDER_NAME, showLabel, badge = badge,
-                        iconDp = if (item.inDock) AppIconView.DOCK_ICON else AppIconView.ICON)
+                        iconDp = homeIcon())
                 } else {
                     val entry = repo.find(item.ref)
                     view.bind(entry?.let(repo::icon), item.label ?: entry?.label.orEmpty(), showLabel,
                         locked = entry != null && limits.isLocked(entry.packageName, now),
                         isNew = entry != null && newApps.isNew(entry),
                         badge = entry?.let { prefs.badgeCount(it.packageName) } ?: 0,
-                        iconDp = if (item.inDock) AppIconView.DOCK_ICON else AppIconView.ICON)
+                        iconDp = homeIcon())
                 }
             }
             val target = containerFor(item.page)
@@ -251,16 +278,50 @@ class HomeScreen(
                 target.place(view, item.x, item.y, item.w, item.h)
             }
         }
-        val offset = if (prefs.showLabels) dp(AppIconView.LABEL_HEIGHT) / 2f else 0f
-        for (i in 0 until pages.pageCount) pages.page(i).iconOffset = offset
+        for (i in 0 until pages.pageCount) pages.page(i).apply {
+            names = prefs.showLabels
+            iconDp = homeIcon()
+        }
+        sizeDock()
         pages.updateFocusability()
+    }
+
+    /** The home screen's icons, the same on pages and in the dock; bigger with no names under them. */
+    private fun homeIcon() = if (prefs.showLabels) AppIconView.ICON else AppIconView.LARGE_ICON
+
+    /**
+     * The dock is always [Ui.DOCK_HEIGHT] tall, as on iOS: bigger icons have less room around them.
+     * The room from its edges to the icons is the same on every side.
+     */
+    private fun sizeDock() {
+        val icon = homeIcon()
+        val gap = (Ui.DOCK_HEIGHT - icon) / 2
+        dock.edgeGap = dp(gap)
+        dock.iconSize = dp(icon)
+        dock.boxDp = icon + 2 * AppIconView.INSET
+        val vertical = dp(gap - AppIconView.INSET)
+        dock.setPadding(0, vertical, 0, vertical)
+    }
+
+    /** A widget's name under it: Feather's own by what they are, others' by their app's name. */
+    private fun widgetName(item: HomeItem): String? = when (item.type) {
+        HomeItem.Type.CLOCK -> FeatherKind.of(item).label
+        HomeItem.Type.WIDGET -> widgets.info(item.ref.toInt())?.provider?.packageName?.let { pkg ->
+            repo.apps.firstOrNull { it.packageName == pkg }?.label
+                ?: runCatching { activity.packageManager.run { getApplicationLabel(getApplicationInfo(pkg, 0)).toString() } }.getOrNull()
+        }
+        else -> null
     }
 
     private fun newPage() = CellLayout(activity).apply {
         cols = Workspace.COLS
         rows = Workspace.ROWS
-        // The cells fill the page's outline while dragging: in line with the dock at the sides.
-        setPadding(dp(Ui.BAR_MARGIN), dp(Workspace.PAGE_TOP), dp(Ui.BAR_MARGIN), 0)
+        isPage = true
+        // In line with the dock at the sides. Above and below, the gaps to the status bar (past
+        // the pages' top margin) and to the dock (past the page dots) are as wide as those between rows.
+        setPadding(dp(Ui.BAR_MARGIN), 0, dp(Ui.BAR_MARGIN), 0)
+        roomAbove = (pages.layoutParams as ViewGroup.MarginLayoutParams).topMargin
+        roomBelow = dots.layoutParams.height
     }
 
     private fun containerFor(page: Int): CellLayout = if (page == Workspace.DOCK) dock else pages.page(page)
@@ -299,7 +360,7 @@ class HomeScreen(
         } ?: ClockWidget(activity, item).apply {
             setSolid(prefs.widgetSolid(item.id))
             // The keypad highlight follows the card's corner, as it does around the other widgets.
-            foreground = Ui.focusHighlight(activity, WidgetStyle.RADIUS + CardWidget.GAP)
+            foreground = Ui.focusHighlight(activity, WidgetStyle.radius + CardWidget.GAP)
             setOnClickListener { host.startSafely(Intent(AlarmClock.ACTION_SHOW_ALARMS)) }
             dateView.setOnClickListener {
                 val uri = CalendarContract.CONTENT_URI.buildUpon().appendPath("time")
@@ -315,6 +376,7 @@ class HomeScreen(
             isFocusable = true
             foreground = Ui.focusRing(activity, Ui.RADIUS_L, 0xFFFFFFFF.toInt())
             onLongPress = { onItemLongPress(item, this) }
+            onBareChanged = { name(item, this) }
             // Holding OK on it with the keypad (a touch hold is caught above).
             setOnLongClickListener { if (it.isInTouchMode) false else { onItemLongPress(item, it); true } }
             // OK on it with the keypad opens its app: a widget's own buttons can't be reached with
@@ -326,6 +388,18 @@ class HomeScreen(
                     ?: activity.packageManager.getLaunchIntentForPackage(pkg)?.let(host::startSafely)
             }
         }
+    }?.also { name(item, it) }
+
+    /**
+     * A widget's name under it, as an app's. One straight on the wallpaper (Transparent, or
+     * another app's with nothing around its edges) has none: with no card, there's nothing for
+     * it to name, and the widget takes its room.
+     */
+    private fun name(item: HomeItem, view: View) {
+        val bare = (view as? ClockWidget)?.solid == false || (view as? UpNextWidget)?.solid == false || (view as? WidgetView)?.bare == true
+        view.setTag(R.id.home_name, if (bare) null else widgetName(item))
+        view.setTag(R.id.home_bare, bare)
+        (view.parent as? View)?.apply { requestLayout(); invalidate() }
     }
 
     /** Tapping something coming up, on the clock or Up next: the day's zmanim, the event, the alarms. */
@@ -339,16 +413,30 @@ class HomeScreen(
         }
     }
 
+    /** The page's outline curves around its corners as a widget's highlight does around its card. */
+    private fun pageRadius() = WidgetStyle.radius + CardWidget.GAP
+
+    /**
+     * Every corner on the home screen follows the icons' shape and size: widgets' cards, the
+     * keypad highlights, and the page's outline, the same distance out from each other.
+     * True if they changed.
+     */
+    private fun applyCorners(): Boolean {
+        AppIconView.shape = prefs.iconShape
+        val radius = AppIconView.corner(homeIcon())
+        val changed = radius != WidgetStyle.radius
+        WidgetStyle.radius = radius
+        pageTarget.background = Ui.focusHighlight(activity, pageRadius())
+        return changed
+    }
+
     fun applyTheme() {
+        applyCorners()
         val p = palette()
         // Dock corner = highlight corner + the space around it, so the curves run parallel.
-        // Exactly DOCK_GAP from the edges to the icons, left, right, top and bottom.
+        // The same room from the edges to the icons, left, right, top and bottom (see sizeDock).
         // Icons sit in boxes INSET larger than themselves (room for the keypad highlight).
-        dock.edgeGap = dp(DOCK_GAP)
-        dock.iconSize = dp(AppIconView.DOCK_ICON)
-        dock.boxDp = AppIconView.DOCK_ICON + 2 * AppIconView.INSET
-        val vertical = dp(DOCK_GAP - AppIconView.INSET)
-        dock.setPadding(0, vertical, 0, vertical)
+        sizeDock()
         // Like Smart Launcher: on the wallpaper the dock is the app list's deep tone; the lighter
         // tone is for bars that sit on that deep background (the app list's tab bar).
         dock.background = Ui.rounded(activity, p.dock, Ui.RADIUS_BAR, p.hairline)
@@ -364,10 +452,13 @@ class HomeScreen(
     /** Size of one page cell in dp, for sizing new widgets. */
     fun cellSizeDp(): Pair<Float, Float> {
         val density = activity.resources.displayMetrics.density
-        val page = if (pages.pageCount > 0) pages.page(0) else null
-        if (page == null || page.width == 0) return 100f to 84f
-        return page.cellWidth / density to page.cellHeight / density
+        val grid = grid()
+        return grid.cellWidth / density to grid.cellHeight / density
     }
+
+    /** The page's grid, for sizing widgets; before it's laid out, about what it will be. */
+    fun grid(): CellLayout.Grid = CellLayout.grid
+        ?: CellLayout.Grid(dp(100).toFloat(), dp(100).toFloat(), dp(AppIconView.ICON).toFloat(), dp(CardWidget.GAP))
 
     // endregion
 
@@ -735,6 +826,7 @@ class HomeScreen(
                 prefs.setWidgetSolid(item.id, it == 0)
                 (views[item.id] as? ClockWidget)?.setSolid(it == 0)
                 (views[item.id] as? UpNextWidget)?.solid = it == 0
+                views[item.id]?.let { view -> name(item, view) }
                 build()
             })
         }
@@ -848,6 +940,10 @@ class HomeScreen(
         private var grabX = 0f
         private var grabY = 0f
         private var target: Triple<Int, Int, Int>? = null
+        /** The place in the dock opened up for the app being dragged, if any. */
+        private var dockGap: Int? = null
+        /** The dock was arranged during this drag (see [leaveDock]). */
+        private var dockArranged = false
         private var lastX = 0f
         private var lastY = 0f
         private val slop = ViewConfiguration.get(activity).scaledTouchSlop * 1.5f
@@ -905,7 +1001,7 @@ class HomeScreen(
             if (page == Workspace.DOCK) return when {
                 // Up out of the dock, onto the bottom row of the page.
                 dy < 0 -> pages.currentPage.let { Triple(it, x.coerceAtMost(workspace.cols(it) - w), workspace.rows(it) - h) }
-                dx != 0 && x + dx in 0 until workspace.cols(page) -> Triple(page, x + dx, 0)
+                dx != 0 && x + dx in 0..dockLast() -> Triple(page, x + dx, 0)
                 else -> null
             }
             val cols = workspace.cols(page)
@@ -920,7 +1016,7 @@ class HomeScreen(
                 }
                 y + dy < 0 -> null
                 // Below the page: into the dock, for an app or folder.
-                y + dy > rows - h -> if (w == 1 && h == 1) Triple(Workspace.DOCK, x.coerceAtMost(workspace.cols(Workspace.DOCK) - 1), 0) else null
+                y + dy > rows - h -> if (w == 1 && h == 1) Triple(Workspace.DOCK, x.coerceAtMost(dockLast()), 0) else null
                 else -> Triple(page, x + dx, y + dy)
             }
         }
@@ -936,8 +1032,8 @@ class HomeScreen(
             val cells = containerFor(page)
             val origin = rectInRoot(cells)
             val r = cells.cellRect(Rect(x, y, x + w, y + h))
-            // An icon sits above its name in the cell; a widget fills its cells.
-            val lift = if (source?.item?.isWidget == true) 0f else cells.iconOffset
+            // An icon, or a widget's card, sits above its name in the cells.
+            val lift = cells.iconOffset
             // Just picked up, the picture isn't laid out yet: its size is still only in its layout params.
             val vw = view.width.takeIf { it > 0 } ?: view.layoutParams.width
             val vh = view.height.takeIf { it > 0 } ?: view.layoutParams.height
@@ -1076,15 +1172,18 @@ class HomeScreen(
                 y >= dockRect.top -> null
                 else -> pages.currentPage
             }
+            if (page != Workspace.DOCK) leaveDock()
             if (page == null) {
                 clearReorder(commit = false)
                 setTarget(null)
                 return
             }
+            if (page == Workspace.DOCK) return moveOverDock(view)
             val cells = containerFor(page)
             val origin = rectInRoot(cells)
             val centerX = view.x + view.width / 2f - origin.left - cells.originX
-            val centerY = view.y + view.height / 2f - origin.top - cells.paddingTop
+            // The picture sits above its name: its cells are centred half the name lower.
+            val centerY = view.y + view.height / 2f + cells.iconOffset - origin.top - cells.originY
             val cx = ((centerX - w * cells.cellWidth / 2) / cells.cellWidth).roundToInt()
             val cy = ((centerY - h * cells.cellHeight / 2) / cells.cellHeight).roundToInt()
             val col = cx.coerceIn(0, workspace.cols(page) - w)
@@ -1132,9 +1231,9 @@ class HomeScreen(
             pageOutline = zone(FrameLayout.LayoutParams(page.width(), height, Gravity.TOP or Gravity.START).apply {
                 topMargin = top
                 leftMargin = page.left
-            }, PAGE_RADIUS)
+            }, pageRadius())
             // Slivers: the neighbouring page starts just past the edge of this one.
-            val sliver = page.left - gap
+            val sliver = dp(Ui.BAR_MARGIN) - gap
             fun side(gravity: Int) = zone(FrameLayout.LayoutParams(dp(80), height, gravity or Gravity.TOP).apply {
                 topMargin = top
                 if (gravity == Gravity.END) rightMargin = sliver - dp(80) else leftMargin = sliver - dp(80)
@@ -1236,7 +1335,11 @@ class HomeScreen(
                 val cells = containerFor(it.page)
                 cells.dropPreviewIsIcon = true
                 cells.dropPreviewGrow = true
-                cells.dropPreview = Rect(it.x, it.y, it.x + 1, it.y + 1)
+                // Where its icon is now: in the dock, the others may have slid aside.
+                val at = views[it.id]?.layoutParams as? CellLayout.LayoutParams
+                val x = at?.x ?: it.x
+                val y = at?.y ?: it.y
+                cells.dropPreview = Rect(x, y, x + 1, y + 1)
             }
         }
 
@@ -1268,6 +1371,11 @@ class HomeScreen(
 
         private fun applyReorder() {
             val (page, x, y) = hoverCell ?: return
+            if (page == Workspace.DOCK && w == 1 && h == 1) {
+                setShifted(emptyMap())
+                return overDock(x)
+            }
+            leaveDock()
             val plan = if (w == 1 && h == 1) planReorder(page, x, y) else planWidgetReorder(page, x, y)
             when (plan) {
                 null -> {
@@ -1395,6 +1503,7 @@ class HomeScreen(
             next?.let {
                 val cells = containerFor(it.first)
                 cells.dropPreviewIsIcon = source?.item?.isWidget != true
+                cells.dropPreviewBare = source?.item?.let { views[it.id]?.getTag(R.id.home_bare) } == true
                 cells.dropPreview = Rect(it.second, it.third, it.second + w, it.third + h)
             }
         }
@@ -1440,6 +1549,9 @@ class HomeScreen(
                 ?: src.kind?.let { workspace.add(t.first, t.second, t.third, it.w, h, HomeItem.Type.CLOCK, it.ref) }
                 ?: workspace.add(t.first, t.second, t.third, 1, 1, HomeItem.Type.APP, src.entry!!.key)
             src.folder?.let { removeFromFolder(it, src.entry!!.key) }
+            // Into the dock: the apps from its place on move along one, as they slid while it was held there.
+            if (t.first == Workspace.DOCK) workspace.on(Workspace.DOCK).filter { it !== item }.sortedBy { it.x }
+                .forEachIndexed { i, other -> other.x = if (i >= t.second) i + 1 else i }
             item.page = t.first
             item.x = t.second
             item.y = t.third
@@ -1480,7 +1592,86 @@ class HomeScreen(
             hideEdgeZones()
             clearReorder(commit = false)
             setTarget(null)
+            // Back into the dock: its place opens up again.
+            if (dockArranged) {
+                dockGap = null
+                arrangeDock(null, null)
+            }
             source?.item?.let { goBack(it) } ?: fadeOut()
+        }
+
+        /** How many apps are in the dock, besides the one being dragged. */
+        private fun dockCount() = workspace.on(Workspace.DOCK).count { it !== source?.item }
+
+        /** The last place in the dock the dragged app can go: after the others, while there's room. */
+        private fun dockLast() = minOf(dockCount(), workspace.cols(Workspace.DOCK) - 1)
+
+        /** Over the dock with an app: onto an app's icon makes a folder; elsewhere, the others make room. */
+        private fun moveOverDock(view: View) {
+            clearReorder(commit = false)
+            val x = view.x + view.width / 2f
+            val y = view.y + view.height / 2f
+            val onto = if (source?.item?.type == HomeItem.Type.FOLDER) null else workspace.on(Workspace.DOCK).firstOrNull { other ->
+                other !== source?.item && other !== source?.folder &&
+                    (views[other.id] as? AppIconView)?.let { v ->
+                        val r = rectInRoot(v.iconView)
+                        hypot(x - r.exactCenterX(), y - r.exactCenterY()) < dp(AppIconView.ICON) * 0.45f
+                    } == true
+            }
+            setFolderTarget(onto)
+            if (onto != null) return setTarget(null)
+            // Which place it's over, with the others spread out to make room for it.
+            val slot = ((x - rectInRoot(dock).left - dock.originFor(dockCount() + 1)) / dock.cellWidth).toInt()
+            overDock(slot)
+        }
+
+        /** Opens up place [slot] in the dock for the dragged app, sliding the others aside; none when it's full. */
+        private fun overDock(slot: Int) {
+            val count = dockCount()
+            if (count >= workspace.cols(Workspace.DOCK)) {
+                leaveDock()
+                return setTarget(null)
+            }
+            val place = slot.coerceIn(0, count)
+            if (dockGap != place) {
+                dockGap = place
+                dockArranged = true
+                arrangeDock(place, source?.item)
+            }
+            setTarget(Triple(Workspace.DOCK, place, 0))
+        }
+
+        /** Away from the dock: the others close up, over the dragged app's place too if it came from there. */
+        private fun leaveDock() {
+            if (dockGap == null && (dockArranged || source?.item?.inDock != true)) return
+            dockGap = null
+            dockArranged = true
+            arrangeDock(null, source?.item)
+        }
+
+        /**
+         * Lays the dock's apps out in order, leaving out [skip] and leaving place [gap] free,
+         * together in the middle. They slide to their new places.
+         */
+        private fun arrangeDock(gap: Int?, skip: HomeItem?) {
+            val apps = workspace.on(Workspace.DOCK).filter { it !== skip }.sortedBy { it.x }
+            val was = apps.associateWith { item -> views[item.id]?.let { it.left + it.translationX } }
+            apps.forEachIndexed { i, item ->
+                (views[item.id]?.layoutParams as? CellLayout.LayoutParams)?.x = if (gap != null && i >= gap) i + 1 else i
+            }
+            dock.slots = apps.size + if (gap != null) 1 else 0
+            // Laid out at once, so where they go is known straight away (for an app dropped back in).
+            dock.forceLayout()
+            dock.measure(View.MeasureSpec.makeMeasureSpec(dock.width, View.MeasureSpec.EXACTLY),
+                View.MeasureSpec.makeMeasureSpec(dock.height, View.MeasureSpec.EXACTLY))
+            dock.layout(dock.left, dock.top, dock.right, dock.bottom)
+            for ((item, from) in was) {
+                val view = views[item.id] ?: continue
+                if (from == null) continue
+                view.animate().cancel()
+                view.translationX = from - view.left
+                view.animate().translationX(0f).setDuration(180).setInterpolator(DecelerateInterpolator(2f)).start()
+            }
         }
 
         private fun finish() {
@@ -1490,6 +1681,8 @@ class HomeScreen(
             setTarget(null)
             source?.item?.let { views[it.id]?.visibility = View.VISIBLE }
             workspace.items.forEach { views[it.id]?.visibility = View.VISIBLE }
+            dockGap = null
+            dockArranged = false
             active = false
         }
 
@@ -1503,12 +1696,14 @@ class HomeScreen(
         finishResize()
         val view = views[item.id] ?: return
         val min = if (item.type == HomeItem.Type.WIDGET) widgets.minSpan(item.ref.toInt()) else FeatherKind.of(item).let { it.minW to it.minH }
-        val frame = ResizeFrame(item, view, min)
+        val maxRows = if (item.type == HomeItem.Type.WIDGET) Workspace.ROWS else FeatherKind.of(item).maxH
+        val frame = ResizeFrame(item, view, min, maxRows)
         root.addView(frame, FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT))
         frame.toolbar = widgetToolbar(item).also {
             root.addView(it, FrameLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT))
         }
         resize = frame
+        containerFor(item.page).nameless = view
         view.post { frame.placeToolbar() }
         if (!view.isInTouchMode) {
             android.widget.Toast.makeText(activity, "Resize it with the arrows, then press OK", android.widget.Toast.LENGTH_SHORT).show()
@@ -1518,6 +1713,7 @@ class HomeScreen(
     fun finishResize(): Boolean {
         val frame = resize ?: return false
         resize = null
+        containerFor(frame.item.page).nameless = null
         root.removeView(frame)
         frame.toolbar?.let(root::removeView)
         workspace.save()
@@ -1572,6 +1768,8 @@ class HomeScreen(
         val item: HomeItem,
         val view: View,
         val min: Pair<Int, Int>,
+        /** The most rows it can take. */
+        val maxRows: Int,
     ) : View(activity) {
         var toolbar: View? = null
         private val stroke = Paint(Paint.ANTI_ALIAS_FLAG).apply {
@@ -1584,8 +1782,12 @@ class HomeScreen(
         /** This gesture belongs to the widget or the toolbar, not the frame. */
         private var passThrough = false
 
+        /** Around the widget's cells, worked out from them, so the frame moves in the same frame as the widget. */
         private fun bounds(): RectF {
-            val r = rectInRoot(view)
+            val cells = containerFor(item.page)
+            val origin = rectInRoot(cells)
+            val r = cells.widgetRect(Rect(item.x, item.y, item.x + item.w, item.y + item.h), view.getTag(R.id.home_bare) == true)
+            r.offset(origin.left, origin.top)
             val inset = dp(2).toFloat()
             return RectF(r).apply { inset(inset, inset) }
         }
@@ -1594,14 +1796,17 @@ class HomeScreen(
             val b = bounds()
             // Around a card, its curve runs parallel to the card's, the frame's distance out.
             val radius = when (view) {
-                is CardWidget, is ClockWidget -> dp(WidgetStyle.RADIUS + CardWidget.GAP - 2).toFloat()
+                is CardWidget, is ClockWidget -> dp(WidgetStyle.radius + CardWidget.GAP - 2).toFloat()
                 is WidgetView -> (view.corner + view.cornerInset - dp(2)).coerceAtLeast(dp(18).toFloat())
                 else -> dp(18).toFloat()
             }
             canvas.drawRoundRect(b, radius, radius, stroke)
             val r = dp(7).toFloat()
-            handles(b).forEach { (x, y) -> canvas.drawCircle(x, y, r, knob) }
+            handles(b).forEachIndexed { i, (x, y) -> if (i % 2 == 0 || tall) canvas.drawCircle(x, y, r, knob) }
         }
+
+        /** It can be made taller or shorter: the top and bottom handles show. */
+        private val tall get() = min.second < maxRows
 
         private fun handles(b: RectF) = listOf(
             b.left to b.centerY(), b.centerX() to b.top, b.right to b.centerY(), b.centerX() to b.bottom,
@@ -1633,7 +1838,7 @@ class HomeScreen(
             when (ev.actionMasked) {
                 MotionEvent.ACTION_DOWN -> {
                     passThrough = false
-                    val hit = handles(bounds()).indexOfFirst { (x, y) -> hypot(ev.x - x, ev.y - y) < dp(32) }
+                    val hit = handles(bounds()).withIndex().indexOfFirst { (i, at) -> (i % 2 == 0 || tall) && hypot(ev.x - at.first, ev.y - at.second) < dp(32) }
                     if (hit >= 0) {
                         handle = hit
                         return true
@@ -1657,7 +1862,7 @@ class HomeScreen(
         /** With the keypad: right and down make it bigger by a cell, left and up smaller. */
         fun step(dw: Int, dh: Int) {
             val w = (item.w + dw).coerceIn(min.first, Workspace.COLS - item.x)
-            val h = (item.h + dh).coerceIn(min.second, Workspace.ROWS - item.y)
+            val h = (item.h + dh).coerceIn(min.second, minOf(maxRows, Workspace.ROWS - item.y))
             setSpan(item.x, item.y, w, h)
         }
 
@@ -1665,16 +1870,16 @@ class HomeScreen(
             val cells = containerFor(item.page)
             val origin = rectInRoot(cells)
             val gx = ((px - origin.left - cells.originX) / cells.cellWidth).roundToInt()
-            val gy = ((py - origin.top - cells.paddingTop) / cells.cellHeight).roundToInt()
+            val gy = ((py - origin.top - cells.originY) / cells.cellHeight).roundToInt()
             var x = item.x
             var y = item.y
             var w = item.w
             var h = item.h
             when (handle) {
                 0 -> { val right = x + w; x = gx.coerceIn(0, right - min.first); w = right - x }
-                1 -> { val bottom = y + h; y = gy.coerceIn(0, bottom - min.second); h = bottom - y }
+                1 -> { val bottom = y + h; y = gy.coerceIn(maxOf(0, bottom - maxRows), bottom - min.second); h = bottom - y }
                 2 -> w = (gx - x).coerceIn(min.first, Workspace.COLS - x)
-                3 -> h = (gy - y).coerceIn(min.second, Workspace.ROWS - y)
+                3 -> h = (gy - y).coerceIn(min.second, minOf(maxRows, Workspace.ROWS - y))
             }
             setSpan(x, y, w, h)
         }
@@ -1684,10 +1889,8 @@ class HomeScreen(
             if (!workspace.isFree(item.page, x, y, w, h, item)) return
             item.x = x; item.y = y; item.w = w; item.h = h
             containerFor(item.page).place(view, x, y, w, h)
-            view.post {
-                invalidate()
-                placeToolbar()
-            }
+            invalidate()
+            placeToolbar()
         }
     }
 
@@ -1938,13 +2141,10 @@ class HomeScreen(
     private fun dp(value: Int) = Ui.dp(activity, value)
 
     companion object {
-        /** Space between the dock's edges and its icons, on every side. */
-        private const val DOCK_GAP = 15
         /** Thickness of the targets along the edges while dragging. */
         /** Space between the page outline and the dock (and around the slivers). */
         private const val EDGE_GAP = Workspace.PAGE_TOP
         /** The page outline's corners: a widget's own highlight's, as the outline is as far outside the cards. */
-        private const val PAGE_RADIUS = WidgetStyle.RADIUS + CardWidget.GAP
         /** How far into a slide the page outlines have faded out. */
         private const val RING_GONE_BY = 0.3f
         /** How close to a side edge (dp) the finger counts as over that side's sliver. */
