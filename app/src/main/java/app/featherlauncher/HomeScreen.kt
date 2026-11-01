@@ -376,7 +376,7 @@ class HomeScreen(
                 MenuItem("Remove", R.drawable.ic_close, danger = true) { remove(item) },
             ), anchor, folderIcon(item))
             HomeItem.Type.CLOCK -> overlays.showMenu(clockName(item), listOfNotNull(
-                featherSettings(item),
+                widgetSettings(item),
                 MenuItem("Move", R.drawable.ic_move) { startKeyMove(item) },
                 MenuItem("Resize", R.drawable.ic_height) { startResize(item) },
                 MenuItem("Remove", R.drawable.ic_close, danger = true) { remove(item) },
@@ -384,7 +384,7 @@ class HomeScreen(
             HomeItem.Type.WIDGET -> {
                 val info = widgets.info(item.ref.toInt())
                 val label = info?.loadLabel(activity.packageManager) ?: "Widget"
-                val items = mutableListOf(MenuItem("Move", R.drawable.ic_move) { startKeyMove(item) })
+                val items = listOfNotNull(widgetSettings(item), MenuItem("Move", R.drawable.ic_move) { startKeyMove(item) }).toMutableList()
                 if (info != null && info.resizeMode != 0) items += MenuItem("Resize", R.drawable.ic_height) { startResize(item) }
                 items += MenuItem("Remove", R.drawable.ic_close, danger = true) { remove(item) }
                 overlays.showMenu(label, items, anchor, info?.provider?.packageName?.let { pkg ->
@@ -622,21 +622,42 @@ class HomeScreen(
 
     private fun clockName(item: HomeItem) = FeatherKind.of(item).label
 
-    /** What a Feather widget's settings are, if it has any. */
-    private fun featherSettings(item: HomeItem): MenuItem? = when (FeatherKind.of(item)) {
-        FeatherKind.CLOCK, FeatherKind.UP_NEXT -> MenuItem("${clockName(item)} style", R.drawable.ic_palette) { widgetStyle(item) }
-        else -> null
+    /**
+     * Widget settings, the same for every widget that has any: another app's own settings screen
+     * (if it can be opened again after adding), or a Feather widget's settings sheet.
+     */
+    private fun widgetSettings(item: HomeItem): MenuItem? {
+        val open: () -> Unit = when (item.type) {
+            HomeItem.Type.WIDGET -> if (widgets.canReconfigure(item.ref.toInt())) ({ widgets.reconfigure(item.ref.toInt()) }) else return null
+            HomeItem.Type.CLOCK -> when (FeatherKind.of(item)) {
+                FeatherKind.CLOCK, FeatherKind.UP_NEXT -> ({ featherSettings(item) })
+                else -> return null
+            }
+            else -> return null
+        }
+        return MenuItem("Widget settings", R.drawable.ic_settings) { open() }
     }
 
-    /** Solid, on a card, or Transparent, straight on the wallpaper, as Android's own Clock offers. */
-    private fun widgetStyle(item: HomeItem) {
+    /** A Feather widget's settings: for now its style, Solid on a card or Transparent on the wallpaper, as Android's own Clock offers. */
+    private fun featherSettings(item: HomeItem) {
         val p = palette()
-        val solid = prefs.widgetSolid(item.id)
-        Components.choiceSheet(activity, p, overlays, "${clockName(item)} style", listOf("Solid" to null, "Transparent" to null), if (solid) 0 else 1) {
-            prefs.setWidgetSolid(item.id, it == 0)
-            (views[item.id] as? ClockWidget)?.setSolid(it == 0)
-            (views[item.id] as? UpNextWidget)?.solid = it == 0
+        val column = LinearLayout(activity).apply {
+            orientation = LinearLayout.VERTICAL
+            setPadding(0, 0, 0, dp(Ui.SPACE_L))
         }
+        fun build() {
+            column.removeAllViews()
+            val solid = prefs.widgetSolid(item.id)
+            column.addView(Components.sectionLabel(activity, p, "Style"))
+            column.addView(Components.segmented(activity, p, listOf("Solid", "Transparent"), if (solid) 0 else 1) {
+                prefs.setWidgetSolid(item.id, it == 0)
+                (views[item.id] as? ClockWidget)?.setSolid(it == 0)
+                (views[item.id] as? UpNextWidget)?.solid = it == 0
+                build()
+            })
+        }
+        build()
+        overlays.showSheet("${clockName(item)} settings", column)
     }
 
     // endregion
@@ -1429,10 +1450,7 @@ class HomeScreen(
         val p = palette()
         val actions = mutableListOf<MenuItem>()
         when (item.type) {
-            HomeItem.Type.CLOCK -> featherSettings(item)?.let { actions += it }
-            HomeItem.Type.WIDGET -> if (widgets.canReconfigure(item.ref.toInt())) {
-                actions += MenuItem("Settings", R.drawable.ic_settings) { widgets.reconfigure(item.ref.toInt()) }
-            }
+            HomeItem.Type.CLOCK, HomeItem.Type.WIDGET -> widgetSettings(item)?.let { actions += it }
             HomeItem.Type.APP, HomeItem.Type.FOLDER -> Unit
         }
         actions += MenuItem("Remove", R.drawable.ic_close, danger = true) { remove(item) }
@@ -1599,8 +1617,8 @@ class HomeScreen(
     private fun snapshot(view: View): Bitmap {
         val bitmap = Bitmap.createBitmap(view.width.coerceAtLeast(1), view.height.coerceAtLeast(1), Bitmap.Config.ARGB_8888)
         // Draw without the keypad highlight or press scale.
-        // A card widget's background is the card itself; others' is just the keypad highlight.
-        if (view is CardWidget) {
+        // A Feather widget's background is its card; others' is just the keypad highlight.
+        if (view is CardWidget || view is ClockWidget) {
             view.draw(Canvas(bitmap))
             return bitmap
         }

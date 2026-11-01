@@ -100,47 +100,11 @@ abstract class CardWidget(context: Context, val item: HomeItem) : FrameLayout(co
         }
     }
 
-    // Holding anywhere on the card picks it up, even on an event or a button, which would
-    // otherwise take the touch as their own.
-    private var downX = 0f
-    private var downY = 0f
-    private var held = false
-    private val slop = android.view.ViewConfiguration.get(context).scaledTouchSlop
-    private val hold = Runnable {
-        val now = android.os.SystemClock.uptimeMillis()
-        // The button or event under the finger lets go, so lifting it doesn't tap it.
-        android.view.MotionEvent.obtain(now, now, android.view.MotionEvent.ACTION_CANCEL, downX, downY, 0).let {
-            super.dispatchTouchEvent(it)
-            it.recycle()
-        }
-        performLongClick()
-    }
+    private val hold = WholeHold(this)
 
-    override fun dispatchTouchEvent(ev: android.view.MotionEvent): Boolean {
-        when (ev.actionMasked) {
-            android.view.MotionEvent.ACTION_DOWN -> {
-                downX = ev.x
-                downY = ev.y
-                held = false
-                removeCallbacks(hold)
-                postDelayed(hold, android.view.ViewConfiguration.getLongPressTimeout().toLong())
-            }
-            android.view.MotionEvent.ACTION_MOVE ->
-                if (kotlin.math.abs(ev.x - downX) > slop || kotlin.math.abs(ev.y - downY) > slop) removeCallbacks(hold)
-            android.view.MotionEvent.ACTION_UP, android.view.MotionEvent.ACTION_CANCEL -> removeCallbacks(hold)
-        }
-        // After the hold, the rest of the gesture is the drag's, not the card's.
-        if (held && ev.actionMasked != android.view.MotionEvent.ACTION_DOWN) return true
-        return super.dispatchTouchEvent(ev)
-    }
+    override fun dispatchTouchEvent(ev: android.view.MotionEvent) = hold.touch(ev) { super.dispatchTouchEvent(it) }
 
-    override fun performLongClick(): Boolean {
-        // The card's own hold and the one above can both fire; once is enough.
-        if (held) return true
-        held = isInTouchMode
-        removeCallbacks(hold)
-        return super.performLongClick()
-    }
+    override fun performLongClick() = hold.longClick { super.performLongClick() }
 
     override fun onAttachedToWindow() {
         super.onAttachedToWindow()
@@ -1066,5 +1030,55 @@ class ZmanimWidget(context: Context, item: HomeItem) : CardWidget(context, item)
                     if (next) color else WidgetStyle.onCardQuiet()).apply { text = time(z.time, place.zone) })
             }, if (next) 10 else 4))
         }
+    }
+}
+
+/**
+ * Holding anywhere on a widget picks it up, even on an event or a button inside it, which would
+ * otherwise take the touch as its own: after the hold, the rest of the gesture is the drag's, and
+ * lifting the finger doesn't tap what's under it. [view] passes its touches through [touch] and
+ * its long clicks through [longClick].
+ */
+class WholeHold(private val view: android.view.ViewGroup) {
+    private var downX = 0f
+    private var downY = 0f
+    private var held = false
+    private var dispatch: ((android.view.MotionEvent) -> Boolean)? = null
+    private val slop = android.view.ViewConfiguration.get(view.context).scaledTouchSlop
+    private val hold = Runnable {
+        val now = android.os.SystemClock.uptimeMillis()
+        // The button or event under the finger lets go, so lifting it doesn't tap it.
+        android.view.MotionEvent.obtain(now, now, android.view.MotionEvent.ACTION_CANCEL, downX, downY, 0).let {
+            dispatch?.invoke(it)
+            it.recycle()
+        }
+        view.performLongClick()
+    }
+
+    fun touch(ev: android.view.MotionEvent, superDispatch: (android.view.MotionEvent) -> Boolean): Boolean {
+        dispatch = superDispatch
+        when (ev.actionMasked) {
+            android.view.MotionEvent.ACTION_DOWN -> {
+                downX = ev.x
+                downY = ev.y
+                held = false
+                view.removeCallbacks(hold)
+                view.postDelayed(hold, android.view.ViewConfiguration.getLongPressTimeout().toLong())
+            }
+            android.view.MotionEvent.ACTION_MOVE ->
+                if (kotlin.math.abs(ev.x - downX) > slop || kotlin.math.abs(ev.y - downY) > slop) view.removeCallbacks(hold)
+            android.view.MotionEvent.ACTION_UP, android.view.MotionEvent.ACTION_CANCEL -> view.removeCallbacks(hold)
+        }
+        // After the hold, the rest of the gesture is the drag's, not the widget's.
+        if (held && ev.actionMasked != android.view.MotionEvent.ACTION_DOWN) return true
+        return superDispatch(ev)
+    }
+
+    fun longClick(superLongClick: () -> Boolean): Boolean {
+        // The widget's own hold and this one can both fire; once is enough.
+        if (held) return true
+        held = view.isInTouchMode
+        view.removeCallbacks(hold)
+        return superLongClick()
     }
 }

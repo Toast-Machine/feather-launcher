@@ -122,6 +122,13 @@ class ClockWidget(context: Context, val item: HomeItem) : FitColumn(context) {
         override fun onReceive(c: Context, intent: android.content.Intent) = refresh()
     }
 
+    // Holding anywhere picks the clock up, on an event under the time too ([WholeHold]).
+    private val hold = WholeHold(this)
+
+    override fun dispatchTouchEvent(ev: android.view.MotionEvent) = hold.touch(ev) { super.dispatchTouchEvent(it) }
+
+    override fun performLongClick() = hold.longClick { super.performLongClick() }
+
     private fun clockText(format12: String, format24: String) = TextClock(context).apply {
         format12Hour = format12
         format24Hour = format24

@@ -51,10 +51,18 @@ object WidgetSheet {
                     lay(v, v.width, v.height)
                 }
             }
-            main.postDelayed({
-                views.forEach { (s, list) -> save(java.io.File(folder, "${s.name}.png"), list, cellW, cellH) }
-                done(folder.path)
-            }, 500)
+            // One picture at a time, each drawn on its own turn and saved off the main thread, so the
+            // home screen keeps answering touches meanwhile.
+            val queue = ArrayDeque(views.entries.toList())
+            fun next() {
+                val (sample, list) = queue.removeFirstOrNull() ?: return done(folder.path)
+                val sheet = draw(list, cellW, cellH)
+                Thread {
+                    java.io.File(folder, "${sample.name}.png").outputStream().use { sheet.compress(Bitmap.CompressFormat.PNG, 100, it) }
+                    main.post { next() }
+                }.start()
+            }
+            main.postDelayed({ next() }, 500)
         }, 1500)
     }
 
@@ -64,7 +72,7 @@ object WidgetSheet {
     }
 
     /** One row per height, the widths side by side, each on a slice of sky like a wallpaper, with its size above it. */
-    private fun save(file: java.io.File, list: List<Pair<Pair<Int, Int>, View>>, cellW: Float, cellH: Float) {
+    private fun draw(list: List<Pair<Pair<Int, Int>, View>>, cellW: Float, cellH: Float): Bitmap {
         val gap = 24
         val label = 28
         val rows = list.groupBy { it.first.second }
@@ -92,6 +100,6 @@ object WidgetSheet {
             }
             y += (h * cellH).toInt() + label + gap
         }
-        file.outputStream().use { sheet.compress(Bitmap.CompressFormat.PNG, 100, it) }
+        return sheet
     }
 }
