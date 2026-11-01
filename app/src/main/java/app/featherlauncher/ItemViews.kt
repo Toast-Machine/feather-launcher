@@ -142,7 +142,9 @@ class ClockWidget(context: Context, val item: HomeItem) : FitColumn(context) {
         time.setOnLongClickListener { performLongClick() }
         // Its highlight hugs the digits, inside the room left for the shadow, so it stays within the clock.
         time.foreground = android.graphics.drawable.InsetDrawable(Ui.focusRing(context, Ui.RADIUS_L, WidgetStyle.WHITE), dp(SHADOW_ROOM))
-        addView(pills, LayoutParams(LayoutParams.MATCH_PARENT, LayoutParams.WRAP_CONTENT).apply { topMargin = dp(6) })
+        // Pulled up into the room under the digits (they have no descenders), so the space below the
+        // time looks the same as the space above it.
+        addView(pills, LayoutParams(LayoutParams.MATCH_PARENT, LayoutParams.WRAP_CONTENT).apply { topMargin = -dp(5) })
         setSolid(false)
     }
 
@@ -245,6 +247,8 @@ class ClockWidget(context: Context, val item: HomeItem) : FitColumn(context) {
     private fun pill(icon: android.graphics.drawable.Drawable?, words: String, tint: Boolean) =
         WidgetStyle.pill(context, icon?.mutate()?.apply { if (tint) setTint(main) }, words, pillPx).apply {
             setTextColor(main)
+            // Regular, like the line about the day above the time.
+            typeface = WidgetStyle.body
             shade(this)
         }
 
