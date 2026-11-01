@@ -1614,6 +1614,7 @@ class HomeScreen(
             }
             dock.slots = apps.size + if (gap != null) 1 else 0
             // Laid out at once, so where they go is known straight away (for an app dropped back in).
+            dock.forceLayout()
             dock.measure(View.MeasureSpec.makeMeasureSpec(dock.width, View.MeasureSpec.EXACTLY),
                 View.MeasureSpec.makeMeasureSpec(dock.height, View.MeasureSpec.EXACTLY))
             dock.layout(dock.left, dock.top, dock.right, dock.bottom)
