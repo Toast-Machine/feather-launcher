@@ -37,7 +37,7 @@ class SettingsActivity : Activity() {
     enum class Page(val title: String) {
         MAIN("Settings"), APPEARANCE("Appearance"), APP_LIST("App list"), CALENDAR("Calendar and times"), KEYS("Gestures and keys"),
         LIMITS("App limits"), LIMIT("App limit"), NOTIFICATIONS("Notifications"), HIDDEN("Hidden apps"), SHORTCUT("Shortcut"),
-        FILTER("Filter"), NOTIFICATION_HISTORY("Hidden notifications"),
+        FILTER("Filter"), NOTIFICATION_HISTORY("Hidden notifications"), SEARCH("Search"),
     }
 
     /** The notification filter open in its editor, and whether it's a new one. */
@@ -188,6 +188,7 @@ class SettingsActivity : Activity() {
             Page.MAIN -> main(p)
             Page.APPEARANCE -> appearance(p)
             Page.APP_LIST -> appList(p)
+            Page.SEARCH -> searchSettings(p)
             Page.KEYS -> KeySettings(this).build(p)
             Page.SHORTCUT -> KeySettings(this).buildEditor(p)
             Page.NOTIFICATIONS -> NotificationSettings(this).build(p)
@@ -298,6 +299,8 @@ class SettingsActivity : Activity() {
                 "${prefs.themeMode.label} · ${if (prefs.accentColor == 0) "Wallpaper colors" else "Custom color"}"),
             pageRow(p, R.drawable.ic_app_list, Page.APP_LIST,
                 "${if (prefs.drawerCategories) "Categories" else "All apps"} · ${if (prefs.drawerGrid) "Grid" else "List"}"),
+            pageRow(p, R.drawable.ic_search, Page.SEARCH,
+                if (prefs.searchColumns) "Contacts and apps side by side" else "Contacts above apps"),
             pageRow(p, R.drawable.ic_calendar, Page.CALENDAR, listOfNotNull(
                 prefs.chosenPlace?.name ?: "Current location",
                 prefs.secondCalendar.takeIf { it != SecondCalendar.NONE }?.let { "${it.label} date" },
@@ -450,6 +453,18 @@ class SettingsActivity : Activity() {
             prefs.accentColor = if (i == 0) 0 else wallColors[i - 1]
             build()
         }
+    }
+
+    private fun searchSettings(p: Palette) {
+        content.addView(spacer())
+        content.addView(Components.group(this, p, listOf(
+            Components.toggleRow(this, p, R.drawable.ic_grid, "Contacts and apps side by side", prefs.searchColumns) {
+                prefs.searchColumns = it
+                build()
+            },
+        )))
+        content.addView(Components.footnote(this, p,
+            "Tap or highlight a contact to show its actions over the row. Shortcuts, settings and files stay below both columns."))
     }
 
     private fun appList(p: Palette) {
