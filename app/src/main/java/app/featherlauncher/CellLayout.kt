@@ -79,6 +79,10 @@ class CellLayout(context: Context, attrs: AttributeSet? = null) : ViewGroup(cont
     var roomAbove = 0
     var roomBelow = 0
 
+    /** A widget whose name isn't drawn: it's being resized, and its frame and handles are there instead. */
+    var nameless: View? = null
+        set(value) { field = value; invalidate() }
+
     /** On a page: the gap (px) between one row's names and the next row's icons. */
     var rowGap = 0f
         private set
@@ -223,7 +227,7 @@ class CellLayout(context: Context, attrs: AttributeSet? = null) : ViewGroup(cont
     /** A widget's name, under its card where an icon's name is under the icon, moving and fading with it. */
     private fun drawName(canvas: Canvas, child: View) {
         val name = child.getTag(R.id.home_name) as? String ?: return
-        if (child.visibility != VISIBLE || child.alpha == 0f || name.isEmpty()) return
+        if (child.visibility != VISIBLE || child.alpha == 0f || name.isEmpty() || child === nameless) return
         val gap = Ui.dp(context, CardWidget.GAP)
         val room = child.width - 2 * gap - 2 * Ui.dp(context, AppIconView.NAME_PADDING).toFloat()
         namePaint.letterSpacing = AppIconView.nameSpacing(namePaint, name, room)

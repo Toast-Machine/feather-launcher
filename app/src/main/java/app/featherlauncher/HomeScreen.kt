@@ -1655,6 +1655,7 @@ class HomeScreen(
             root.addView(it, FrameLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT))
         }
         resize = frame
+        containerFor(item.page).nameless = view
         view.post { frame.placeToolbar() }
         if (!view.isInTouchMode) {
             android.widget.Toast.makeText(activity, "Resize it with the arrows, then press OK", android.widget.Toast.LENGTH_SHORT).show()
@@ -1664,6 +1665,7 @@ class HomeScreen(
     fun finishResize(): Boolean {
         val frame = resize ?: return false
         resize = null
+        containerFor(frame.item.page).nameless = null
         root.removeView(frame)
         frame.toolbar?.let(root::removeView)
         workspace.save()
@@ -1730,8 +1732,12 @@ class HomeScreen(
         /** This gesture belongs to the widget or the toolbar, not the frame. */
         private var passThrough = false
 
+        /** Around the widget's cells, worked out from them, so the frame moves in the same frame as the widget. */
         private fun bounds(): RectF {
-            val r = rectInRoot(view)
+            val cells = containerFor(item.page)
+            val origin = rectInRoot(cells)
+            val r = cells.widgetRect(Rect(item.x, item.y, item.x + item.w, item.y + item.h))
+            r.offset(origin.left, origin.top)
             val inset = dp(2).toFloat()
             return RectF(r).apply { inset(inset, inset) }
         }
@@ -1830,10 +1836,8 @@ class HomeScreen(
             if (!workspace.isFree(item.page, x, y, w, h, item)) return
             item.x = x; item.y = y; item.w = w; item.h = h
             containerFor(item.page).place(view, x, y, w, h)
-            view.post {
-                invalidate()
-                placeToolbar()
-            }
+            invalidate()
+            placeToolbar()
         }
     }
 

@@ -212,6 +212,8 @@ class ClockWidget(context: Context, val item: HomeItem) : FitColumn(context) {
      * the time much smaller than without them ([KEEP]); then the one under it goes first.
      */
     override fun onMeasure(widthMeasureSpec: Int, heightMeasureSpec: Int) {
+        // As it's measured, so a clock being resized lays out once, at its new size.
+        if (MeasureSpec.getMode(heightMeasureSpec) != MeasureSpec.UNSPECIFIED) pad(MeasureSpec.getSize(heightMeasureSpec))
         sizeFor(MeasureSpec.getSize(widthMeasureSpec) - paddingLeft - paddingRight)
         val choice = fitted?.takeIf { it.width == widthMeasureSpec && it.height == heightMeasureSpec }?.choice ?: run {
             val tall = MeasureSpec.getMode(heightMeasureSpec) != MeasureSpec.UNSPECIFIED
@@ -307,22 +309,13 @@ class ClockWidget(context: Context, val item: HomeItem) : FitColumn(context) {
      * The room around the time, the same on every side; on a short clock (one row, an icon's
      * height) the room above and below is a share of its height, as on the other cards.
      */
-    private fun pad() {
+    private fun pad(height: Int = 0) {
         val edge = dp(CardWidget.GAP + EDGE)
         val card = height - 2 * dp(CardWidget.GAP)
         val vertical = dp(CardWidget.GAP) + if (card > 0) minOf(dp(EDGE), (card * 0.15f).toInt()) else dp(EDGE)
         setPadding(edge, vertical, edge, vertical)
     }
 
-    override fun onSizeChanged(w: Int, h: Int, oldw: Int, oldh: Int) {
-        super.onSizeChanged(w, h, oldw, oldh)
-        val before = paddingTop
-        pad()
-        if (paddingTop != before) {
-            fitted = null
-            post { requestLayout() }
-        }
-    }
 
     /** The soft shadow on the wallpaper; none on a card. */
     private fun shade(text: TextView) {

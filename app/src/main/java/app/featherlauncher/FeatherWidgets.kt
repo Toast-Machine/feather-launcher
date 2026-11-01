@@ -88,15 +88,16 @@ abstract class CardWidget(context: Context, val item: HomeItem) : FrameLayout(co
         pad(inside[0], inside[1], inside[2], inside[3])
     }
 
-    override fun onSizeChanged(w: Int, h: Int, oldw: Int, oldh: Int) {
-        super.onSizeChanged(w, h, oldw, oldh)
+    // Worked out as it's measured, so a card being resized lays out once, at its new size.
+    override fun onMeasure(widthMeasureSpec: Int, heightMeasureSpec: Int) {
         // On a short card the room above and below what's on it is a share of its height.
-        val nextTrim = (inside[1] - dp(GAP) - ((h - 2 * dp(GAP)) * SHORT_ROOM).toInt()).coerceAtLeast(0)
-        if (nextTrim != trim) {
-            trim = nextTrim
+        val h = MeasureSpec.getSize(heightMeasureSpec)
+        val next = (inside[1] - dp(GAP) - ((h - 2 * dp(GAP)) * SHORT_ROOM).toInt()).coerceAtLeast(0)
+        if (next != trim) {
+            trim = next
             pad(inside[0], inside[1], inside[2], inside[3])
-            post { refresh() }
         }
+        super.onMeasure(widthMeasureSpec, heightMeasureSpec)
     }
 
     private val hold = WholeHold(this)
