@@ -32,7 +32,6 @@ class CellLayout(context: Context, attrs: AttributeSet? = null) : ViewGroup(cont
     var iconOffset = 0f
 
     private val previewPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = 0x33FFFFFF }
-    private val previewRadius = Ui.dp(context, 18).toFloat()
 
     init {
         setWillNotDraw(false)
@@ -109,8 +108,10 @@ class CellLayout(context: Context, attrs: AttributeSet? = null) : ViewGroup(cont
                 previewPaint.color = if (dropPreviewGrow) 0x55FFFFFF else 0x33FFFFFF
                 canvas.drawRoundRect(cx - half, cy - half, cx + half, cy + half, radius, radius, previewPaint)
             } else {
-                val inset = Ui.dp(context, 4).toFloat()
-                canvas.drawRoundRect(RectF(r).apply { inset(inset, inset) }, previewRadius, previewRadius, previewPaint)
+                // Just where the widget's card will be: the same room around it, the same corners.
+                val inset = Ui.dp(context, CardWidget.GAP).toFloat()
+                val radius = Ui.dp(context, WidgetStyle.RADIUS).toFloat()
+                canvas.drawRoundRect(RectF(r).apply { inset(inset, inset) }, radius, radius, previewPaint)
             }
         }
         super.dispatchDraw(canvas)
