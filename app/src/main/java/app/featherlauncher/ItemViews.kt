@@ -87,10 +87,10 @@ class AppIconView(context: Context, val item: HomeItem) : LinearLayout(context) 
         /** The home screen's icons, on pages and in the dock alike, as on iOS. */
         const val ICON = 62
         /**
-         * The home screen's icons with names turned off: about a fifth bigger, into the room the
-         * names leave, as iOS's Large icons, in the dock too.
+         * The home screen's icons with names turned off: bigger, into the room the names leave,
+         * as iOS's Large icons, in the dock too.
          */
-        const val LARGE_ICON = 74
+        const val LARGE_ICON = 70
         const val INSET = 6
         /** Roughly the corner radius of a squircle icon at [ICON]. */
         const val ICON_RADIUS = 18
