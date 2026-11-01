@@ -42,7 +42,7 @@ class AppIconView(context: Context, val item: HomeItem) : LinearLayout(context) 
         pressScale()
     }
 
-    /** Icon size in dp: [ICON] on pages, [DOCK_ICON] in the dock. */
+    /** Icon size in dp: [ICON], or [LARGE_ICON] with names turned off. */
     private var size = ICON
 
     fun bind(bitmap: Bitmap?, name: String, showLabel: Boolean, locked: Boolean = false, isNew: Boolean = false,
@@ -84,20 +84,16 @@ class AppIconView(context: Context, val item: HomeItem) : LinearLayout(context) 
             return if (width(0f) > room && width(TIGHT) <= room) TIGHT else 0f
         }
 
-        const val ICON = 56
+        /** The home screen's icons, on pages and in the dock alike, as on iOS. */
+        const val ICON = 62
         /**
-         * Dock icons are larger, as in Smart Launcher: with the same padding around them,
-         * smaller icons leave wide gaps between them and the dock looks spread out.
+         * The home screen's icons with names turned off: about a fifth bigger, into the room the
+         * names leave, as iOS's Large icons, in the dock too.
          */
-        const val DOCK_ICON = 62
-        /**
-         * Icons on pages with names turned off: bigger, into the room the names leave (as iOS's
-         * Large icons), and the same size as the dock's, so every icon on the home screen matches.
-         */
-        const val LARGE_ICON = DOCK_ICON
+        const val LARGE_ICON = 74
         const val INSET = 6
         /** Roughly the corner radius of a squircle icon at [ICON]. */
-        const val ICON_RADIUS = 16
+        const val ICON_RADIUS = 18
         /** Height of the icon with its highlight, which is also a dock cell's height. */
         const val BOX = ICON + 2 * INSET
         /** Fixed height of the name under the icon, so icons line up across rows. */

@@ -255,14 +255,14 @@ class HomeScreen(
                     val badge = item.apps.mapNotNull(repo::find).distinctBy { it.packageName }
                         .filter { !limits.isLocked(it.packageName, now) }.sumOf { prefs.badgeCount(it.packageName) }
                     view.bind(folderIcon(item), item.label ?: FOLDER_NAME, showLabel, badge = badge,
-                        iconDp = iconDp(item))
+                        iconDp = homeIcon())
                 } else {
                     val entry = repo.find(item.ref)
                     view.bind(entry?.let(repo::icon), item.label ?: entry?.label.orEmpty(), showLabel,
                         locked = entry != null && limits.isLocked(entry.packageName, now),
                         isNew = entry != null && newApps.isNew(entry),
                         badge = entry?.let { prefs.badgeCount(it.packageName) } ?: 0,
-                        iconDp = iconDp(item))
+                        iconDp = homeIcon())
                 }
             }
             val target = containerFor(item.page)
@@ -273,16 +273,27 @@ class HomeScreen(
         }
         for (i in 0 until pages.pageCount) pages.page(i).apply {
             names = prefs.showLabels
-            iconDp = if (prefs.showLabels) AppIconView.ICON else AppIconView.LARGE_ICON
+            iconDp = homeIcon()
         }
+        sizeDock()
         pages.updateFocusability()
     }
 
-    /** Dock icons are larger; on pages, icons grow when there are no names under them. */
-    private fun iconDp(item: HomeItem) = when {
-        item.inDock -> AppIconView.DOCK_ICON
-        prefs.showLabels -> AppIconView.ICON
-        else -> AppIconView.LARGE_ICON
+    /** The home screen's icons, the same on pages and in the dock; bigger with no names under them. */
+    private fun homeIcon() = if (prefs.showLabels) AppIconView.ICON else AppIconView.LARGE_ICON
+
+    /**
+     * The dock is always [Ui.DOCK_HEIGHT] tall, as on iOS: bigger icons have less room around them.
+     * The room from its edges to the icons is the same on every side.
+     */
+    private fun sizeDock() {
+        val icon = homeIcon()
+        val gap = (Ui.DOCK_HEIGHT - icon) / 2
+        dock.edgeGap = dp(gap)
+        dock.iconSize = dp(icon)
+        dock.boxDp = icon + 2 * AppIconView.INSET
+        val vertical = dp(gap - AppIconView.INSET)
+        dock.setPadding(0, vertical, 0, vertical)
     }
 
     /** A widget's name under it: Feather's own by what they are, others' by their app's name. */
@@ -398,13 +409,9 @@ class HomeScreen(
     fun applyTheme() {
         val p = palette()
         // Dock corner = highlight corner + the space around it, so the curves run parallel.
-        // Exactly DOCK_GAP from the edges to the icons, left, right, top and bottom.
+        // The same room from the edges to the icons, left, right, top and bottom (see sizeDock).
         // Icons sit in boxes INSET larger than themselves (room for the keypad highlight).
-        dock.edgeGap = dp(DOCK_GAP)
-        dock.iconSize = dp(AppIconView.DOCK_ICON)
-        dock.boxDp = AppIconView.DOCK_ICON + 2 * AppIconView.INSET
-        val vertical = dp(DOCK_GAP - AppIconView.INSET)
-        dock.setPadding(0, vertical, 0, vertical)
+        sizeDock()
         // Like Smart Launcher: on the wallpaper the dock is the app list's deep tone; the lighter
         // tone is for bars that sit on that deep background (the app list's tab bar).
         dock.background = Ui.rounded(activity, p.dock, Ui.RADIUS_BAR, p.hairline)
@@ -2103,8 +2110,6 @@ class HomeScreen(
     private fun dp(value: Int) = Ui.dp(activity, value)
 
     companion object {
-        /** Space between the dock's edges and its icons, on every side. */
-        private const val DOCK_GAP = 15
         /** Thickness of the targets along the edges while dragging. */
         /** Space between the page outline and the dock (and around the slivers). */
         private const val EDGE_GAP = Workspace.PAGE_TOP
