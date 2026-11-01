@@ -104,21 +104,10 @@ class Prefs(context: Context) {
         sp.edit().putString("widgets", specs.joinToString(",") { "${it.id}:${it.heightDp}" }).apply()
     }
 
-    fun clockOptions(id: Long) = ClockOptions(
-        runCatching { ClockOptions.Size.valueOf(sp.getString("clock_size_$id", null)!!) }.getOrDefault(ClockOptions.Size.LARGE),
-        sp.getBoolean("clock_start_$id", false),
-        sp.getBoolean("clock_date_$id", true),
-        sp.getBoolean("clock_time_$id", true),
-    )
+    /** The clock [id] sits on a card (Solid) rather than straight on the wallpaper (Transparent). */
+    fun clockSolid(id: Long) = sp.getBoolean("clock_solid_$id", false)
 
-    fun setClockOptions(id: Long, options: ClockOptions) {
-        sp.edit()
-            .putString("clock_size_$id", options.size.name)
-            .putBoolean("clock_start_$id", options.alignStart)
-            .putBoolean("clock_date_$id", options.showDate)
-            .putBoolean("clock_time_$id", options.showTime)
-            .apply()
-    }
+    fun setClockSolid(id: Long, solid: Boolean) = sp.edit().putBoolean("clock_solid_$id", solid).apply()
 
     /** The welcome has been shown (or the older first-run sheet was, for people updating). */
     var onboarded: Boolean
@@ -141,6 +130,11 @@ class Prefs(context: Context) {
     var secondCalendar: SecondCalendar
         get() = runCatching { SecondCalendar.valueOf(sp.getString("second_calendar", null)!!) }.getOrDefault(SecondCalendar.HEBREW)
         set(value) = sp.edit().putString("second_calendar", value.name).apply()
+
+    /** The Hebrew date, parsha, holidays, Omer and daf in Hebrew ("י׳ חשון"), not English ("10 Cheshvan"). */
+    var hebrewInHebrew: Boolean
+        get() = sp.getBoolean("hebrew_in_hebrew", false)
+        set(value) = sp.edit().putBoolean("hebrew_in_hebrew", value).apply()
 
     /** Jewish zmanim (true), or just sunrise and sunset. */
     var dailyZmanim: Boolean

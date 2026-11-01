@@ -40,16 +40,19 @@ class Glance(private val context: Context) {
         // The Jewish day turns over at shkiah.
         val jewishDay = if (sunset != null && now >= sunset) today + 1 else today
 
-        val date = android.text.format.DateFormat.format("EEEE, MMMM d", now).toString()
+        val date = android.text.format.DateFormat.format("EEE, MMM d", now).toString()
         val weather = if (prefs.glanceWeather && place != null) Weather.at(place, weatherLoaded) else null
 
+        // Just what each is ("Lech Lecha", "Bava Basra 45"), in Hebrew if that's chosen.
+        val hebrew = jewish && prefs.hebrewInHebrew
+        fun he(text: String, translate: (String) -> String) = if (hebrew) HebrewText.isolate(translate(text)) else text
         val week = mutableListOf<String>()
-        prefs.secondCalendar.format(now, sunset)?.let { week += it }
-        if (jewish && prefs.glanceHolidays) week += JewishCalendar.holidays(jewishDay, israel)
+        prefs.secondCalendar.format(now, sunset, hebrew)?.let { week += if (hebrew) HebrewText.isolate(it) else it }
+        if (jewish && prefs.glanceHolidays) week += JewishCalendar.holidays(jewishDay, israel).map { he(it, HebrewText::holiday) }
         if (jewish) {
-            if (prefs.glanceParsha) JewishCalendar.parshaOfWeek(jewishDay, israel)?.let { week += "Parshas $it" }
-            if (prefs.glanceOmer) JewishCalendar.omer(jewishDay)?.let { week += JewishCalendar.omerText(it) }
-            if (prefs.glanceDaf) JewishCalendar.dafYomi(today)?.let { week += "Daf Yomi $it" }
+            if (prefs.glanceParsha) JewishCalendar.parshaOfWeek(jewishDay, israel)?.let { week += he(it, HebrewText::parsha) }
+            if (prefs.glanceOmer) JewishCalendar.omer(jewishDay)?.let { week += if (hebrew) HebrewText.isolate(HebrewText.omer(it)) else JewishCalendar.omerText(it) }
+            if (prefs.glanceDaf) JewishCalendar.dafYomi(today)?.let { week += he(it, HebrewText::daf) }
         }
 
         val coming = ArrayList<Item>()
@@ -97,7 +100,8 @@ class Glance(private val context: Context) {
             }
         }
 
-        if (jewish && prefs.glanceUpcoming) upcoming(jewishDay, israel)?.let { (name, ahead) ->
+        if (jewish && prefs.glanceUpcoming) upcoming(jewishDay, israel)?.let { (english, ahead) ->
+            val name = he(english, HebrewText::holiday)
             coming += Item(R.drawable.ic_calendar, name, if (ahead == 1) "Tomorrow" else "in $ahead days", Tap.ZMANIM, 7,
                 text = if (ahead == 1) "Tomorrow: $name" else "$name in $ahead days")
         }

@@ -37,7 +37,8 @@ class CalendarSettings(private val s: SettingsActivity) {
         content.addView(s.spacer())
         val now = System.currentTimeMillis()
         val sunset = place?.let { Zmanim.sun(now, it, Zmanim.SUNRISE, false) }
-        content.addView(Components.group(s, p, listOf(
+        val hebrewCalendar = prefs.secondCalendar == SecondCalendar.HEBREW
+        content.addView(Components.group(s, p, listOfNotNull(
             Components.row(s, p, R.drawable.ic_calendar, "Second calendar", prefs.secondCalendar.label, chevron = true, inset = Ui.SPACE_L) {
                 val calendars = SecondCalendar.entries
                 Components.choiceSheet(s, p, s.overlays, "Second calendar",
@@ -47,8 +48,14 @@ class CalendarSettings(private val s: SettingsActivity) {
                     s.build()
                 }
             },
+            if (hebrewCalendar) Components.toggleRow(s, p, R.drawable.ic_text_fields, "Show in Hebrew", prefs.hebrewInHebrew) {
+                prefs.hebrewInHebrew = it
+                s.build()
+            } else null,
         )))
-        content.addView(Components.footnote(s, p, "Shows the selected calendar's date below the main date."))
+        content.addView(Components.footnote(s, p, if (hebrewCalendar)
+            "Shows the Hebrew date next to the main date. With Show in Hebrew on, the date, parsha and holidays are written in Hebrew, like ${HebrewText.isolate(SecondCalendar.HEBREW.format(now, sunset, true)!!)}."
+            else "Shows the selected calendar's date next to the main date."))
 
         content.addView(s.heading(p, "Daily times"))
         content.addView(s.spacer())
@@ -103,8 +110,8 @@ class CalendarSettings(private val s: SettingsActivity) {
             if (jewish) toggle(R.drawable.ic_calendar, "Daf Yomi", prefs.glanceDaf) { prefs.glanceDaf = it } else null,
         )))
         content.addView(Components.footnote(s, p, if (jewish)
-            "Shown below the date. Holidays appear on their dates, and the Omer count appears during the Omer."
-            else "Shows the temperature below the date."))
+            "Shown next to the date. Holidays appear on their dates, and the Omer count appears during the Omer."
+            else "Shows the temperature under the time."))
         content.addView(s.spacer())
         content.addView(Components.group(s, p, listOfNotNull(
             toggle(R.drawable.ic_calendar, "Next event", prefs.clockEvent) { prefs.clockEvent = it },
@@ -115,7 +122,7 @@ class CalendarSettings(private val s: SettingsActivity) {
             toggle(R.drawable.ic_time, if (zmanim) "Next zman" else "Next sunrise or sunset", prefs.clockZman) { prefs.clockZman = it },
         )))
         content.addView(Components.footnote(s, p, buildString {
-            append("The clock shows the two most pressing under the date. Up next shows as many as fit, without missed calls and messages.")
+            append("The clock shows the two most pressing under the time. Up next shows as many as fit, without missed calls and messages.")
             if (jewish) append(" Candle lighting shows on Friday and Erev Yom Tov.")
             append(" The alarm shows in the evening.")
         }))

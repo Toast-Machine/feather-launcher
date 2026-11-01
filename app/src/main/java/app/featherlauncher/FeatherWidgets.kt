@@ -309,7 +309,7 @@ class AgendaWidget(context: Context, item: HomeItem) : CardWidget(context, item)
         val info = ClockInfo(context)
         val place = info.place()
         val sunset = place?.let { Zmanim.sun(now, it, Zmanim.SUNRISE, false) }
-        val second = Prefs(context).secondCalendar.format(now, sunset)
+        val second = Prefs(context).let { it.secondCalendar.format(now, sunset, it.hebrewInHebrew) }
 
         val events = LinearLayout(context).apply {
             orientation = LinearLayout.VERTICAL

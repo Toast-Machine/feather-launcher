@@ -80,23 +80,24 @@ class AppIconView(context: Context, val item: HomeItem) : LinearLayout(context) 
 }
 
 /**
- * The built-in clock: the time (which can be hidden), the date, a quieter line with the Hebrew
- * date, the parsha and the like, then the weather and what's coming up as pills. Its layout options live in [ClockOptions]; the look in [WidgetStyle].
+ * The built-in clock, always centred. On top, one small line about the day: the date, then
+ * quieter, the Hebrew date, the parsha and the like. Under it the time, as large as the widget
+ * allows, and under that the weather and what's coming up. Transparent, straight on the
+ * wallpaper in white, or Solid, on a card in the wallpaper's colors ([Prefs.clockSolid]).
  */
 @SuppressLint("ViewConstructor")
 class ClockWidget(context: Context, val item: HomeItem) : FitColumn(context) {
     private val time = TextClock(context)
-    private val date = WidgetStyle.text(context, 19f, WidgetStyle.title)
-    /** The second calendar's date, today's holiday, the parsha, the Omer, Daf Yomi. */
-    private val detail = WidgetStyle.text(context, 15f, WidgetStyle.body, WidgetStyle.SOFT_WHITE)
+    /** "Sun, Nov 1 · 10 Cheshvan · Lech Lecha", over two lines if it must. */
+    private val day = WidgetStyle.text(context, 15f, WidgetStyle.label)
     /** The weather and up to two things coming up. */
     private val pills = FitRow(context).apply { gap = Ui.dp(context, 14) }
     private val glance = Glance(context)
     private var place: ClockInfo.Place? = null
+    private var solid = false
     /** The text sizes, in pixels, worked out from the widget's width (see [sizeFor]). */
     private var pillPx = 30f
     private var sizedFor = 0
-    private var sizeFactor = 1f
     /** The time's size, before it's made smaller to fit. */
     private var timePx = 200f
 
@@ -111,50 +112,68 @@ class ClockWidget(context: Context, val item: HomeItem) : FitColumn(context) {
 
     init {
         isFocusable = true
-        // In a tight space the pills go first, then the quieter line ([FitColumn]).
+        gravity = Gravity.CENTER
+        // In a tight space the pills go first ([FitColumn]); the time never does.
         // The text's soft shadows reach past their own edges.
         clipChildren = false
         clipToPadding = false
+        day.apply {
+            maxLines = 2
+            gravity = Gravity.CENTER
+        }
         time.apply {
             format12Hour = "h:mm"
             format24Hour = "H:mm"
-            setTextColor(WidgetStyle.WHITE)
             typeface = WidgetStyle.display
             letterSpacing = -0.02f
             includeFontPadding = false
-            setShadowLayer(dp(10).toFloat(), 0f, dp(1).toFloat(), 0x59000000)
             // Room for the soft shadow, which would otherwise be cut off square at the text's edges
             // (the margins below take the room back, so nothing moves).
             setPadding(dp(SHADOW_ROOM), dp(SHADOW_ROOM), dp(SHADOW_ROOM), dp(SHADOW_ROOM))
         }
+        addView(day, LayoutParams(LayoutParams.WRAP_CONTENT, LayoutParams.WRAP_CONTENT).apply { gravity = Gravity.CENTER_HORIZONTAL })
         val room = -dp(SHADOW_ROOM)
-        addView(time, LayoutParams(LayoutParams.WRAP_CONTENT, LayoutParams.WRAP_CONTENT).apply { setMargins(room, room, room, room) })
+        addView(FitColumn.dropFirst(time, -1), LayoutParams(LayoutParams.WRAP_CONTENT, LayoutParams.WRAP_CONTENT).apply {
+            setMargins(room, room + dp(2), room, room)
+            gravity = Gravity.CENTER_HORIZONTAL
+        })
         // The time does what the clock does (its alarms), so the keypad can reach it like the date and pills.
         time.setOnClickListener { performClick() }
         time.setOnLongClickListener { performLongClick() }
         // Its highlight hugs the digits, inside the room left for the shadow, so it stays within the clock.
         time.foreground = android.graphics.drawable.InsetDrawable(Ui.focusRing(context, Ui.RADIUS_L, WidgetStyle.WHITE), dp(SHADOW_ROOM))
-        addView(date, LayoutParams(LayoutParams.WRAP_CONTENT, LayoutParams.WRAP_CONTENT).apply { topMargin = dp(4) })
-        addView(detail, LayoutParams(LayoutParams.WRAP_CONTENT, LayoutParams.WRAP_CONTENT).apply { topMargin = dp(5) })
-        addView(pills, LayoutParams(LayoutParams.MATCH_PARENT, LayoutParams.WRAP_CONTENT).apply { topMargin = dp(12) })
+        addView(pills, LayoutParams(LayoutParams.MATCH_PARENT, LayoutParams.WRAP_CONTENT).apply { topMargin = dp(6) })
+        setSolid(false)
     }
 
     /** The space last measured for and the time's scale that fitted it, so the next pass changes nothing. */
     private var fitted: Triple<Int, Int, Float>? = null
 
-    /** In a tight space, a smaller time comes first; only then are lines left out. */
+    /**
+     * The time is as large as the widget lets it be: up to [timePx] for its width, then smaller
+     * until everything fits its height. Only at the smallest are the pills left out.
+     */
     override fun onMeasure(widthMeasureSpec: Int, heightMeasureSpec: Int) {
         sizeFor(MeasureSpec.getSize(widthMeasureSpec) - paddingLeft - paddingRight)
         fitted?.takeIf { it.first == widthMeasureSpec && it.second == heightMeasureSpec }?.let {
             time.setTextSize(TypedValue.COMPLEX_UNIT_PX, timePx * it.third)
             return super.onMeasure(widthMeasureSpec, heightMeasureSpec)
         }
-        for (scale in listOf(1f, 0.85f, 0.72f)) {
+        val height = MeasureSpec.getSize(heightMeasureSpec)
+        var scale = 1f
+        while (true) {
             time.setTextSize(TypedValue.COMPLEX_UNIT_PX, timePx * scale)
             super.onMeasure(widthMeasureSpec, heightMeasureSpec)
             fitted = Triple(widthMeasureSpec, heightMeasureSpec, scale)
-            val cut = (0 until childCount).map(::getChildAt).any { it.getTag(R.id.fit_hidden) == true && it.visibility == GONE }
-            if (!cut) return
+            val shown = (0 until childCount).map(::getChildAt)
+            val cut = shown.any { it.getTag(R.id.fit_hidden) == true && it.visibility == GONE }
+            val used = paddingTop + paddingBottom + shown.filter { it.visibility != GONE }.sumOf {
+                val lp = it.layoutParams as MarginLayoutParams
+                it.measuredHeight + lp.topMargin + lp.bottomMargin
+            }
+            val fits = MeasureSpec.getMode(heightMeasureSpec) == MeasureSpec.UNSPECIFIED || used <= height
+            if (fits && !cut || scale <= 0.4f) return
+            scale -= 0.05f
         }
     }
 
@@ -173,24 +192,56 @@ class ClockWidget(context: Context, val item: HomeItem) : FitColumn(context) {
         super.onDetachedFromWindow()
     }
 
+    /** The main color, the quieter one, and whether text needs a shadow to stand off the wallpaper. */
+    private val main get() = if (solid) WidgetStyle.onCard() else WidgetStyle.WHITE
+    private val quiet get() = if (solid) WidgetStyle.onCardQuiet() else WidgetStyle.SOFT_WHITE
+
+    /** Solid: on a card with the cards' corners; transparent: straight on the wallpaper. */
+    fun setSolid(solid: Boolean) {
+        this.solid = solid
+        background = if (solid) android.graphics.drawable.InsetDrawable(WidgetStyle.cardBackground(context), dp(CardWidget.GAP)) else null
+        if (solid) setPadding(dp(CardWidget.GAP + 18), dp(CardWidget.GAP + 12), dp(CardWidget.GAP + 18), dp(CardWidget.GAP + 12))
+        else setPadding(dp(12), 0, dp(12), 0)
+        time.setTextColor(if (solid) WidgetStyle.accent() else WidgetStyle.WHITE)
+        listOf(time, day).forEach { shade(it) }
+        sizedFor = 0
+        fitted = null
+        refresh()
+        requestLayout()
+    }
+
+    /** The soft shadow on the wallpaper; none on a card. */
+    private fun shade(text: TextView) {
+        if (solid) text.setShadowLayer(0f, 0f, 0f, 0)
+        else text.setShadowLayer(dp(if (text === time) 10 else 6).toFloat(), 0f, dp(1).toFloat(), 0x59000000)
+    }
+
     /** Works out the date and details again; runs every minute. */
     fun refresh() {
         val lines = glance.lines(System.currentTimeMillis()) { if (isAttachedToWindow) refresh() }
         place = lines.place
-        date.text = lines.date
-        detail.text = lines.detail
-        detail.visibility = if (lines.detail != null) VISIBLE else GONE
+        // Each part stays whole: a long line breaks only between them.
+        val parts = listOf(lines.date) + lines.detail?.split(" · ").orEmpty()
+        val text = android.text.SpannableStringBuilder()
+        parts.forEachIndexed { i, part ->
+            if (i > 0) text.append(" · ")
+            val start = text.length
+            text.append(part.replace(' ', '\u00A0'))
+            if (i > 0) text.setSpan(android.text.style.ForegroundColorSpan(quiet), start - 3, text.length, 0)
+        }
+        day.text = text
+        day.setTextColor(main)
         pills.removeAllViews()
         val coming = lines.coming.take(2)
         lines.weather?.let { w ->
-            pills.addView(WidgetStyle.pill(context, WeatherArt.icon(w.sky, w.night), "${w.temperature}°  ${w.description}", pillPx).apply {
+            pills.addView(pill(WeatherArt.icon(w.sky, w.night), "${w.temperature}°  ${w.description}", tint = false).apply {
                 setOnClickListener { onWeather?.invoke() }
                 // With two things coming up and room for only some, the weather makes way.
                 if (coming.size >= 2) FitColumn.dropFirst(this)
             })
         }
         coming.forEach { item ->
-            pills.addView(WidgetStyle.pill(context, WidgetStyle.icon(context, item.icon), item.text, pillPx).apply {
+            pills.addView(pill(context.getDrawable(item.icon), item.text, tint = true).apply {
                 setOnClickListener { onTap?.invoke(item, place) }
             })
         }
@@ -198,51 +249,30 @@ class ClockWidget(context: Context, val item: HomeItem) : FitColumn(context) {
         fitted = null
     }
 
-    fun apply(options: ClockOptions) {
-        sizeFactor = when (options.size) {
-            ClockOptions.Size.LARGE -> 1f
-            ClockOptions.Size.MEDIUM -> 0.85f
-            ClockOptions.Size.SMALL -> 0.7f
+    private fun pill(icon: android.graphics.drawable.Drawable?, words: String, tint: Boolean) =
+        WidgetStyle.pill(context, icon?.mutate()?.apply { if (tint) setTint(main) }, words, pillPx).apply {
+            setTextColor(main)
+            shade(this)
         }
-        sizedFor = 0
-        fitted = null
-        time.visibility = if (options.showTime) VISIBLE else GONE
-        date.visibility = if (options.showDate) VISIBLE else GONE
-        val horizontal = if (options.alignStart) Gravity.START else Gravity.CENTER_HORIZONTAL
-        gravity = horizontal or Gravity.CENTER_VERTICAL
-        setPadding(dp(if (options.alignStart) 20 else 12), 0, dp(12), 0)
-        (time.layoutParams as LayoutParams).gravity = horizontal
-        (date.layoutParams as LayoutParams).gravity = horizontal
-        (detail.layoutParams as LayoutParams).gravity = horizontal
-        pills.alignStart = options.alignStart
-        refresh()
-        requestLayout()
-    }
 
     /**
      * Sizes the text from the widget's [width] in pixels, so it takes the same share of the screen
-     * on every phone, whatever its display size setting. The date, the quieter line and the
-     * pills step down from the time in fixed proportions.
+     * on every phone, whatever its display size setting. The line about the day and the pills
+     * step down from the time in fixed proportions.
      */
     private fun sizeFor(width: Int) {
         if (width <= 0 || width == sizedFor) return
         sizedFor = width
         fitted = null
-        val unit = width / 100f * sizeFactor
-        timePx = 23f * unit
-        date.setTextSize(TypedValue.COMPLEX_UNIT_PX, 5.6f * unit)
-        detail.setTextSize(TypedValue.COMPLEX_UNIT_PX, 4.6f * unit)
+        val unit = width / 100f
+        timePx = 36f * unit
+        day.setTextSize(TypedValue.COMPLEX_UNIT_PX, 4.6f * unit)
         pillPx = 4.2f * unit
         for (i in 0 until pills.childCount) (pills.getChildAt(i) as? TextView)?.let { WidgetStyle.sizePill(it, pillPx) }
     }
 
-    val dateView: TextView get() = date
+    val dateView: TextView get() = day
 }
 
 /** Padding around the clock's time so its shadow isn't clipped. */
 private const val SHADOW_ROOM = 12
-
-data class ClockOptions(val size: Size, val alignStart: Boolean, val showDate: Boolean, val showTime: Boolean = true) {
-    enum class Size(val label: String) { SMALL("Small"), MEDIUM("Medium"), LARGE("Large") }
-}
-

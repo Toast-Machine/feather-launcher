@@ -295,9 +295,7 @@ class Widgets(
         /** The widget itself. */
         private fun sample(kind: FeatherKind): View {
             val item = HomeItem(PREVIEW_ID - kind.ordinal, 0, 0, 0, kind.w, kind.height(cellSizeDp().second), HomeItem.Type.CLOCK, kind.ref)
-            return CardWidget.create(activity, item) ?: ClockWidget(activity, item).apply {
-                apply(ClockOptions(ClockOptions.Size.MEDIUM, alignStart = false, showDate = true))
-            }
+            return CardWidget.create(activity, item) ?: ClockWidget(activity, item)
         }
 
         private fun widgetCard(p: Palette): FrameLayout {

@@ -154,7 +154,7 @@ class FitRow(context: Context) : ViewGroup(context) {
  */
 open class FitColumn(context: Context) : android.widget.LinearLayout(context) {
     companion object {
-        /** Marks [view] to be left out before rows with a lower [priority] (0 by default). */
+        /** Marks [view] to be left out before rows with a lower [priority] (0 by default); below 0, it's never left out. */
         fun dropFirst(view: View, priority: Int = 1) = view.apply { setTag(R.id.fit_priority, priority) }
     }
 
@@ -192,7 +192,8 @@ open class FitColumn(context: Context) : android.widget.LinearLayout(context) {
         val width = MeasureSpec.makeMeasureSpec(measuredWidth - paddingLeft - paddingRight, MeasureSpec.AT_MOST)
         while (used(width) > room) {
             // The row with the highest [dropFirst] priority goes; among equals, the last.
-            val last = (childCount - 1 downTo 1).map(::getChildAt).filter { it.visibility == View.VISIBLE }
+            val last = (childCount - 1 downTo 1).map(::getChildAt)
+                .filter { it.visibility == View.VISIBLE && (it.getTag(R.id.fit_priority) as? Int ?: 0) >= 0 }
                 .maxByOrNull { it.getTag(R.id.fit_priority) as? Int ?: 0 } ?: break
             last.visibility = View.GONE
             last.setTag(R.id.fit_hidden, true)

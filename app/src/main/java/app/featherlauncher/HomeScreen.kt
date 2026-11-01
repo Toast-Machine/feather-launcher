@@ -219,7 +219,7 @@ class HomeScreen(
             }
             setOnLongClickListener { onItemLongPress(item, it); true }
         } ?: ClockWidget(activity, item).apply {
-            apply(prefs.clockOptions(item.id))
+            setSolid(prefs.clockSolid(item.id))
             foreground = Ui.focusRing(activity, Ui.RADIUS_L, 0xFFFFFFFF.toInt())
             setOnClickListener { host.startSafely(Intent(AlarmClock.ACTION_SHOW_ALARMS)) }
             dateView.setOnClickListener {
@@ -630,51 +630,18 @@ class HomeScreen(
 
     /** What a Feather widget's settings are, if it has any. */
     private fun featherSettings(item: HomeItem): MenuItem? = when (FeatherKind.of(item)) {
-        FeatherKind.CLOCK -> MenuItem("${clockName(item)} settings", R.drawable.ic_settings) { clockSettings(item) }
+        FeatherKind.CLOCK -> MenuItem("Clock style", R.drawable.ic_palette) { clockStyle(item) }
         else -> null
     }
 
-    private fun clockSettings(item: HomeItem) {
+    /** Solid, on a card, or Transparent, straight on the wallpaper, as Android's own Clock offers. */
+    private fun clockStyle(item: HomeItem) {
         val p = palette()
-        val options = prefs.clockOptions(item.id)
-        val column = LinearLayout(activity).apply {
-            orientation = LinearLayout.VERTICAL
-            setPadding(0, 0, 0, dp(Ui.SPACE_L))
+        val solid = prefs.clockSolid(item.id)
+        Components.choiceSheet(activity, p, overlays, "Clock style", listOf("Solid" to null, "Transparent" to null), if (solid) 0 else 1) {
+            prefs.setClockSolid(item.id, it == 0)
+            (views[item.id] as? ClockWidget)?.setSolid(it == 0)
         }
-        fun update(next: ClockOptions) {
-            prefs.setClockOptions(item.id, next)
-            (views[item.id] as? ClockWidget)?.apply(next)
-            clockSettings(item)
-        }
-        column.addView(sectionLabel("Size", p))
-        column.addView(segmented(p, ClockOptions.Size.entries.map { it.label }, options.size.ordinal) {
-            update(options.copy(size = ClockOptions.Size.entries[it]))
-        })
-        column.addView(sectionLabel("Alignment", p))
-        column.addView(segmented(p, listOf("Center", "Left"), if (options.alignStart) 1 else 0) {
-            update(options.copy(alignStart = it == 1))
-        })
-        column.addView(sectionLabel("Date", p))
-        column.addView(segmented(p, listOf("Show", "Hide"), if (options.showDate) 0 else 1) {
-            update(options.copy(showDate = it == 0))
-        })
-        column.addView(sectionLabel("Time", p))
-        column.addView(segmented(p, listOf("Show", "Hide"), if (options.showTime) 0 else 1) {
-            update(options.copy(showTime = it == 0))
-        })
-        // What the clock shows besides the time is the same for every clock, so it's in Settings.
-        column.addView(android.view.View(activity), LinearLayout.LayoutParams(1, dp(Ui.SPACE_M)))
-        column.addView(Components.row(activity, p, R.drawable.ic_calendar, "Calendar and times", chevron = true) {
-            overlays.dismiss()
-            activity.startActivity(Intent(activity, SettingsActivity::class.java).putExtra(SettingsActivity.EXTRA_PAGE, SettingsActivity.Page.CALENDAR.name))
-        })
-        overlays.showSheet(clockName(item), column)
-    }
-
-    private fun sectionLabel(text: String, p: Palette) = TextView(activity).apply {
-        this.text = text
-        style(TextStyle.Section, p.textSecondary)
-        setPadding(dp(Ui.SPACE_XL), dp(Ui.SPACE_L), dp(Ui.SPACE_XL), dp(Ui.SPACE_S))
     }
 
     // endregion
@@ -1848,25 +1815,6 @@ class HomeScreen(
         view.getLocationInWindow(location)
         return Rect(location[0], location[1], location[0] + view.width, location[1] + view.height)
     }
-
-    private fun segmented(p: Palette, options: List<String>, selected: Int, onPick: (Int) -> Unit): View =
-        LinearLayout(activity).apply {
-            orientation = LinearLayout.HORIZONTAL
-            // Buttons have 4dp side margins; this puts their outer edges in line with the headings.
-            setPadding(dp(Ui.SPACE_XL - 4), 0, dp(Ui.SPACE_XL - 4), 0)
-            options.forEachIndexed { i, label ->
-                addView(TextView(activity).apply {
-                    text = label
-                    gravity = Gravity.CENTER
-                    style(TextStyle.Label, if (i == selected) p.onAccent else p.text)
-                    setTextSize(android.util.TypedValue.COMPLEX_UNIT_SP, 14f)
-                    background = Ui.rounded(activity, if (i == selected) p.accent else p.surfaceHigh, Ui.RADIUS_PILL)
-                    foreground = Ui.pressable(activity, Ui.RADIUS_PILL)
-                    isFocusable = true
-                    setOnClickListener { onPick(i) }
-                }, LinearLayout.LayoutParams(0, dp(42), 1f).apply { setMargins(dp(4), 0, dp(4), 0) })
-            }
-        }
 
     private fun dp(value: Int) = Ui.dp(activity, value)
 
