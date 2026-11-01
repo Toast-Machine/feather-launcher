@@ -411,8 +411,10 @@ class AgendaWidget(context: Context, item: HomeItem) : CardWidget(context, item)
                     text = android.text.format.DateFormat.format("d", now).toString()
                     setPadding(0, dp(2), 0, dp(2))
                 })
-                addView(WidgetStyle.cardText(context, 12f, WidgetStyle.label, WidgetStyle.onCardQuiet()).apply {
+                addView(WidgetStyle.cardText(context, 12f, WidgetStyle.title, WidgetStyle.onCardQuiet()).apply {
                     text = second ?: android.text.format.DateFormat.format("MMM", now).toString()
+                    // In line with the day above it, in Hebrew too (which would otherwise line up on the right).
+                    textAlignment = View.TEXT_ALIGNMENT_VIEW_START
                 })
             }, LinearLayout.LayoutParams(dp(76), LinearLayout.LayoutParams.WRAP_CONTENT))
             // A thin line between the date and the events.
