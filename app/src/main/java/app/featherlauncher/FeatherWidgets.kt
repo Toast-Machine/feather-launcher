@@ -61,6 +61,8 @@ abstract class CardWidget(context: Context, val item: HomeItem) : FrameLayout(co
     private var extra = 0
     /** The padding inside the card, without [extra]. */
     private var inside = intArrayOf(0, 0, 0, 0)
+    /** How much less room above and below what's on a short card (one row, an icon's height) than on a taller one. */
+    private var trim = 0
 
     init {
         isFocusable = true
@@ -72,7 +74,7 @@ abstract class CardWidget(context: Context, val item: HomeItem) : FrameLayout(co
     /** The room between the card's edges and what's on it (the gap around the card included). */
     protected fun pad(left: Int, top: Int, right: Int, bottom: Int) {
         inside = intArrayOf(left, top, right, bottom)
-        setPadding(left, top + extra, right, bottom + extra)
+        setPadding(left, top + extra - minOf(trim, top - dp(GAP)), right, bottom + extra - minOf(trim, bottom - dp(GAP)))
         // The keypad highlight is white around the card, as it is around app icons.
         foreground = InsetDrawable(Ui.focusHighlight(context, WidgetStyle.RADIUS + GAP), 0, extra, 0, extra)
     }
@@ -93,8 +95,11 @@ abstract class CardWidget(context: Context, val item: HomeItem) : FrameLayout(co
     override fun onSizeChanged(w: Int, h: Int, oldw: Int, oldh: Int) {
         super.onSizeChanged(w, h, oldw, oldh)
         val next = maxHeight?.let { ((h - dp(it)) / 2).coerceAtLeast(0) } ?: 0
-        if (next != extra) {
+        // On a short card the room above and below what's on it is a share of its height.
+        val nextTrim = (inside[1] - dp(GAP) - ((h - 2 * next - 2 * dp(GAP)) * SHORT_ROOM).toInt()).coerceAtLeast(0)
+        if (next != extra || nextTrim != trim) {
             extra = next
+            trim = nextTrim
             pad(inside[0], inside[1], inside[2], inside[3])
             post { refresh() }
         }
@@ -196,8 +201,13 @@ abstract class CardWidget(context: Context, val item: HomeItem) : FrameLayout(co
     }
 
     companion object {
-        /** Half the space between two cards. */
-        const val GAP = 5
+        /**
+         * The room around a card for its keypad highlight: as far out as an icon's highlight is
+         * from the icon ([AppIconView.INSET]), and the page's outline from what's on it.
+         */
+        const val GAP = AppIconView.INSET
+        /** The room above and below what's on a short card, as a share of its height. */
+        private const val SHORT_ROOM = 0.15f
 
         /** The view for a Feather widget that sits on a card, or null for the clock. */
         fun create(context: Context, item: HomeItem): CardWidget? = when (FeatherKind.of(item)) {

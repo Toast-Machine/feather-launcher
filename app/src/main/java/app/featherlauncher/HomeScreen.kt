@@ -132,7 +132,15 @@ class HomeScreen(
             y += v.top
             v = v.parent as View
         }
-        return Rect(x + dp(Ui.BAR_MARGIN), y + dp(Workspace.PAGE_TOP), x + pages.width - dp(Ui.BAR_MARGIN), y + pages.height)
+        // Around what's on it, as far out as a widget's highlight is from its card: from the
+        // first row's icons to the last row's names, and from the first column's to the last's.
+        val cells = pages.page(0)
+        val gap = dp(CardWidget.GAP)
+        val r = cells.pictureRect(Rect(0, 0, cells.cols, cells.rows))
+        x += cells.left
+        y += cells.top
+        return Rect(x + r.left.roundToInt() - gap, y + r.top.roundToInt() - gap,
+            x + r.right.roundToInt() + gap, y + cells.namesBottom(cells.rows - 1).roundToInt() + gap)
     }
 
     private fun placePageTarget() {
@@ -235,14 +243,14 @@ class HomeScreen(
                     val badge = item.apps.mapNotNull(repo::find).distinctBy { it.packageName }
                         .filter { !limits.isLocked(it.packageName, now) }.sumOf { prefs.badgeCount(it.packageName) }
                     view.bind(folderIcon(item), item.label ?: FOLDER_NAME, showLabel, badge = badge,
-                        iconDp = if (item.inDock) AppIconView.DOCK_ICON else AppIconView.ICON)
+                        iconDp = iconDp(item))
                 } else {
                     val entry = repo.find(item.ref)
                     view.bind(entry?.let(repo::icon), item.label ?: entry?.label.orEmpty(), showLabel,
                         locked = entry != null && limits.isLocked(entry.packageName, now),
                         isNew = entry != null && newApps.isNew(entry),
                         badge = entry?.let { prefs.badgeCount(it.packageName) } ?: 0,
-                        iconDp = if (item.inDock) AppIconView.DOCK_ICON else AppIconView.ICON)
+                        iconDp = iconDp(item))
                 }
             }
             val target = containerFor(item.page)
@@ -251,16 +259,39 @@ class HomeScreen(
                 target.place(view, item.x, item.y, item.w, item.h)
             }
         }
-        val offset = if (prefs.showLabels) dp(AppIconView.LABEL_HEIGHT) / 2f else 0f
-        for (i in 0 until pages.pageCount) pages.page(i).iconOffset = offset
+        for (i in 0 until pages.pageCount) pages.page(i).apply {
+            names = prefs.showLabels
+            iconDp = if (prefs.showLabels) AppIconView.ICON else AppIconView.LARGE_ICON
+        }
         pages.updateFocusability()
+    }
+
+    /** Dock icons are larger; on pages, icons grow when there are no names under them. */
+    private fun iconDp(item: HomeItem) = when {
+        item.inDock -> AppIconView.DOCK_ICON
+        prefs.showLabels -> AppIconView.ICON
+        else -> AppIconView.LARGE_ICON
+    }
+
+    /** A widget's name under it: Feather's own by what they are, others' by their app's name. */
+    private fun widgetName(item: HomeItem): String? = when (item.type) {
+        HomeItem.Type.CLOCK -> FeatherKind.of(item).label
+        HomeItem.Type.WIDGET -> widgets.info(item.ref.toInt())?.provider?.packageName?.let { pkg ->
+            repo.apps.firstOrNull { it.packageName == pkg }?.label
+                ?: runCatching { activity.packageManager.run { getApplicationLabel(getApplicationInfo(pkg, 0)).toString() } }.getOrNull()
+        }
+        else -> null
     }
 
     private fun newPage() = CellLayout(activity).apply {
         cols = Workspace.COLS
         rows = Workspace.ROWS
-        // The cells fill the page's outline while dragging: in line with the dock at the sides.
-        setPadding(dp(Ui.BAR_MARGIN), dp(Workspace.PAGE_TOP), dp(Ui.BAR_MARGIN), 0)
+        isPage = true
+        // In line with the dock at the sides. Above and below, the gaps to the status bar (past
+        // the pages' top margin) and to the page dots are as wide as those between rows.
+        setPadding(dp(Ui.BAR_MARGIN), 0, dp(Ui.BAR_MARGIN), 0)
+        roomAbove = (pages.layoutParams as ViewGroup.MarginLayoutParams).topMargin
+        roomBelow = dp(PageDots.ABOVE)
     }
 
     private fun containerFor(page: Int): CellLayout = if (page == Workspace.DOCK) dock else pages.page(page)
@@ -326,7 +357,7 @@ class HomeScreen(
                     ?: activity.packageManager.getLaunchIntentForPackage(pkg)?.let(host::startSafely)
             }
         }
-    }
+    }?.also { it.setTag(R.id.home_name, widgetName(item)) }
 
     /** Tapping something coming up, on the clock or Up next: the day's zmanim, the event, the alarms. */
     private fun openGlance(item: Glance.Item, place: ClockInfo.Place?) {
@@ -364,10 +395,13 @@ class HomeScreen(
     /** Size of one page cell in dp, for sizing new widgets. */
     fun cellSizeDp(): Pair<Float, Float> {
         val density = activity.resources.displayMetrics.density
-        val page = if (pages.pageCount > 0) pages.page(0) else null
-        if (page == null || page.width == 0) return 100f to 84f
-        return page.cellWidth / density to page.cellHeight / density
+        val grid = grid()
+        return grid.cellWidth / density to grid.cellHeight / density
     }
+
+    /** The page's grid, for sizing widgets; before it's laid out, about what it will be. */
+    fun grid(): CellLayout.Grid = CellLayout.grid
+        ?: CellLayout.Grid(dp(100).toFloat(), dp(100).toFloat(), dp(AppIconView.ICON).toFloat(), dp(CardWidget.GAP))
 
     // endregion
 
@@ -936,8 +970,8 @@ class HomeScreen(
             val cells = containerFor(page)
             val origin = rectInRoot(cells)
             val r = cells.cellRect(Rect(x, y, x + w, y + h))
-            // An icon sits above its name in the cell; a widget fills its cells.
-            val lift = if (source?.item?.isWidget == true) 0f else cells.iconOffset
+            // An icon, or a widget's card, sits above its name in the cells.
+            val lift = cells.iconOffset
             // Just picked up, the picture isn't laid out yet: its size is still only in its layout params.
             val vw = view.width.takeIf { it > 0 } ?: view.layoutParams.width
             val vh = view.height.takeIf { it > 0 } ?: view.layoutParams.height
@@ -1084,7 +1118,8 @@ class HomeScreen(
             val cells = containerFor(page)
             val origin = rectInRoot(cells)
             val centerX = view.x + view.width / 2f - origin.left - cells.originX
-            val centerY = view.y + view.height / 2f - origin.top - cells.paddingTop
+            // The picture sits above its name: its cells are centred half the name lower.
+            val centerY = view.y + view.height / 2f + cells.iconOffset - origin.top - cells.originY
             val cx = ((centerX - w * cells.cellWidth / 2) / cells.cellWidth).roundToInt()
             val cy = ((centerY - h * cells.cellHeight / 2) / cells.cellHeight).roundToInt()
             val col = cx.coerceIn(0, workspace.cols(page) - w)
@@ -1134,7 +1169,7 @@ class HomeScreen(
                 leftMargin = page.left
             }, PAGE_RADIUS)
             // Slivers: the neighbouring page starts just past the edge of this one.
-            val sliver = page.left - gap
+            val sliver = dp(Ui.BAR_MARGIN) - gap
             fun side(gravity: Int) = zone(FrameLayout.LayoutParams(dp(80), height, gravity or Gravity.TOP).apply {
                 topMargin = top
                 if (gravity == Gravity.END) rightMargin = sliver - dp(80) else leftMargin = sliver - dp(80)
@@ -1665,7 +1700,7 @@ class HomeScreen(
             val cells = containerFor(item.page)
             val origin = rectInRoot(cells)
             val gx = ((px - origin.left - cells.originX) / cells.cellWidth).roundToInt()
-            val gy = ((py - origin.top - cells.paddingTop) / cells.cellHeight).roundToInt()
+            val gy = ((py - origin.top - cells.originY) / cells.cellHeight).roundToInt()
             var x = item.x
             var y = item.y
             var w = item.w

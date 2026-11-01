@@ -28,8 +28,6 @@ class CellLayout(context: Context, attrs: AttributeSet? = null) : ViewGroup(cont
     var dropPreviewIsIcon = false
     /** Dropping here makes or fills a folder: draw the highlight stronger. */
     var dropPreviewGrow = false
-    /** How far above the cell's center icons sit (they're raised by half the name under them). */
-    var iconOffset = 0f
 
     private val previewPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = 0x33FFFFFF }
 
@@ -49,14 +47,51 @@ class CellLayout(context: Context, attrs: AttributeSet? = null) : ViewGroup(cont
     /** Height (dp) of one icon with its highlight, for the dock's wrapped height and drop preview. */
     var boxDp = AppIconView.BOX
 
+    /**
+     * A page: every row is an icon's picture with its name under it, as on iOS. A widget's
+     * card runs from the edge of the first icon it covers to the edge of the last, and has
+     * its name under it too, so everything on a page lines up.
+     */
+    var isPage = false
+    /** Names under icons and widgets on a page ([Prefs.showLabels]). */
+    var names = true
+        set(value) {
+            if (field != value) { field = value; requestLayout(); invalidate() }
+        }
+    /** Size (dp) of a page's icons, without their highlight. */
+    var iconDp = AppIconView.ICON
+        set(value) {
+            if (field != value) { field = value; requestLayout() }
+        }
+    /**
+     * Room (px) above and below the page, up to the status bar and the page dots, that counts
+     * toward the gaps at its top and bottom: the gaps above the first row, between rows and
+     * under the last row's names all come out the same.
+     */
+    var roomAbove = 0
+    var roomBelow = 0
+
+    /** On a page: the gap (px) between one row's names and the next row's icons. */
+    private var rowGap = 0f
+
+    private val icon get() = Ui.dp(context, iconDp).toFloat()
+    /** An icon's picture with its name under it (px). */
+    private val content get() = icon + if (names) Ui.dp(context, AppIconView.INSET + AppIconView.LABEL_HEIGHT) else 0
+
     /** Center-to-center distance of columns. */
     val cellWidth: Float
         get() = if (edgeGap >= 0 && cols > 1) (width - 2f * edgeGap - iconSize) / (cols - 1)
         else (width - paddingLeft - paddingRight) / cols.toFloat()
-    val cellHeight get() = (height - paddingTop - paddingBottom) / rows.toFloat()
+    val cellHeight get() = if (isPage) content + rowGap else (height - paddingTop - paddingBottom) / rows.toFloat()
     /** Where column 0 starts (px); with [edgeGap] it's placed so the first icon is exactly that far in. */
     val originX: Float
         get() = if (edgeGap >= 0) edgeGap + iconSize / 2f - cellWidth / 2f else paddingLeft.toFloat()
+    /** Where row 0 starts (px). On a page, a row runs from halfway up the gap above it to halfway down the gap below. */
+    val originY: Float
+        get() = if (isPage) rowGap / 2 - roomAbove else paddingTop.toFloat()
+    /** How far above a cell's center the picture's center is on a page: half the name under it. */
+    val iconOffset: Float
+        get() = if (isPage) (content - icon) / 2 else 0f
 
     override fun onMeasure(widthMeasureSpec: Int, heightMeasureSpec: Int) {
         val width = MeasureSpec.getSize(widthMeasureSpec)
@@ -67,56 +102,123 @@ class CellLayout(context: Context, attrs: AttributeSet? = null) : ViewGroup(cont
             paddingTop + paddingBottom + rows * Ui.dp(context, boxDp)
         }
         setMeasuredDimension(width, height)
-        val cw = if (edgeGap >= 0 && cols > 1) (width - 2f * edgeGap - iconSize) / (cols - 1) else (width - paddingLeft - paddingRight) / cols.toFloat()
-        val ch = (height - paddingTop - paddingBottom) / rows.toFloat()
+        if (isPage) rowGap = (height + roomAbove + roomBelow - rows * content) / (rows + 1)
         for (i in 0 until childCount) {
             val child = getChildAt(i)
-            val lp = child.layoutParams as LayoutParams
-            child.measure(
-                MeasureSpec.makeMeasureSpec((lp.w * cw).roundToInt(), MeasureSpec.EXACTLY),
-                MeasureSpec.makeMeasureSpec((lp.h * ch).roundToInt(), MeasureSpec.EXACTLY),
-            )
+            val r = childRect(child)
+            child.measure(MeasureSpec.makeMeasureSpec(r.width(), MeasureSpec.EXACTLY), MeasureSpec.makeMeasureSpec(r.height(), MeasureSpec.EXACTLY))
         }
     }
 
     override fun onLayout(changed: Boolean, l: Int, t: Int, r: Int, b: Int) {
-        // A page's cell size, for drawing widgets at their real sizes from a computer (see [WidgetSheet]).
-        if (rows > 1 && cellWidth > 0 && cellHeight > 0) pageCell = cellWidth to cellHeight
+        // A page's grid, for drawing widgets at their real sizes (see [WidgetSheet]) and sizing new ones.
+        if (isPage && cellWidth > 0 && cellHeight > 0) grid = Grid(cellWidth, cellHeight, icon, Ui.dp(context, CardWidget.GAP))
         for (i in 0 until childCount) {
             val child = getChildAt(i)
-            val rect = cellRect((child.layoutParams as LayoutParams).let { Rect(it.x, it.y, it.x + it.w, it.y + it.h) })
+            val rect = childRect(child)
             child.layout(rect.left, rect.top, rect.right, rect.bottom)
         }
     }
 
+    /**
+     * Where a child goes. On a page an icon covers its cell's width, from its highlight's top to
+     * its name's bottom; a widget covers the pictures of the cells it spans, plus the room for
+     * its keypad highlight around them ([CardWidget.GAP]).
+     */
+    private fun childRect(child: View): Rect {
+        val cells = (child.layoutParams as LayoutParams).let { Rect(it.x, it.y, it.x + it.w, it.y + it.h) }
+        if (!isPage) return cellRect(cells)
+        if (child is AppIconView) {
+            val cell = cellRect(cells)
+            val inset = Ui.dp(context, AppIconView.INSET)
+            val top = (pictureTop(cells.top) - inset).roundToInt()
+            val name = if (names) Ui.dp(context, AppIconView.LABEL_HEIGHT) else 0
+            return Rect(cell.left, top, cell.right, (top + icon + 2 * inset + name).roundToInt())
+        }
+        return widgetRect(cells)
+    }
+
+    private fun pictureTop(row: Int) = originY + row * cellHeight + rowGap / 2
+
     /** Pixel bounds, in this view, of the cells in [cells] (left/top inclusive, right/bottom exclusive). */
     fun cellRect(cells: Rect): Rect = Rect(
         (originX + cells.left * cellWidth).roundToInt(),
-        (paddingTop + cells.top * cellHeight).roundToInt(),
+        (originY + cells.top * cellHeight).roundToInt(),
         (originX + cells.right * cellWidth).roundToInt(),
-        (paddingTop + cells.bottom * cellHeight).roundToInt(),
+        (originY + cells.bottom * cellHeight).roundToInt(),
     )
+
+    /**
+     * The pictures of the cells in [cells], as one: from the left edge of the first column's
+     * icons to the right edge of the last's, and from the top of the first row's to the bottom
+     * of the last row's. Where a widget's card goes.
+     */
+    fun pictureRect(cells: Rect): RectF {
+        val half = (cellWidth - icon) / 2
+        return RectF(
+            originX + cells.left * cellWidth + half,
+            pictureTop(cells.top),
+            originX + cells.right * cellWidth - half,
+            pictureTop(cells.bottom - 1) + icon,
+        )
+    }
+
+    /** A widget's bounds: its picture with the room for its keypad highlight around it. */
+    fun widgetRect(cells: Rect): Rect {
+        val gap = Ui.dp(context, CardWidget.GAP).toFloat()
+        val r = pictureRect(cells)
+        return Rect((r.left - gap).roundToInt(), (r.top - gap).roundToInt(), (r.right + gap).roundToInt(), (r.bottom + gap).roundToInt())
+    }
+
+    /** The bottom (px) of the names under the given row's icons, or of the icons with names off. */
+    fun namesBottom(row: Int) = pictureTop(row) + content
+
+    // The names under widgets, just as the names under icons ([AppIconView]).
+    private val namePaint = android.text.TextPaint(Paint.ANTI_ALIAS_FLAG).apply {
+        textSize = android.util.TypedValue.applyDimension(android.util.TypedValue.COMPLEX_UNIT_SP, AppIconView.NAME_SP, resources.displayMetrics)
+        color = 0xFFFFFFFF.toInt()
+        setShadowLayer(Ui.dp(context, 3).toFloat(), 0f, Ui.dp(context, 1).toFloat(), 0x99000000.toInt())
+    }
 
     override fun dispatchDraw(canvas: Canvas) {
         dropPreview?.let { cells ->
-            val r = cellRect(cells)
             if (dropPreviewIsIcon) {
-                // Same square as the icon's own highlight, where the icon will sit
-                // (raised by half the name's height on pages, where icons have names).
-                val half = Ui.dp(context, boxDp) / 2f
+                // Exactly where the icon will be, with its corners (raised by half the name's
+                // height on pages, where icons have names). Over a folder to be, it's the icon's
+                // highlight around the one there, so it shows.
+                val sizeDp = if (isPage) iconDp else boxDp - 2 * AppIconView.INSET
+                val inset = if (dropPreviewGrow) AppIconView.INSET else 0
+                val half = Ui.dp(context, sizeDp + 2 * inset) / 2f
+                val r = cellRect(cells)
                 val cx = r.exactCenterX()
                 val cy = r.exactCenterY() - iconOffset
-                val radius = Ui.dp(context, AppIconView.ICON_RADIUS + AppIconView.INSET).toFloat()
+                val radius = Ui.dp(context, AppIconView.ICON_RADIUS * sizeDp / AppIconView.ICON + inset).toFloat()
                 previewPaint.color = if (dropPreviewGrow) 0x55FFFFFF else 0x33FFFFFF
                 canvas.drawRoundRect(cx - half, cy - half, cx + half, cy + half, radius, radius, previewPaint)
             } else {
-                // Just where the widget's card will be: the same room around it, the same corners.
-                val inset = Ui.dp(context, CardWidget.GAP).toFloat()
+                // Exactly where the widget's card will be, with its corners.
                 val radius = Ui.dp(context, WidgetStyle.RADIUS).toFloat()
-                canvas.drawRoundRect(RectF(r).apply { inset(inset, inset) }, radius, radius, previewPaint)
+                canvas.drawRoundRect(if (isPage) pictureRect(cells) else RectF(cellRect(cells)), radius, radius, previewPaint)
             }
         }
         super.dispatchDraw(canvas)
+        if (isPage && names) for (i in 0 until childCount) drawName(canvas, getChildAt(i))
+    }
+
+    /** A widget's name, under its card where an icon's name is under the icon, moving and fading with it. */
+    private fun drawName(canvas: Canvas, child: View) {
+        val name = child.getTag(R.id.home_name) as? String ?: return
+        if (child.visibility != VISIBLE || child.alpha == 0f || name.isEmpty()) return
+        val gap = Ui.dp(context, CardWidget.GAP)
+        val room = child.width - 2 * gap - 2 * Ui.dp(context, AppIconView.NAME_PADDING).toFloat()
+        namePaint.letterSpacing = AppIconView.nameSpacing(namePaint, name, room)
+        val text = android.text.TextUtils.ellipsize(name, namePaint, room, android.text.TextUtils.TruncateAt.END).toString()
+        val m = namePaint.fontMetrics
+        val top = child.bottom - gap + Ui.dp(context, AppIconView.INSET) + child.translationY
+        val baseline = top + (Ui.dp(context, AppIconView.LABEL_HEIGHT) - (m.descent - m.ascent)) / 2 - m.ascent
+        val x = child.left + child.width / 2f + child.translationX - namePaint.measureText(text) / 2
+        namePaint.alpha = (child.alpha * 255).roundToInt()
+        canvas.drawText(text, x, baseline, namePaint)
     }
 
     override fun checkLayoutParams(p: ViewGroup.LayoutParams?) = p is LayoutParams
@@ -128,8 +230,15 @@ class CellLayout(context: Context, attrs: AttributeSet? = null) : ViewGroup(cont
         addView(view, LayoutParams(x, y, w, h))
     }
 
+    /** A page's grid in pixels: its cells, its icons' size, and the room around a widget's card. */
+    class Grid(val cellWidth: Float, val cellHeight: Float, val icon: Float, val gap: Int) {
+        /** The size (px) of a widget [w] by [h] cells, its keypad highlight's room included ([widgetRect]). */
+        fun widgetSize(w: Int, h: Int) =
+            ((w - 1) * cellWidth + icon + 2 * gap).roundToInt() to ((h - 1) * cellHeight + icon + 2 * gap).roundToInt()
+    }
+
     companion object {
-        /** The width and height (px) of a page's cell, as last laid out. */
-        @Volatile var pageCell: Pair<Float, Float>? = null
+        /** A page's grid, as last laid out. */
+        @Volatile var grid: Grid? = null
     }
 }

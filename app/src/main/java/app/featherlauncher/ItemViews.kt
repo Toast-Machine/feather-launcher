@@ -28,14 +28,14 @@ class AppIconView(context: Context, val item: HomeItem) : LinearLayout(context) 
         icon.background = Ui.focusHighlight(context, ICON_RADIUS + INSET)
         addView(icon, LayoutParams(dp(ICON + 2 * INSET), dp(ICON + 2 * INSET)))
         label.apply {
-            setTextSize(TypedValue.COMPLEX_UNIT_SP, 12f)
+            setTextSize(TypedValue.COMPLEX_UNIT_SP, NAME_SP)
             setTextColor(0xFFFFFFFF.toInt())
             setShadowLayer(dp(3).toFloat(), 0f, dp(1).toFloat(), 0x99000000.toInt())
             isSingleLine = true
             ellipsize = android.text.TextUtils.TruncateAt.END
             gravity = Gravity.CENTER
             includeFontPadding = false
-            setPadding(dp(4), 0, dp(4), 0)
+            setPadding(dp(NAME_PADDING), 0, dp(NAME_PADDING), 0)
             height = dp(LABEL_HEIGHT)
         }
         addView(label, LayoutParams(LayoutParams.MATCH_PARENT, LayoutParams.WRAP_CONTENT))
@@ -66,9 +66,7 @@ class AppIconView(context: Context, val item: HomeItem) : LinearLayout(context) 
     private class NameView(context: Context) : TextView(context) {
         override fun onMeasure(widthMeasureSpec: Int, heightMeasureSpec: Int) {
             val room = MeasureSpec.getSize(widthMeasureSpec) - totalPaddingLeft - totalPaddingRight
-            val name = text.toString()
-            fun width(spacing: Float) = android.text.TextPaint(paint).apply { letterSpacing = spacing }.measureText(name)
-            val spacing = if (width(0f) > room && width(TIGHT) <= room) TIGHT else 0f
+            val spacing = nameSpacing(paint, text.toString(), room.toFloat())
             // Only when it changes, since setting it asks for another layout.
             if (letterSpacing != spacing) letterSpacing = spacing
             super.onMeasure(widthMeasureSpec, heightMeasureSpec)
@@ -76,12 +74,27 @@ class AppIconView(context: Context, val item: HomeItem) : LinearLayout(context) 
     }
 
     companion object {
+        /** An icon's name, a widget's too ([CellLayout]): its text size (sp) and the room at its sides (dp). */
+        const val NAME_SP = 12f
+        const val NAME_PADDING = 4
+
+        /** The letter spacing for [name] in [room] px: a little closer when that makes it fit. */
+        fun nameSpacing(paint: android.graphics.Paint, name: String, room: Float): Float {
+            fun width(spacing: Float) = android.text.TextPaint(paint).apply { letterSpacing = spacing }.measureText(name)
+            return if (width(0f) > room && width(TIGHT) <= room) TIGHT else 0f
+        }
+
         const val ICON = 56
         /**
          * Dock icons are larger, as in Smart Launcher: with the same padding around them,
          * smaller icons leave wide gaps between them and the dock looks spread out.
          */
         const val DOCK_ICON = 62
+        /**
+         * Icons on pages with names turned off: bigger, into the room the names leave (as iOS's
+         * Large icons), and the same size as the dock's, so every icon on the home screen matches.
+         */
+        const val LARGE_ICON = DOCK_ICON
         const val INSET = 6
         /** Roughly the corner radius of a squircle icon at [ICON]. */
         const val ICON_RADIUS = 16
@@ -281,14 +294,34 @@ class ClockWidget(context: Context, val item: HomeItem) : FitColumn(context) {
         this.solid = solid
         background = if (solid) android.graphics.drawable.InsetDrawable(WidgetStyle.cardBackground(context), dp(CardWidget.GAP)) else null
         // The same room on every side of the card, and the same without one, so both styles lay out alike.
-        val edge = dp(CardWidget.GAP + 20)
-        setPadding(edge, edge, edge, edge)
+        pad()
         listOf(time, hours, minutes).forEach { it.setTextColor(if (solid) WidgetStyle.accent() else WidgetStyle.WHITE) }
         listOf(time, hours, minutes, day).forEach { shade(it) }
         sizedFor = 0
         fitted = null
         refresh()
         requestLayout()
+    }
+
+    /**
+     * The room around the time, the same on every side; on a short clock (one row, an icon's
+     * height) the room above and below is a share of its height, as on the other cards.
+     */
+    private fun pad() {
+        val edge = dp(CardWidget.GAP + EDGE)
+        val card = height - 2 * dp(CardWidget.GAP)
+        val vertical = dp(CardWidget.GAP) + if (card > 0) minOf(dp(EDGE), (card * 0.15f).toInt()) else dp(EDGE)
+        setPadding(edge, vertical, edge, vertical)
+    }
+
+    override fun onSizeChanged(w: Int, h: Int, oldw: Int, oldh: Int) {
+        super.onSizeChanged(w, h, oldw, oldh)
+        val before = paddingTop
+        pad()
+        if (paddingTop != before) {
+            fitted = null
+            post { requestLayout() }
+        }
     }
 
     /** The soft shadow on the wallpaper; none on a card. */
@@ -364,6 +397,9 @@ class ClockWidget(context: Context, val item: HomeItem) : FitColumn(context) {
 private const val MIN_SCALE = 0.25f
 /** The lines around the time stay unless the time would then be less than this share of its size without them. */
 private const val KEEP = 0.6f
+
+/** The room (dp) between the clock's card and what's on it. */
+private const val EDGE = 20
 
 /** Padding around the clock's time so its shadow isn't clipped. */
 private const val SHADOW_ROOM = 12
