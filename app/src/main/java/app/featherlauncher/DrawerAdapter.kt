@@ -99,10 +99,11 @@ class DrawerAdapter(
                         style(TextStyle.Label, p.onWall)
                         setTextSize(TypedValue.COMPLEX_UNIT_SP, 13f)
                         setPadding(dp(Ui.SPACE_M), dp(6), dp(Ui.SPACE_M), dp(6))
-                        background = Ui.pressable(context, Ui.RADIUS_PILL, focusColor = p.onWall)
-                        isFocusable = true
-                        setOnClickListener { row.onAction?.invoke() }
                     })
+                    // The whole title is the button, so the arrows stop on it like any other row.
+                    foreground = Ui.pressable(context, Ui.RADIUS_L, focusColor = p.onWall)
+                    isFocusable = true
+                    setOnClickListener { row.onAction?.invoke() }
                 }
             }
             is Row.Person -> person(row.contact, p)
@@ -130,7 +131,8 @@ class DrawerAdapter(
             is Row.Line -> line(row.app, p)
             is Row.Result -> result(row.found, p)
             Row.Divider -> View(context).apply {
-                setBackgroundColor(0x1FFFFFFF)
+                // The text's color, faint, so it shows on light and dark wallpapers alike.
+                setBackgroundColor((p.onWall and 0xFFFFFF) or 0x33000000)
                 layoutParams = android.widget.AbsListView.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(1))
             }.let { line ->
                 // Inset to line up with the section titles and rows.

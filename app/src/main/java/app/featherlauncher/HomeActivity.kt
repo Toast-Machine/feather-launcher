@@ -912,11 +912,15 @@ class HomeActivity : Activity(), HomeScreen.Host {
         fun section(key: String, title: String, total: Int, shown: Int, add: () -> Unit) {
             if (total == 0) return
             val more = total > shown && key !in expanded
+            var firstMore = 0
             title(title, if (more) "Show more" else null) {
                 expanded += key
                 updateResults()
+                // From the keypad, the highlight goes on to the first of the rows that just appeared.
+                if (!list.isInTouchMode) list.post { focusRow(firstMore, 0, true) }
             }
             add()
+            firstMore = rows.size
         }
         fun <T> limit(key: String, list: List<T>, n: Int) = if (key in expanded) list else list.take(n)
 
@@ -1942,12 +1946,10 @@ class HomeActivity : Activity(), HomeScreen.Host {
         }
     }
 
-    /**
-     * Rows the arrows stop on. Section titles aren't: their only button ("Show more") is on the
-     * far right, so stopping there would throw the highlight sideways.
-     */
-    private fun canFocusRow(position: Int) = when (adapter.getItem(position)) {
-        is DrawerAdapter.Row.Title, DrawerAdapter.Row.Divider -> false
+    /** Rows the arrows stop on: not dividers, and only section titles with "Show more". */
+    private fun canFocusRow(position: Int) = when (val row = adapter.getItem(position)) {
+        is DrawerAdapter.Row.Title -> row.action != null
+        DrawerAdapter.Row.Divider -> false
         else -> true
     }
 
