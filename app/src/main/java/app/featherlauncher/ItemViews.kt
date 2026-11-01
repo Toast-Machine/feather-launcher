@@ -227,8 +227,8 @@ class ClockWidget(context: Context, val item: HomeItem) : FitColumn(context) {
         day.text = (listOf(lines.date) + lines.detail?.split(" · ").orEmpty()).joinToString(" · ") { it.replace(' ', '\u00A0') }
         day.setTextColor(main)
         pills.removeAllViews()
-        // What's about the day itself (zmanim, candle lighting, holidays); events and the alarm are Up next's.
-        val coming = lines.coming.filter { it.tap == Glance.Tap.ZMANIM }.take(2)
+        // The same as Up next, the two most pressing: the clock is Up next with the time.
+        val coming = lines.coming.take(2)
         lines.weather?.let { w ->
             pills.addView(pill(WeatherArt.icon(w.sky, w.night), "${w.temperature}°  ${w.description}", tint = false).apply {
                 setOnClickListener { onWeather?.invoke() }
