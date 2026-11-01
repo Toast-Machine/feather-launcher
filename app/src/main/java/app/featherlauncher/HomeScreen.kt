@@ -209,19 +209,16 @@ class HomeScreen(
                     }
                 }
                 is ZmanimWidget -> onOpen = { place -> ZmanimSheet.show(activity, palette(), overlays, place) }
-                is UpNextWidget -> {
-                    onTap = ::openGlance
-                    onLocation = {
-                        activity.startActivity(Intent(activity, SettingsActivity::class.java)
-                            .putExtra(SettingsActivity.EXTRA_PAGE, SettingsActivity.Page.CALENDAR.name))
-                    }
-                }
             }
             setOnLongClickListener { onItemLongPress(item, it); true }
         } ?: ClockWidget(activity, item).apply {
-            setSolid(prefs.clockSolid(item.id))
+            setSolid(prefs.widgetSolid(item.id))
             foreground = Ui.focusRing(activity, Ui.RADIUS_L, 0xFFFFFFFF.toInt())
-            setOnClickListener { host.startSafely(Intent(AlarmClock.ACTION_SHOW_ALARMS)) }
+            if (!upNext) setOnClickListener { host.startSafely(Intent(AlarmClock.ACTION_SHOW_ALARMS)) }
+            onLocation = {
+                activity.startActivity(Intent(activity, SettingsActivity::class.java)
+                    .putExtra(SettingsActivity.EXTRA_PAGE, SettingsActivity.Page.CALENDAR.name))
+            }
             dateView.setOnClickListener {
                 val uri = CalendarContract.CONTENT_URI.buildUpon().appendPath("time")
                 ContentUris.appendId(uri, System.currentTimeMillis())
@@ -630,16 +627,16 @@ class HomeScreen(
 
     /** What a Feather widget's settings are, if it has any. */
     private fun featherSettings(item: HomeItem): MenuItem? = when (FeatherKind.of(item)) {
-        FeatherKind.CLOCK -> MenuItem("Clock style", R.drawable.ic_palette) { clockStyle(item) }
+        FeatherKind.CLOCK, FeatherKind.UP_NEXT -> MenuItem("${clockName(item)} style", R.drawable.ic_palette) { widgetStyle(item) }
         else -> null
     }
 
     /** Solid, on a card, or Transparent, straight on the wallpaper, as Android's own Clock offers. */
-    private fun clockStyle(item: HomeItem) {
+    private fun widgetStyle(item: HomeItem) {
         val p = palette()
-        val solid = prefs.clockSolid(item.id)
-        Components.choiceSheet(activity, p, overlays, "Clock style", listOf("Solid" to null, "Transparent" to null), if (solid) 0 else 1) {
-            prefs.setClockSolid(item.id, it == 0)
+        val solid = prefs.widgetSolid(item.id)
+        Components.choiceSheet(activity, p, overlays, "${clockName(item)} style", listOf("Solid" to null, "Transparent" to null), if (solid) 0 else 1) {
+            prefs.setWidgetSolid(item.id, it == 0)
             (views[item.id] as? ClockWidget)?.setSolid(it == 0)
         }
     }

@@ -104,10 +104,10 @@ class Prefs(context: Context) {
         sp.edit().putString("widgets", specs.joinToString(",") { "${it.id}:${it.heightDp}" }).apply()
     }
 
-    /** The clock [id] sits on a card (Solid) rather than straight on the wallpaper (Transparent). */
-    fun clockSolid(id: Long) = sp.getBoolean("clock_solid_$id", false)
+    /** The clock or Up next [id] sits on a card (Solid) rather than straight on the wallpaper (Transparent). */
+    fun widgetSolid(id: Long) = sp.getBoolean("clock_solid_$id", false)
 
-    fun setClockSolid(id: Long, solid: Boolean) = sp.edit().putBoolean("clock_solid_$id", solid).apply()
+    fun setWidgetSolid(id: Long, solid: Boolean) = sp.edit().putBoolean("clock_solid_$id", solid).apply()
 
     /** The welcome has been shown (or the older first-run sheet was, for people updating). */
     var onboarded: Boolean

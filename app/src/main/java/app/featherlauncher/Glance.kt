@@ -6,7 +6,7 @@ import java.util.Calendar
 import java.util.Date
 
 /**
- * At a glance: what the clock shows under the time, and Up next ([UpNextWidget]) shows on a card. The date; a quieter line with the second
+ * At a glance: what the clock and Up next ([ClockWidget]) show. The date; a quieter line with the second
  * calendar's date, today's holiday, the parsha, the Omer and Daf Yomi; then the weather and up
  * to two things coming up, the most pressing first. Each part can be turned
  * off in Calendar and times, and each only shows when it matters. The Jewish parts are there
