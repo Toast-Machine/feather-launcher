@@ -760,7 +760,7 @@ class HomeActivity : Activity(), HomeScreen.Host {
 
     private fun updateResults(keepFocus: Boolean = true) {
         if (!::adapter.isInitialized) return
-        val key = "$searching|$showingHidden|$category|$chipCategory|${search.text}|${prefs.drawerCategories}|${prefs.searchCallRow}"
+        val key = "$searching|$showingHidden|$category|$chipCategory|${search.text}|${prefs.drawerCategories}|${prefs.searchCallRow}|${prefs.searchColumns}"
         // Results arrive in stages (contacts, shortcuts, files); each refresh rebuilds the rows,
         // so the highlighted item is found again afterwards instead of being lost.
         val focused = currentFocus?.takeIf { keepFocus && isInside(it, list) }
@@ -785,6 +785,7 @@ class HomeActivity : Activity(), HomeScreen.Host {
     private fun updateAppList() {
         // Nothing is being searched: no letters picked out in app names.
         adapter.query = ""
+        adapter.searchColumns = false
         val visible = repo.apps.filter { it.key !in prefs.hidden }
         val rows = ArrayList<DrawerAdapter.Row>()
         val title = findViewById<TextView>(R.id.drawer_title)
@@ -883,6 +884,8 @@ class HomeActivity : Activity(), HomeScreen.Host {
         val raw = search.text.toString().trim()
         val rows = ArrayList<DrawerAdapter.Row>()
         val pickingApp = pick != null
+        val columns = prefs.searchColumns && !pickingApp
+        adapter.searchColumns = columns
         var sections = 0
 
         fun section(key: String, title: String, total: Int, shown: Int, add: () -> Unit) {
@@ -908,6 +911,7 @@ class HomeActivity : Activity(), HomeScreen.Host {
             sections++
         }
 
+        val primaryStart = rows.size
         if (!pickingApp) {
             if (contacts.allowed) {
                 val found = if (raw.isEmpty()) contacts.favorites else contacts.search(raw)
@@ -924,6 +928,7 @@ class HomeActivity : Activity(), HomeScreen.Host {
             }
         }
 
+        val contactsEnd = rows.size
         val apps = if (raw.isEmpty()) {
             repo.apps.filter { it.key !in prefs.hidden }
                 .sortedByDescending { prefs.launchCount(it.key) }
@@ -938,9 +943,19 @@ class HomeActivity : Activity(), HomeScreen.Host {
                 .sortedWith(compareBy<Pair<AppEntry, Int>> { it.second }.thenByDescending { prefs.launchCount(it.first.key) })
                 .map { it.first }
         }
-        val appsShown = if (pickingApp) apps.size else DrawerAdapter.COLS * (if (raw.isEmpty()) 2 else 1)
+        val appsShown = if (pickingApp) apps.size else if (columns) 4 else DrawerAdapter.COLS * (if (raw.isEmpty()) 2 else 1)
         section("apps", if (raw.isEmpty() && !pickingApp) "Frequent apps" else "Apps", apps.size, appsShown) {
-            addApps(rows, limit("apps", apps, appsShown))
+            val shown = limit("apps", apps, appsShown)
+            if (columns) shown.forEach { rows += DrawerAdapter.Row.Line(it) } else addApps(rows, shown)
+        }
+
+        if (columns) {
+            val left = rows.subList(primaryStart, contactsEnd).filter { it !is DrawerAdapter.Row.Divider }
+            val right = rows.subList(contactsEnd, rows.size).filter { it !is DrawerAdapter.Row.Divider }
+            rows.subList(primaryStart, rows.size).clear()
+            for (i in 0 until maxOf(left.size, right.size)) {
+                rows += DrawerAdapter.Row.Columns(left.getOrNull(i), right.getOrNull(i))
+            }
         }
 
         if (raw.isNotEmpty() && !pickingApp) {
@@ -1801,11 +1816,28 @@ class HomeActivity : Activity(), HomeScreen.Host {
         }
         // A row with its own buttons (a contact): right steps onto them one by one, left comes back.
         // Android's own search can't do this, since it only looks outside the highlighted row.
-        val row = (from as? ViewGroup)?.takeIf { it.isFocusable } ?: (from.parent as? ViewGroup)?.takeIf { it.isFocusable }
+        val contactRow = generateSequence(from) { it.parent as? View }
+            .firstOrNull { it.tag is Contacts.Contact } as? ViewGroup
+        val row = contactRow ?: (from as? ViewGroup)?.takeIf { it.isFocusable } ?: (from.parent as? ViewGroup)?.takeIf { it.isFocusable }
         if (row != null) {
-            val stops = listOf<View>(row) + (0 until row.childCount).map(row::getChildAt).filter { it.isFocusable && it.visibility == View.VISIBLE }
+            val stops = if (contactRow != null && adapter.searchColumns) {
+                listOf<View>(row) + ArrayList<View>().also { row.addFocusables(it, View.FOCUS_RIGHT) }
+                    .filter { it !== row && it is ImageView && it.isShown }
+            } else listOf<View>(row) + (0 until row.childCount).map(row::getChildAt).filter { it.isFocusable && it.visibility == View.VISIBLE }
             if (stops.size > 1) {
-                stops.getOrNull(stops.indexOf(from) + if (direction == View.FOCUS_RIGHT) 1 else -1)?.requestFocusFromTouch()
+                val next = stops.getOrNull(stops.indexOf(from) + if (direction == View.FOCUS_RIGHT) 1 else -1)
+                if (next != null) { next.requestFocusFromTouch(); return }
+                if (!adapter.searchColumns) return
+            }
+        }
+        if (searching && adapter.searchColumns) {
+            val pair = generateSequence(from) { it.parent as? View }.firstOrNull { it.parent === list } as? ViewGroup
+            if (pair != null && adapter.getItem(list.getPositionForView(pair)) is DrawerAdapter.Row.Columns) {
+                val onLeft = isInside(from, pair.getChildAt(0))
+                if ((onLeft && direction == View.FOCUS_RIGHT) || (!onLeft && direction == View.FOCUS_LEFT)) {
+                    val cell = pair.getChildAt(if (onLeft) 2 else 0)
+                    if (cell.isFocusable) cell.requestFocusFromTouch()
+                }
                 return
             }
         }
@@ -1900,11 +1932,14 @@ class HomeActivity : Activity(), HomeScreen.Host {
             else -> {
                 var row: View = focused
                 while (row.parent !== list) row = row.parent as? View ?: return
+                // A full-width result has no column. Start on the left when entering the pair,
+                // rather than letting a one-pixel divider make the right cell marginally nearer.
+                val columnX = if (adapter.searchColumns && adapter.getItem(list.getPositionForView(row)) !is DrawerAdapter.Row.Columns) 0 else x
                 val step = if (down) 1 else -1
                 var target = list.getPositionForView(row) + step
                 while (target in 0 until adapter.count && !canFocusRow(target)) target += step
                 when {
-                    target in 0 until adapter.count -> focusRow(target, x, down)
+                    target in 0 until adapter.count -> focusRow(target, columnX, down)
                     down -> focusSelectedIn(findViewById(R.id.tabs_scroll))
                     chipsScroll.visibility == View.VISIBLE -> focusSelectedIn(chipsScroll)
                     // In Smart Search, above the results is the search bar.
@@ -1921,6 +1956,9 @@ class HomeActivity : Activity(), HomeScreen.Host {
      */
     private fun canFocusRow(position: Int) = when (adapter.getItem(position)) {
         is DrawerAdapter.Row.Title, DrawerAdapter.Row.Divider -> false
+        is DrawerAdapter.Row.Columns -> (adapter.getItem(position) as DrawerAdapter.Row.Columns).let {
+            (it.left != null && it.left !is DrawerAdapter.Row.Title) || (it.right != null && it.right !is DrawerAdapter.Row.Title)
+        }
         else -> true
     }
 
@@ -1942,7 +1980,10 @@ class HomeActivity : Activity(), HomeScreen.Host {
     }
 
     private fun pick(row: View, x: Int) {
-        val targets = ArrayList<View>().also { row.addFocusables(it, View.FOCUS_DOWN) }.ifEmpty { listOf(row) }
+        val paired = row is ViewGroup && searching && adapter.searchColumns &&
+            adapter.getItem(list.getPositionForView(row)) is DrawerAdapter.Row.Columns
+        val targets = if (paired) (0 until (row as ViewGroup).childCount).map(row::getChildAt).filter { it.isFocusable }
+            else ArrayList<View>().also { row.addFocusables(it, View.FOCUS_DOWN) }.ifEmpty { listOf(row) }
         // From touch: leaves touch mode if needed, where a plain request would be refused.
         targets.minByOrNull { kotlin.math.abs(rectOf(it).centerX() - x) }?.requestFocusFromTouch()
         val bottom = list.height - list.paddingBottom

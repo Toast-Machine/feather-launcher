@@ -12,6 +12,8 @@ import android.widget.ImageView
 import android.widget.LinearLayout
 import android.widget.Space
 import android.widget.TextView
+import android.widget.FrameLayout
+import android.widget.HorizontalScrollView
 
 /** What tapping a contact (or one of its buttons) does. */
 enum class ContactAction { OPEN, CALL, TEXT, EMAIL }
@@ -45,6 +47,8 @@ class DrawerAdapter(
         class Notice(val text: String, val action: String, val onAction: () -> Unit) : Row()
         class Tiles(val apps: List<AppEntry>) : Row()
         class Line(val app: AppEntry) : Row()
+        /** Two equal-width search cells, sharing a vertical position in the result list. */
+        class Columns(val left: Row?, val right: Row?) : Row()
         /** A setting, shortcut or file found by Smart Search. */
         class Result(val found: Found) : Row()
         /** The thin line between search sections. */
@@ -53,6 +57,8 @@ class DrawerAdapter(
 
     /** What's been typed in search; matching letters in names are picked out. */
     var query = ""
+    var searchColumns = false
+    private var hideContactActions: (() -> Unit)? = null
 
     var palette: Palette? = null
     /** The app being dragged: its tile stays in place but empty, as the gap it will drop into. */
@@ -64,6 +70,8 @@ class DrawerAdapter(
         private set
 
     fun set(rows: List<Row>, primary: AppEntry?) {
+        hideContactActions?.invoke()
+        hideContactActions = null
         this.rows = rows
         this.primary = primary
         notifyDataSetChanged()
@@ -75,6 +83,7 @@ class DrawerAdapter(
     override fun getViewTypeCount() = 8
     override fun getItemViewType(position: Int) = when (rows[position]) {
         is Row.Title -> 0
+        is Row.Columns -> 1 // Both kinds of horizontal containers can share the recycling pool.
         is Row.Tiles -> 1
         is Row.Line -> 2
         is Row.Person -> 3
@@ -89,7 +98,28 @@ class DrawerAdapter(
 
     override fun getView(position: Int, convertView: View?, parent: ViewGroup): View {
         val p = palette ?: return View(context)
-        return when (val row = rows[position]) {
+        return rowView(rows[position], p, convertView)
+    }
+
+    private fun rowView(row: Row, p: Palette, convertView: View? = null): View {
+        return when (row) {
+            is Row.Columns -> LinearLayout(context).apply {
+                orientation = LinearLayout.HORIZONTAL
+                gravity = Gravity.TOP
+                listOf(row.left, row.right).forEachIndexed { index, cell ->
+                    if (index == 1) addView(View(context).apply { setBackgroundColor(0x1FFFFFFF) },
+                        LinearLayout.LayoutParams(dp(1), ViewGroup.LayoutParams.MATCH_PARENT))
+                    val view = if (cell == null) Space(context) else rowView(cell, p)
+                    if (cell is Row.Title) {
+                        // Match the result icons' inset and keep both headings on one baseline,
+                        // including when only one heading has a Show more button.
+                        view.setPaddingRelative(dp(Ui.SPACE_S), dp(Ui.SPACE_L), dp(Ui.SPACE_S), dp(Ui.SPACE_XS))
+                        view.minimumHeight = dp(48)
+                    }
+                    addView(view,
+                        LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f))
+                }
+            }
             is Row.Title -> LinearLayout(context).apply {
                 orientation = LinearLayout.HORIZONTAL
                 gravity = Gravity.CENTER_VERTICAL
@@ -188,10 +218,10 @@ class DrawerAdapter(
         return LinearLayout(context).apply {
             orientation = LinearLayout.HORIZONTAL
             gravity = Gravity.CENTER_VERTICAL
-            minimumHeight = dp(56)
+            minimumHeight = dp(if (searchColumns) 64 else 56)
             clipChildren = false
             clipToPadding = false
-            setPadding(dp(Ui.SPACE_M), 0, dp(Ui.SPACE_L), 0)
+            setPadding(dp(if (searchColumns) Ui.SPACE_S else Ui.SPACE_M), 0, dp(if (searchColumns) Ui.SPACE_S else Ui.SPACE_L), 0)
             foreground = Ui.pressable(context, Ui.RADIUS_L, focusColor = p.onWall)
             isFocusable = true
             alpha = if (app.key == dragging?.key) 0f else 1f
@@ -202,7 +232,7 @@ class DrawerAdapter(
                 style(TextStyle.Body, p.onWall)
                 maxLines = 1
                 ellipsize = TextUtils.TruncateAt.END
-            }, LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f).apply { marginStart = dp(Ui.SPACE_L) })
+            }, LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f).apply { marginStart = dp(if (searchColumns) Ui.SPACE_S else Ui.SPACE_L) })
             digitFor(app)?.let { d ->
                 addView(TextView(context).apply {
                     text = d.toString()
@@ -299,7 +329,7 @@ class DrawerAdapter(
 
     /** A contact: picture or initial, name and number, and buttons to email (if they have an address), text and call. */
     private fun person(contact: Contacts.Contact, p: Palette): View {
-        val size = dp(44)
+        val size = dp(if (searchColumns) 32 else 44)
         val avatar: View = if (contact.photo != null) {
             ImageView(context).apply {
                 setImageURI(contact.photo)
@@ -315,7 +345,7 @@ class DrawerAdapter(
                 background = Ui.rounded(context, 0x1FFFFFFF, Ui.RADIUS_M)
             }
         }
-        return LinearLayout(context).apply {
+        val content = LinearLayout(context).apply {
             orientation = LinearLayout.HORIZONTAL
             gravity = Gravity.CENTER_VERTICAL
             minimumHeight = dp(64)
@@ -347,10 +377,72 @@ class DrawerAdapter(
                 })
             }, LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f).apply { marginStart = dp(Ui.SPACE_L) })
             // Call stays at the far right, where it's always been; the others line up before it.
-            if (contact.email != null) addView(contactButton(R.drawable.ic_cat_mail, "Email ${contact.name}", p) { onContact(contact, ContactAction.EMAIL) })
-            addView(contactButton(R.drawable.ic_message, "Text ${contact.name}", p) { onContact(contact, ContactAction.TEXT) })
+            if (!searchColumns) {
+                if (contact.email != null) addView(contactButton(R.drawable.ic_cat_mail, "Email ${contact.name}", p) { onContact(contact, ContactAction.EMAIL) })
+                addView(contactButton(R.drawable.ic_message, "Text ${contact.name}", p) { onContact(contact, ContactAction.TEXT) })
+                addView(contactButton(R.drawable.ic_cat_phone, "Call ${contact.name}", p) { onContact(contact, ContactAction.CALL) })
+                setOnClickListener { onContact(contact, ContactAction.OPEN) }
+            }
+        }
+        if (!searchColumns) return content
+        // One flat row; actions temporarily replace its contents without changing its height.
+        content.isFocusable = false
+        content.foreground = null
+        content.setPadding(dp(Ui.SPACE_S), 0, dp(Ui.SPACE_S), 0)
+        (content.getChildAt(1).layoutParams as LinearLayout.LayoutParams).marginStart = dp(Ui.SPACE_S)
+        val actions = LinearLayout(context).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.END or Gravity.CENTER_VERTICAL
             addView(contactButton(R.drawable.ic_cat_phone, "Call ${contact.name}", p) { onContact(contact, ContactAction.CALL) })
-            setOnClickListener { onContact(contact, ContactAction.OPEN) }
+            addView(contactButton(R.drawable.ic_message, "Text ${contact.name}", p) { onContact(contact, ContactAction.TEXT) })
+            if (contact.email != null) addView(contactButton(R.drawable.ic_cat_mail, "Email ${contact.name}", p) { onContact(contact, ContactAction.EMAIL) })
+            addView(contactButton(R.drawable.ic_set_user, "Open ${contact.name}", p) { onContact(contact, ContactAction.OPEN) })
+        }
+        val toolbar = HorizontalScrollView(context).apply {
+            isHorizontalScrollBarEnabled = false
+            isFocusable = false
+            isFillViewport = true
+            setPaddingRelative(0, 0, dp(Ui.SPACE_S), 0)
+            addView(actions)
+            visibility = View.INVISIBLE
+        }
+        return object : FrameLayout(context) {
+            private fun hide() { toolbar.visibility = View.INVISIBLE; content.visibility = View.VISIBLE }
+            private fun reveal() {
+                if (toolbar.visibility == View.VISIBLE) return
+                hideContactActions?.invoke()
+                content.visibility = View.INVISIBLE
+                toolbar.visibility = View.VISIBLE
+                toolbar.post { toolbar.scrollTo((actions.width - toolbar.width + toolbar.paddingRight).coerceAtLeast(0), 0) }
+                hideContactActions = { hide() }
+            }
+            override fun onFocusChanged(gain: Boolean, direction: Int, previous: android.graphics.Rect?) {
+                super.onFocusChanged(gain, direction, previous)
+                if (gain) reveal()
+            }
+            override fun onAttachedToWindow() {
+                super.onAttachedToWindow()
+                viewTreeObserver.addOnGlobalFocusChangeListener(focusListener)
+            }
+            override fun onDetachedFromWindow() {
+                viewTreeObserver.removeOnGlobalFocusChangeListener(focusListener)
+                super.onDetachedFromWindow()
+            }
+            private val focusListener = android.view.ViewTreeObserver.OnGlobalFocusChangeListener { _, focused ->
+                var child = focused
+                while (child != null && child !== this) child = child.parent as? View
+                if (child == null) hide()
+            }
+            init {
+                isFocusable = true
+                tag = contact
+                contentDescription = "${contact.name}, ${contact.number}"
+                minimumHeight = dp(64)
+                foreground = Ui.pressable(context, Ui.RADIUS_L, focusColor = p.onWall)
+                addView(content, FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT))
+                addView(toolbar, FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(48), Gravity.CENTER_VERTICAL))
+                setOnClickListener { reveal() }
+            }
         }
     }
 

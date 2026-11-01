@@ -66,6 +66,11 @@ class Prefs(context: Context) {
         get() = sp.getBoolean("search_call_row", false)
         set(value) = sp.edit().putBoolean("search_call_row", value).apply()
 
+    /** Contacts and apps occupy two columns in Smart Search. Other sources stay below. */
+    var searchColumns: Boolean
+        get() = sp.getBoolean("search_columns", false)
+        set(value) = sp.edit().putBoolean("search_columns", value).apply()
+
     /** Hash of the PIN that guards hidden apps; null means no PIN. */
     var hiddenPin: String?
         get() = sp.getString("hidden_pin", null)

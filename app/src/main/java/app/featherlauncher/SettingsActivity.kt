@@ -300,7 +300,7 @@ class SettingsActivity : Activity() {
             pageRow(p, R.drawable.ic_app_list, Page.APP_LIST,
                 "${if (prefs.drawerCategories) "Categories" else "All apps"} · ${if (prefs.drawerGrid) "Grid" else "List"}"),
             pageRow(p, R.drawable.ic_search, Page.SEARCH,
-                if (prefs.searchCallRow) "Call from a result row" else "Call beside search"),
+                if (prefs.searchColumns) "Contacts and apps side by side" else "Contacts above apps"),
             pageRow(p, R.drawable.ic_calendar, Page.CALENDAR, listOfNotNull(
                 prefs.chosenPlace?.name ?: "Current location",
                 prefs.secondCalendar.takeIf { it != SecondCalendar.NONE }?.let { "${it.label} date" },
@@ -466,8 +466,14 @@ class SettingsActivity : Activity() {
                     build()
                 }
             },
+            Components.toggleRow(this, p, R.drawable.ic_grid, "Contacts and apps side by side", prefs.searchColumns) {
+                prefs.searchColumns = it
+                build()
+            },
         )))
         content.addView(Components.footnote(this, p, "Call the entered number from a green button beside search, or from a row above the results."))
+        content.addView(Components.footnote(this, p,
+            "Tap or highlight a contact to show its actions over the row. Shortcuts, settings and files stay below both columns."))
     }
 
     private fun appList(p: Palette) {

@@ -27,6 +27,7 @@ Plain Kotlin and platform Views, no AndroidX and no third-party libraries, so it
 
 **Smart Search**
 - Apps, contacts (any of their numbers), app shortcuts, phone settings and files, with T9 and letter matching.
+- Settings → Search can place contacts and apps side by side. Tap or highlight a contact for its actions; settings and files stay below.
 - Type a number on the home screen to dial it; the Call key places the call.
 
 **Made for keypads**
