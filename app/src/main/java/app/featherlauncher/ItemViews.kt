@@ -14,7 +14,7 @@ import android.widget.TextView
 @SuppressLint("ViewConstructor")
 class AppIconView(context: Context, val item: HomeItem) : LinearLayout(context) {
     private val icon = ImageView(context)
-    private val label = TextView(context)
+    private val label = NameView(context)
 
     init {
         orientation = VERTICAL
@@ -31,7 +31,7 @@ class AppIconView(context: Context, val item: HomeItem) : LinearLayout(context) 
             setTextSize(TypedValue.COMPLEX_UNIT_SP, 12f)
             setTextColor(0xFFFFFFFF.toInt())
             setShadowLayer(dp(3).toFloat(), 0f, dp(1).toFloat(), 0x99000000.toInt())
-            maxLines = 1
+            isSingleLine = true
             ellipsize = android.text.TextUtils.TruncateAt.END
             gravity = Gravity.CENTER
             includeFontPadding = false
@@ -62,6 +62,19 @@ class AppIconView(context: Context, val item: HomeItem) : LinearLayout(context) 
     /** The icon's bounds in this view, for the keypad highlight and drag image. */
     val iconView: ImageView get() = icon
 
+    /** An app's name on one line: its letters drawn a little closer when that makes it fit, else cut short with an ellipsis. */
+    private class NameView(context: Context) : TextView(context) {
+        override fun onMeasure(widthMeasureSpec: Int, heightMeasureSpec: Int) {
+            val room = MeasureSpec.getSize(widthMeasureSpec) - totalPaddingLeft - totalPaddingRight
+            val name = text.toString()
+            fun width(spacing: Float) = android.text.TextPaint(paint).apply { letterSpacing = spacing }.measureText(name)
+            val spacing = if (width(0f) > room && width(TIGHT) <= room) TIGHT else 0f
+            // Only when it changes, since setting it asks for another layout.
+            if (letterSpacing != spacing) letterSpacing = spacing
+            super.onMeasure(widthMeasureSpec, heightMeasureSpec)
+        }
+    }
+
     companion object {
         const val ICON = 56
         /**
@@ -76,6 +89,8 @@ class AppIconView(context: Context, val item: HomeItem) : LinearLayout(context) 
         const val BOX = ICON + 2 * INSET
         /** Fixed height of the name under the icon, so icons line up across rows. */
         const val LABEL_HEIGHT = 16
+        /** How much closer a name's letters may be drawn to fit on its line, in ems. */
+        private const val TIGHT = -0.05f
     }
 }
 
