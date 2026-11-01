@@ -57,6 +57,8 @@ class HomeScreen(
         fun returnToDrawer(entry: AppEntry, x: Float, y: Float)
         /** Cancels the touch gesture currently going to the views, once a drag takes it over. */
         fun cancelViewTouches()
+        /** The home screen's own options (Add widget, Wallpaper, Settings). */
+        fun homeMenuItems(): List<MenuItem>
     }
 
     val workspace = Workspace(activity)
@@ -64,6 +66,37 @@ class HomeScreen(
     private val views = HashMap<Long, View>()
     private val drag = Drag()
     private var resize: ResizeFrame? = null
+
+    /**
+     * The page itself, for the keypad: up from the top row highlights the whole page, where OK
+     * (or holding it) opens the home screen's menu, as holding empty space does by touch. It's
+     * only focusable while it has the highlight, so Android's own arrow moves never land on it.
+     */
+    private val pageTarget by lazy { View(activity).apply {
+        background = Ui.focusHighlight(activity, PAGE_RADIUS)
+        contentDescription = "Home screen"
+        setOnFocusChangeListener { v, has -> if (!has) v.isFocusable = false }
+        setOnKeyListener { v, code, event ->
+            val ok = code == KeyEvent.KEYCODE_DPAD_CENTER || code == KeyEvent.KEYCODE_ENTER
+            val held = event.action == KeyEvent.ACTION_DOWN && event.isLongPress
+            val tapped = event.action == KeyEvent.ACTION_UP && !event.isCanceled
+            if (ok && (held || tapped)) {
+                if (held) {
+                    v.performHapticFeedback(HapticFeedbackConstants.LONG_PRESS)
+                    heldOk = true
+                }
+                val r = rectInRoot(this)
+                overlays.showMenu(null, host.homeMenuItems(), Rect(r.centerX(), r.centerY(), r.centerX(), r.centerY()))
+            }
+            ok
+        }
+    } }
+
+    /** OK was held on the page and opened its menu: letting go of it mustn't also pick an option. */
+    var heldOk = false
+
+    /** What's drawn around the page and the pages beside it: gone while the pages slide, back once they've stopped. */
+    private val pageRings = mutableListOf<View>()
 
     init {
         dock.cols = Workspace.DOCK_COLS
@@ -76,6 +109,54 @@ class HomeScreen(
         }
         if (workspace.isNew) setUpDefaults()
         bindAll()
+        root.addView(pageTarget, FrameLayout.LayoutParams(0, 0, Gravity.TOP or Gravity.START))
+        pageRings += pageTarget
+        pages.addOnLayoutChangeListener { _, _, _, _, _, _, _, _, _ -> placePageTarget() }
+        pages.onSlide = ::fadeRings
+        // A touch ends the keypad's highlight on the page, as it does everywhere else.
+        root.viewTreeObserver.addOnTouchModeChangeListener { touch -> if (touch && pageTarget.isFocused) pageTarget.clearFocus() }
+    }
+
+    /**
+     * The page's outline, for the keypad here and while dragging: around its grid, where each
+     * widget's own highlight is drawn too, so it sits as far outside the cards as theirs does.
+     */
+    private fun pageBounds(): Rect {
+        // Where the page rests, from the layout: the home screen slides away as the app list
+        // opens, and the outline mustn't be left where it was mid-slide.
+        var x = 0
+        var y = 0
+        var v: View = pages
+        while (v !== root) {
+            x += v.left
+            y += v.top
+            v = v.parent as View
+        }
+        return Rect(x + dp(Ui.BAR_MARGIN), y + dp(Workspace.PAGE_TOP), x + pages.width - dp(Ui.BAR_MARGIN), y + pages.height)
+    }
+
+    private fun placePageTarget() {
+        val r = pageBounds()
+        val lp = pageTarget.layoutParams as FrameLayout.LayoutParams
+        if (lp.width == r.width() && lp.height == r.height() && lp.topMargin == r.top && lp.leftMargin == r.left) return
+        lp.width = r.width()
+        lp.height = r.height()
+        lp.topMargin = r.top
+        lp.leftMargin = r.left
+        pageTarget.layoutParams = lp
+    }
+
+    private fun fadeRings(progress: Float) {
+        for (ring in pageRings) {
+            ring.animate().cancel()
+            if (progress < 1f) ring.alpha = (1 - progress / RING_GONE_BY).coerceAtLeast(0f)
+            else ring.animate().alpha(1f).setDuration(160).start()
+        }
+    }
+
+    private fun focusPage() {
+        pageTarget.isFocusable = true
+        pageTarget.requestFocusFromTouch()
     }
 
     // region Layout
@@ -1042,17 +1123,18 @@ class HomeScreen(
             val box = rectInRoot(pages)
             val dockBox = rectInRoot(dock)
             val gap = dp(EDGE_GAP)
-            val top = box.top + gap
-            // Just the page: the dots under it aren't part of it.
-            val height = box.bottom - top
-            fun zone(lp: FrameLayout.LayoutParams) = DropZone(activity, 0, outline, Ui.RADIUS_BAR).also { root.addView(it, lp) }
+            // Just the page: the dots under it aren't part of it. The same outline as the keypad's.
+            val page = pageBounds()
+            val top = page.top
+            val height = page.height()
+            fun zone(lp: FrameLayout.LayoutParams, radius: Int = Ui.RADIUS_BAR) = DropZone(activity, 0, outline, radius).also { root.addView(it, lp) }
 
-            pageOutline = zone(FrameLayout.LayoutParams(root.width - 2 * dp(Ui.BAR_MARGIN), height, Gravity.TOP or Gravity.START).apply {
+            pageOutline = zone(FrameLayout.LayoutParams(page.width(), height, Gravity.TOP or Gravity.START).apply {
                 topMargin = top
-                leftMargin = dp(Ui.BAR_MARGIN)
-            })
+                leftMargin = page.left
+            }, PAGE_RADIUS)
             // Slivers: the neighbouring page starts just past the edge of this one.
-            val sliver = dp(Ui.BAR_MARGIN) - gap
+            val sliver = page.left - gap
             fun side(gravity: Int) = zone(FrameLayout.LayoutParams(dp(80), height, gravity or Gravity.TOP).apply {
                 topMargin = top
                 if (gravity == Gravity.END) rightMargin = sliver - dp(80) else leftMargin = sliver - dp(80)
@@ -1072,6 +1154,7 @@ class HomeScreen(
             }
             leftZone = side(Gravity.START).apply { onTrigger = { flipPage(-1) } }
             rightZone = side(Gravity.END).apply { onTrigger = { flipPage(1) } }
+            pageRings += listOfNotNull(pageOutline, leftZone, rightZone)
             updateLeftZone()
             if (fromDrawer) {
                 bottomZone = zone(FrameLayout.LayoutParams(root.width - 2 * dp(Ui.BAR_MARGIN), dp(80), Gravity.TOP or Gravity.START).apply {
@@ -1097,6 +1180,7 @@ class HomeScreen(
         }
 
         private fun hideEdgeZones() {
+            pageRings -= listOfNotNull(pageOutline, leftZone, rightZone).toSet()
             listOfNotNull(leftZone, rightZone, bottomZone, pageOutline).forEach { it.dismiss() }
             dockOutline?.let { v -> v.animate().alpha(0f).setDuration(120).withEndAction { root.removeView(v) }.start() }
             dockOutline = null
@@ -1330,14 +1414,8 @@ class HomeScreen(
             }
             clearReorder(commit = false)
             setTarget(null)
-            // The page outline goes with the old page: it fades out as the pages slide, then
-            // fades back in around the new one.
-            listOfNotNull(pageOutline, leftZone, rightZone).forEach { z ->
-                z.animate().cancel()
-                z.animate().alpha(0f).setDuration(120).withEndAction {
-                    z.animate().alpha(1f).setStartDelay(160).setDuration(160).start()
-                }.start()
-            }
+            // The page outline goes with the old page as the pages slide, and comes back around
+            // the new one (see fadeRings).
             pages.snapTo(next)
             updateLeftZone()
             root.postDelayed({ if (active && keyCell == null) move(lastX, lastY) }, 300)
@@ -1658,8 +1736,20 @@ class HomeScreen(
                 return true
             }
         }
+        // On the page itself: down to its first item, sideways to the page beside it.
+        if (activity.currentFocus === pageTarget && pageTarget.isFocused) {
+            when (direction) {
+                View.FOCUS_DOWN -> (itemsOn(pages.currentPage).ifEmpty { itemsOn(Workspace.DOCK) })
+                    .minByOrNull { rectInRoot(it).let { r -> r.top * 10_000 + r.left } }?.requestFocusFromTouch()
+                View.FOCUS_LEFT, View.FOCUS_RIGHT -> flipPage(if (direction == View.FOCUS_RIGHT) 1 else -1)
+            }
+            return true
+        }
         val here = itemsOn(pages.currentPage) + itemsOn(Workspace.DOCK)
-        if (here.isEmpty()) return false
+        if (here.isEmpty()) {
+            focusPage()
+            return true
+        }
         // Resting on the invisible spot (or nowhere) counts as no highlight yet: start at the top.
         val from = activity.currentFocus?.takeIf { it in here && !it.isInTouchMode && it.isFocused }
         if (from == null) {
@@ -1675,6 +1765,8 @@ class HomeScreen(
             best.requestFocusFromTouch()
             return true
         }
+        // Up from the top row: the page itself.
+        if (direction == View.FOCUS_UP) focusPage()
         if (vertical) return true
         // Off the edge sideways: the next page, landing on its item nearest in height.
         val next = pages.currentPage + if (direction == View.FOCUS_RIGHT) 1 else -1
@@ -1787,6 +1879,19 @@ class HomeScreen(
         return true
     }
 
+    /**
+     * Puts the keypad highlight on the leftmost item in the dock (the page's top left item when
+     * the dock is empty), so it's there as soon as the home screen opens, always in the same
+     * place. Returns false when there's nothing, or the screen is in touch mode (where nothing
+     * shows a highlight until a key is pressed).
+     */
+    fun focusDockStart(): Boolean {
+        val order = workspace.items.filter { it.inDock }.sortedBy { it.x } +
+            workspace.items.filter { it.page == pages.currentPage }.sortedWith(compareBy({ it.y }, { it.x }))
+        val first = order.firstNotNullOfOrNull { item -> views[item.id]?.takeIf { it.isFocusable && it.visibility == View.VISIBLE } }
+        return first?.requestFocus() == true
+    }
+
     /** Flips to the next or previous page, if there is one (holding right or left on the keypad). */
     fun flipPage(delta: Int) {
         val next = pages.currentPage + delta
@@ -1838,6 +1943,10 @@ class HomeScreen(
         /** Thickness of the targets along the edges while dragging. */
         /** Space between the page outline and the dock (and around the slivers). */
         private const val EDGE_GAP = Workspace.PAGE_TOP
+        /** The page outline's corners: a widget's own highlight's, as the outline is as far outside the cards. */
+        private const val PAGE_RADIUS = WidgetStyle.RADIUS + CardWidget.GAP
+        /** How far into a slide the page outlines have faded out. */
+        private const val RING_GONE_BY = 0.3f
         /** How close to a side edge (dp) the finger counts as over that side's sliver. */
         private const val EDGE_HIT = 28
         private const val FOLDER_NAME = "Folder"
