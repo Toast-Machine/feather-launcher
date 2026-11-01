@@ -104,8 +104,11 @@ class Prefs(context: Context) {
         sp.edit().putString("widgets", specs.joinToString(",") { "${it.id}:${it.heightDp}" }).apply()
     }
 
-    /** The clock or Up next [id] sits on a card (Solid) rather than straight on the wallpaper (Transparent). */
-    fun widgetSolid(id: Long) = sp.getBoolean("clock_solid_$id", false)
+    /**
+     * The clock or Up next [id] sits on a card (Solid) rather than straight on the wallpaper
+     * (Transparent). The clock starts out Transparent, Up next Solid ([default]).
+     */
+    fun widgetSolid(id: Long, default: Boolean) = sp.getBoolean("clock_solid_$id", default)
 
     fun setWidgetSolid(id: Long, solid: Boolean) = sp.edit().putBoolean("clock_solid_$id", solid).apply()
 

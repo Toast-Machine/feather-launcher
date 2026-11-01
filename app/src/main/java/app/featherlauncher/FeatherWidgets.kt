@@ -158,14 +158,190 @@ abstract class CardWidget(context: Context, val item: HomeItem) : FrameLayout(co
         /** Half the space between two cards. */
         const val GAP = 5
 
-        /** The view for a Feather widget that sits on a card, or null for the clock and Up next ([ClockWidget]). */
+        /** The view for a Feather widget that sits on a card, or null for the clock. */
         fun create(context: Context, item: HomeItem): CardWidget? = when (FeatherKind.of(item)) {
+            FeatherKind.UP_NEXT -> UpNextWidget(context, item)
             FeatherKind.AGENDA -> AgendaWidget(context, item)
             FeatherKind.WEATHER -> WeatherWidget(context, item)
             FeatherKind.MEDIA -> MediaWidget(context, item)
             FeatherKind.ZMANIM -> ZmanimWidget(context, item)
             else -> null
         }
+    }
+}
+
+/**
+ * What's coming up, in the spirit of Google's At a Glance: the most pressing thing in readable
+ * type, when it is under it ("in 25 min · 4:00 PM"), and the weather now in a scalloped badge
+ * on the right. A pill on a card (Solid) or straight on the wallpaper (Transparent). Taller,
+ * the next few things follow in quieter lines. With nothing coming up, it shows the day; without
+ * a location, where to choose one. Missed calls and messages stay on the clock: they've already
+ * happened.
+ */
+@SuppressLint("ViewConstructor")
+class UpNextWidget(context: Context, item: HomeItem) : CardWidget(context, item) {
+    /** Tapping something coming up: the day's zmanim, the event, the alarms. */
+    var onTap: ((Glance.Item, ClockInfo.Place?) -> Unit)? = null
+    /** Without a location: where to choose one. */
+    var onLocation: (() -> Unit)? = null
+    var solid = true
+        set(value) {
+            field = value
+            refresh()
+        }
+
+    private val glance = Glance(context)
+    /** Room for the next few things under the first. */
+    private var tall = false
+
+    init {
+        setPadding(dp(GAP + 22), dp(GAP + 12), dp(GAP + 14), dp(GAP + 12))
+    }
+
+    override fun onSizeChanged(w: Int, h: Int, oldw: Int, oldh: Int) {
+        super.onSizeChanged(w, h, oldw, oldh)
+        val next = h > dp(140)
+        if (next != tall) {
+            tall = next
+            post { refresh() }
+        }
+    }
+
+    override fun refresh() {
+        content.removeAllViews()
+        content.gravity = Gravity.CENTER_VERTICAL
+        // A pill, as round at the ends as it is tall; with more in it, a card like the others.
+        if (solid) setCard(android.graphics.drawable.GradientDrawable().apply {
+            setColor(WidgetStyle.card())
+            cornerRadius = if (tall) dp(WidgetStyle.RADIUS).toFloat() else 10_000f
+        }) else background = null
+        val main = if (solid) WidgetStyle.onCard() else WidgetStyle.WHITE
+        val quiet = if (solid) WidgetStyle.onCardQuiet() else WidgetStyle.SOFT_WHITE
+        val now = System.currentTimeMillis()
+        val lines = glance.lines(now) { if (isAttachedToWindow) refresh() }
+        val coming = lines.coming.filter { it.tap != Glance.Tap.CALLS && it.tap != Glance.Tap.MESSAGES }
+        val first = coming.firstOrNull()
+
+        val (icon, title, detail) = when {
+            first != null -> Triple(first.icon, first.name, whenText(first, now))
+            lines.place == null -> Triple(R.drawable.ic_location, "Set your location", "For zmanim and weather")
+            else -> Triple(R.drawable.ic_calendar, android.text.format.DateFormat.format("EEEE, MMMM d", now).toString(),
+                lines.detail?.substringBefore(" · ") ?: "Nothing coming up")
+        }
+        setOnClickListener {
+            when {
+                first != null -> onTap?.invoke(first, lines.place)
+                lines.place == null -> onLocation?.invoke()
+            }
+        }
+
+        content.addView(LinearLayout(context).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER_VERTICAL
+            addView(LinearLayout(context).apply {
+                orientation = LinearLayout.VERTICAL
+                addView(text(main, 18f).apply {
+                    text = title
+                    maxLines = 2
+                })
+                addView(LinearLayout(context).apply {
+                    orientation = LinearLayout.HORIZONTAL
+                    gravity = Gravity.CENTER_VERTICAL
+                    addView(ImageView(context).apply {
+                        setImageResource(icon)
+                        imageTintList = ColorStateList.valueOf(main)
+                    }, LinearLayout.LayoutParams(dp(18), dp(18)).apply { marginEnd = dp(8) })
+                    addView(text(main, 15f).apply { text = detail })
+                }, LinearLayout.LayoutParams(LinearLayout.LayoutParams.WRAP_CONTENT, LinearLayout.LayoutParams.WRAP_CONTENT).apply { topMargin = dp(6) })
+            }, LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f).apply { marginEnd = dp(12) })
+            lines.weather?.let { w ->
+                addView(Badge(context, dp(76)).apply {
+                    background = Scallop(WidgetStyle.accent())
+                    addView(LinearLayout(context).apply {
+                        orientation = LinearLayout.VERTICAL
+                        gravity = Gravity.CENTER_HORIZONTAL
+                        addView(ImageView(context).apply { setImageDrawable(WeatherArt.icon(w.sky, w.night)) }, LinearLayout.LayoutParams(dp(26), dp(26)))
+                        addView(WidgetStyle.cardText(context, 14f, WidgetStyle.label, WidgetStyle.onAccent()).apply { text = "${w.temperature}°" },
+                            LinearLayout.LayoutParams(LinearLayout.LayoutParams.WRAP_CONTENT, LinearLayout.LayoutParams.WRAP_CONTENT).apply { topMargin = dp(1) })
+                    }, LayoutParams(LayoutParams.WRAP_CONTENT, LayoutParams.WRAP_CONTENT, Gravity.CENTER))
+                })
+            }
+        })
+
+        // Taller: the next few, each on a quieter line.
+        if (tall) coming.drop(1).take(4).forEach { c ->
+            content.addView(gapAbove(LinearLayout(context).apply {
+                orientation = LinearLayout.HORIZONTAL
+                gravity = Gravity.CENTER_VERTICAL
+                background = Ui.pressable(context, Ui.RADIUS_S, focusColor = main)
+                setOnClickListener { onTap?.invoke(c, lines.place) }
+                addView(ImageView(context).apply {
+                    setImageResource(c.icon)
+                    imageTintList = ColorStateList.valueOf(quiet)
+                }, LinearLayout.LayoutParams(dp(18), dp(18)).apply { marginEnd = dp(8) })
+                addView(text(quiet, 15f).apply { text = c.name }, LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f))
+                addView(text(quiet, 15f).apply { text = c.clock ?: c.at.orEmpty() }, LinearLayout.LayoutParams(LinearLayout.LayoutParams.WRAP_CONTENT, LinearLayout.LayoutParams.WRAP_CONTENT).apply { marginEnd = dp(8) })
+            }, 12))
+        }
+    }
+
+    /** "in 25 min · 4:00 PM" when it's within three hours, else "4:00 PM" (or "Tomorrow"). */
+    private fun whenText(c: Glance.Item, now: Long): String {
+        val at = c.clock ?: return c.at.orEmpty()
+        val minutes = ((c.time ?: return at) - now + 59_999) / 60_000
+        val soon = when {
+            minutes < 1 -> "now"
+            minutes < 60 -> "in $minutes min"
+            minutes < 180 -> if (minutes % 60 == 0L) "in ${minutes / 60} hr" else "in ${minutes / 60} hr ${minutes % 60} min"
+            else -> return at
+        }
+        return "$soon · $at"
+    }
+
+    /** Text on the card, or white with a soft shadow on the wallpaper. */
+    private fun text(color: Int, sp: Float) = (if (solid) WidgetStyle.cardText(context, sp, WidgetStyle.body, color)
+        else WidgetStyle.text(context, sp, WidgetStyle.body, color))
+
+    /** As wide as it is tall: as tall as the card lets it be, up to [max] pixels. */
+    private class Badge(context: Context, private val max: Int) : FrameLayout(context) {
+        override fun onMeasure(widthMeasureSpec: Int, heightMeasureSpec: Int) {
+            val room = MeasureSpec.getSize(heightMeasureSpec)
+            val size = if (MeasureSpec.getMode(heightMeasureSpec) == MeasureSpec.UNSPECIFIED) max else minOf(room, max)
+            val exact = MeasureSpec.makeMeasureSpec(size, MeasureSpec.EXACTLY)
+            super.onMeasure(exact, exact)
+        }
+    }
+
+    /** A round badge with a scalloped edge, like Android's own weather badge. */
+    private class Scallop(private val color: Int) : android.graphics.drawable.Drawable() {
+        private val paint = android.graphics.Paint(android.graphics.Paint.ANTI_ALIAS_FLAG)
+        private val path = android.graphics.Path()
+
+        override fun onBoundsChange(bounds: android.graphics.Rect) {
+            path.reset()
+            val cx = bounds.exactCenterX()
+            val cy = bounds.exactCenterY()
+            val r = minOf(bounds.width(), bounds.height()) / 2f
+            for (i in 0..360) {
+                val a = Math.toRadians(i.toDouble())
+                // Nine soft lobes around the edge.
+                val radius = r * (0.93f + 0.07f * kotlin.math.cos(9 * a).toFloat())
+                val x = cx + radius * kotlin.math.cos(a).toFloat()
+                val y = cy + radius * kotlin.math.sin(a).toFloat()
+                if (i == 0) path.moveTo(x, y) else path.lineTo(x, y)
+            }
+            path.close()
+        }
+
+        override fun draw(canvas: android.graphics.Canvas) {
+            paint.color = color
+            canvas.drawPath(path, paint)
+        }
+
+        override fun setAlpha(alpha: Int) = Unit
+        override fun setColorFilter(filter: android.graphics.ColorFilter?) = Unit
+        @Deprecated("Deprecated in Java")
+        override fun getOpacity() = android.graphics.PixelFormat.TRANSLUCENT
     }
 }
 

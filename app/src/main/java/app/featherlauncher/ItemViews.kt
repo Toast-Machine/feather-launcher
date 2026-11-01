@@ -84,21 +84,9 @@ class AppIconView(context: Context, val item: HomeItem) : LinearLayout(context) 
  * Hebrew date, the parsha and the like. Under it the time, as large as the widget
  * allows, and under that the weather and what's coming up. Transparent, straight on the
  * wallpaper in white, or Solid, on a card in the wallpaper's colors ([Prefs.widgetSolid]).
- *
- * Up next ([FeatherKind.UP_NEXT]) is the same widget with only what's coming up. One row tall,
- * it's the line under the clock's time; taller, the most pressing thing is set large, with the
- * rest in lines under it, as many as fit. Missed calls and messages stay on the clock: they've
- * already happened.
  */
 @SuppressLint("ViewConstructor")
 class ClockWidget(context: Context, val item: HomeItem) : FitColumn(context) {
-    val upNext = FeatherKind.of(item) == FeatherKind.UP_NEXT
-    /** Up next with room for the most pressing thing set large. */
-    private var tall = false
-    /** Up next's most pressing thing, when it's [tall]. */
-    private val headline = WidgetStyle.text(context, 24f, WidgetStyle.body)
-    /** Up next's further lines, when it's [tall]. */
-    private val more = FitRow(context).apply { gap = Ui.dp(context, 14) }
     private val time = TextClock(context)
     /** "Sun, Nov 1 · 10 Cheshvan · Lech Lecha", over two lines if it must. */
     private val day = WidgetStyle.text(context, 15f, WidgetStyle.body)
@@ -117,8 +105,6 @@ class ClockWidget(context: Context, val item: HomeItem) : FitColumn(context) {
     var onTap: ((Glance.Item, ClockInfo.Place?) -> Unit)? = null
     /** Tapping the weather. */
     var onWeather: (() -> Unit)? = null
-    /** Up next without a location: where to choose one. */
-    var onLocation: (() -> Unit)? = null
 
     private val tick = object : android.content.BroadcastReceiver() {
         override fun onReceive(c: Context, intent: android.content.Intent) = refresh()
@@ -159,17 +145,6 @@ class ClockWidget(context: Context, val item: HomeItem) : FitColumn(context) {
         // Pulled up into the room under the digits (they have no descenders), so the space below the
         // time looks the same as the space above it.
         addView(pills, LayoutParams(LayoutParams.MATCH_PARENT, LayoutParams.WRAP_CONTENT).apply { topMargin = -dp(5) })
-        if (upNext) {
-            day.visibility = GONE
-            time.visibility = GONE
-            (pills.layoutParams as LayoutParams).topMargin = 0
-            headline.gravity = Gravity.CENTER
-            headline.foreground = Ui.pressable(context, Ui.RADIUS_S, focusColor = WidgetStyle.WHITE)
-            addView(FitColumn.dropFirst(headline, -1), 2, LayoutParams(LayoutParams.WRAP_CONTENT, LayoutParams.WRAP_CONTENT).apply {
-                gravity = Gravity.CENTER_HORIZONTAL
-            })
-            addView(more, LayoutParams(LayoutParams.MATCH_PARENT, LayoutParams.WRAP_CONTENT).apply { topMargin = dp(4) })
-        }
         setSolid(false)
     }
 
@@ -219,16 +194,6 @@ class ClockWidget(context: Context, val item: HomeItem) : FitColumn(context) {
         super.onDetachedFromWindow()
     }
 
-    override fun onSizeChanged(w: Int, h: Int, oldw: Int, oldh: Int) {
-        super.onSizeChanged(w, h, oldw, oldh)
-        // Taller than a row: room for the most pressing thing set large.
-        val next = upNext && h > dp(120)
-        if (next != tall) {
-            tall = next
-            post { refresh() }
-        }
-    }
-
     /** The text's color: the card's, or white on the wallpaper. */
     private val main get() = if (solid) WidgetStyle.onCard() else WidgetStyle.WHITE
 
@@ -240,7 +205,7 @@ class ClockWidget(context: Context, val item: HomeItem) : FitColumn(context) {
         val edge = dp(if (solid) CardWidget.GAP + 20 else 12)
         setPadding(edge, if (solid) edge else 0, edge, if (solid) edge else 0)
         time.setTextColor(if (solid) WidgetStyle.accent() else WidgetStyle.WHITE)
-        listOf(time, day, headline).forEach { shade(it) }
+        listOf(time, day).forEach { shade(it) }
         sizedFor = 0
         fitted = null
         refresh()
@@ -262,18 +227,7 @@ class ClockWidget(context: Context, val item: HomeItem) : FitColumn(context) {
         day.text = (listOf(lines.date) + lines.detail?.split(" · ").orEmpty()).joinToString(" · ") { it.replace(' ', '\u00A0') }
         day.setTextColor(main)
         pills.removeAllViews()
-        more.removeAllViews()
-        val all = if (upNext) lines.coming.filter { it.tap != Glance.Tap.CALLS && it.tap != Glance.Tap.MESSAGES } else lines.coming
-        // Tall Up next: the first set large, the next one by the weather, two more under them.
-        val first = all.firstOrNull()?.takeIf { tall }
-        headline.visibility = if (first != null) VISIBLE else GONE
-        first?.let { c ->
-            headline.text = c.text
-            headline.setTextColor(main)
-            headline.setOnClickListener { onTap?.invoke(c, place) }
-        }
-        val rest = if (first != null) all.drop(1) else all
-        val coming = rest.take(if (first != null) 1 else 2)
+        val coming = lines.coming.take(2)
         lines.weather?.let { w ->
             pills.addView(pill(WeatherArt.icon(w.sky, w.night), "${w.temperature}°  ${w.description}", tint = false).apply {
                 setOnClickListener { onWeather?.invoke() }
@@ -281,21 +235,13 @@ class ClockWidget(context: Context, val item: HomeItem) : FitColumn(context) {
                 if (coming.size >= 2) FitColumn.dropFirst(this)
             })
         }
-        coming.forEach { item -> pills.addView(comingPill(item)) }
-        if (first != null) rest.drop(1).take(2).forEach { more.addView(comingPill(it)) }
-        // Up next without a location has no zmanim or weather: one line says where to choose it.
-        if (upNext && place == null) pills.addView(pill(context.getDrawable(R.drawable.ic_location), "Set a location for zmanim and weather", tint = true).apply {
-            setOnClickListener { onLocation?.invoke() }
-        })
-        if (upNext && pills.childCount == 0 && first == null) pills.addView(pill(null, "Nothing coming up", tint = false))
+        coming.forEach { item ->
+            pills.addView(pill(context.getDrawable(item.icon), item.text, tint = true).apply {
+                setOnClickListener { onTap?.invoke(item, place) }
+            })
+        }
         pills.visibility = if (pills.childCount > 0) VISIBLE else GONE
-        more.visibility = if (more.childCount > 0) VISIBLE else GONE
-        for (row in listOf(pills, more)) for (i in 0 until row.childCount) (row.getChildAt(i) as? TextView)?.let { WidgetStyle.sizePill(it, pillPx) }
         fitted = null
-    }
-
-    private fun comingPill(item: Glance.Item) = pill(context.getDrawable(item.icon), item.text, tint = true).apply {
-        setOnClickListener { onTap?.invoke(item, place) }
     }
 
     private fun pill(icon: android.graphics.drawable.Drawable?, words: String, tint: Boolean) =
@@ -325,8 +271,7 @@ class ClockWidget(context: Context, val item: HomeItem) : FitColumn(context) {
         timePx = 100f * width / paint.measureText("00:00")
         day.setTextSize(TypedValue.COMPLEX_UNIT_PX, 4.6f * unit)
         pillPx = 4.2f * unit
-        headline.setTextSize(TypedValue.COMPLEX_UNIT_PX, 8f * unit)
-        for (row in listOf(pills, more)) for (i in 0 until row.childCount) (row.getChildAt(i) as? TextView)?.let { WidgetStyle.sizePill(it, pillPx) }
+        for (i in 0 until pills.childCount) (pills.getChildAt(i) as? TextView)?.let { WidgetStyle.sizePill(it, pillPx) }
     }
 
     val dateView: TextView get() = day

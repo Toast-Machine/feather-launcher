@@ -209,16 +209,20 @@ class HomeScreen(
                     }
                 }
                 is ZmanimWidget -> onOpen = { place -> ZmanimSheet.show(activity, palette(), overlays, place) }
+                is UpNextWidget -> {
+                    solid = prefs.widgetSolid(item.id, default = true)
+                    onTap = ::openGlance
+                    onLocation = {
+                        activity.startActivity(Intent(activity, SettingsActivity::class.java)
+                            .putExtra(SettingsActivity.EXTRA_PAGE, SettingsActivity.Page.CALENDAR.name))
+                    }
+                }
             }
             setOnLongClickListener { onItemLongPress(item, it); true }
         } ?: ClockWidget(activity, item).apply {
-            setSolid(prefs.widgetSolid(item.id))
+            setSolid(prefs.widgetSolid(item.id, default = false))
             foreground = Ui.focusRing(activity, Ui.RADIUS_L, 0xFFFFFFFF.toInt())
-            if (!upNext) setOnClickListener { host.startSafely(Intent(AlarmClock.ACTION_SHOW_ALARMS)) }
-            onLocation = {
-                activity.startActivity(Intent(activity, SettingsActivity::class.java)
-                    .putExtra(SettingsActivity.EXTRA_PAGE, SettingsActivity.Page.CALENDAR.name))
-            }
+            setOnClickListener { host.startSafely(Intent(AlarmClock.ACTION_SHOW_ALARMS)) }
             dateView.setOnClickListener {
                 val uri = CalendarContract.CONTENT_URI.buildUpon().appendPath("time")
                 ContentUris.appendId(uri, System.currentTimeMillis())
@@ -634,10 +638,11 @@ class HomeScreen(
     /** Solid, on a card, or Transparent, straight on the wallpaper, as Android's own Clock offers. */
     private fun widgetStyle(item: HomeItem) {
         val p = palette()
-        val solid = prefs.widgetSolid(item.id)
+        val solid = prefs.widgetSolid(item.id, default = FeatherKind.of(item) == FeatherKind.UP_NEXT)
         Components.choiceSheet(activity, p, overlays, "${clockName(item)} style", listOf("Solid" to null, "Transparent" to null), if (solid) 0 else 1) {
             prefs.setWidgetSolid(item.id, it == 0)
             (views[item.id] as? ClockWidget)?.setSolid(it == 0)
+            (views[item.id] as? UpNextWidget)?.solid = it == 0
         }
     }
 
