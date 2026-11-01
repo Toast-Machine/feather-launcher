@@ -60,6 +60,7 @@ object Setup {
 
     private val permissions = listOfNotNull(
         permission(Manifest.permission.READ_CONTACTS, "Contacts", "To find people in Smart Search", R.drawable.ic_contact),
+        permission(Manifest.permission.READ_CALL_LOG, "Call history", "So people you call often come first in Smart Search", R.drawable.ic_history),
         permission(Manifest.permission.CALL_PHONE, "Phone calls", "So calling from search starts the call right away", R.drawable.ic_phone_call),
         // Before Android 13, apps could show notifications without asking.
         if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.TIRAMISU)

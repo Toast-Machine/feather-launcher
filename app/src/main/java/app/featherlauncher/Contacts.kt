@@ -6,6 +6,7 @@ import android.content.pm.PackageManager
 import android.net.Uri
 import android.os.Handler
 import android.os.Looper
+import android.provider.CallLog
 import android.provider.ContactsContract.CommonDataKinds.Email
 import android.provider.ContactsContract.CommonDataKinds.Phone
 import java.util.concurrent.Executors
@@ -35,6 +36,9 @@ class Contacts(private val context: Context) {
     }
 
     var all: List<Contact> = emptyList()
+        private set
+    /** Calls with each person (by id) in the recent call history: how many, and when the last was. */
+    var calls: Map<Long, Pair<Int, Long>> = emptyMap()
         private set
     var onLoaded: (() -> Unit)? = null
     private val io = Executors.newSingleThreadExecutor()
@@ -82,7 +86,24 @@ class Contacts(private val context: Context) {
                     }
                 }
             }
+            // The last few hundred calls, in or out, matched to people by their numbers' last digits.
+            val byNumber = HashMap<String, Long>()
+            numbers.forEach { (id, list) -> list.forEach { byNumber[key(it)] = id } }
+            val calls = HashMap<Long, Pair<Int, Long>>()
+            if (context.checkSelfPermission(Manifest.permission.READ_CALL_LOG) == PackageManager.PERMISSION_GRANTED) runCatching {
+                context.contentResolver.query(
+                    CallLog.Calls.CONTENT_URI, arrayOf(CallLog.Calls.NUMBER, CallLog.Calls.DATE), null, null, "${CallLog.Calls.DATE} DESC",
+                )?.use { c ->
+                    var read = 0
+                    while (c.moveToNext() && read++ < CALLS_READ) {
+                        val id = byNumber[key(c.getString(0) ?: continue)] ?: continue
+                        val (count, last) = calls[id] ?: (0 to c.getLong(1))
+                        calls[id] = count + 1 to last
+                    }
+                }
+            }
             main.post {
+                this.calls = calls
                 val next = numbers.map { (id, list) ->
                     val (name, photo, starred) = details.getValue(id)
                     Contact(id, name, list.first(), list, photo, starred, emails[id])
@@ -108,4 +129,11 @@ class Contacts(private val context: Context) {
     }
 
     val favorites get() = all.filter { it.starred }
+
+    /** The same number saved or dialed with or without a country code gives the same key. */
+    private fun key(number: String) = number.filter { it.isDigit() }.takeLast(9)
+
+    private companion object {
+        const val CALLS_READ = 500
+    }
 }

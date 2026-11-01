@@ -75,9 +75,13 @@ class SearchHistory private constructor(context: Context) {
         /**
          * [id] named [words] (letters, or digits for T9): null if the name doesn't match, unless
          * it matched another way ([elsewhere]: a contact's number, a file's name in the middle).
-         * [launches] counts opening it from anywhere; [starred] is a favorite contact.
+         * [launches] counts opening it (or calling them) from anywhere, [lastUsed] the latest of
+         * those if known; [starred] is a favorite contact.
          */
-        fun points(id: String, words: List<String>, elsewhere: Boolean = false, launches: Int = 0, starred: Boolean = false): Double? {
+        fun points(
+            id: String, words: List<String>, elsewhere: Boolean = false,
+            launches: Int = 0, lastUsed: Long = 0, starred: Boolean = false,
+        ): Double? {
             val name = when {
                 words.joinToString("") == query -> 100.0
                 else -> when (Search.score(query, words)) {
@@ -89,7 +93,7 @@ class SearchHistory private constructor(context: Context) {
                 }
             }
             val used = min(20.0, 6 * ln(1.0 + launches + (uses[id] ?: 0)))
-            val lately = lastUse[id]?.let { 10 * 0.5.pow(days(now - it) / 7) } ?: 0.0
+            val lately = maxOf(lastUse[id] ?: 0, lastUsed).takeIf { it > 0 }?.let { 10 * 0.5.pow(days(now - it) / 7) } ?: 0.0
             return name + learned(id) + used + lately + if (starred) 5.0 else 0.0
         }
 

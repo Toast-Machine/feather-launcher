@@ -491,6 +491,10 @@ class SettingsActivity : Activity() {
             }
         }))
         content.addView(Components.footnote(this, p, "Sections appear in this order. The Call key calls a typed number even with Call off."))
+        if (prefs.searchShows(SearchSection.CONTACTS) && checkSelfPermission(android.Manifest.permission.READ_CALL_LOG) != PackageManager.PERMISSION_GRANTED) {
+            content.addView(spacer())
+            content.addView(Components.group(this, p, listOf(Setup.row(this, p, Setup.items.first { it.title == "Call history" }))))
+        }
         content.addView(spacer())
         val history = SearchHistory.get(this)
         content.addView(Components.group(this, p, listOf(

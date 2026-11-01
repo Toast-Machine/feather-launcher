@@ -939,7 +939,9 @@ class HomeActivity : Activity(), HomeScreen.Host {
         else if (raw.isEmpty()) contacts.favorites.map { Hit(it, "contact:${it.id}", 0.0) }
         else contacts.search(raw).map { c ->
             val id = "contact:${c.id}"
-            Hit(c, id, ranker.points(id, if (t9) c.digitWords else c.words, elsewhere = true, starred = c.starred)!!)
+            val (calls, lastCall) = contacts.calls[c.id] ?: (0 to 0L)
+            Hit(c, id, ranker.points(id, if (t9) c.digitWords else c.words, elsewhere = true,
+                launches = calls, lastUsed = lastCall, starred = c.starred)!!)
         }.sortedByDescending { it.points }
         val appHits = if (!shows(SearchSection.APPS)) emptyList()
         else if (raw.isEmpty()) {
