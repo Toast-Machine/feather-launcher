@@ -100,7 +100,7 @@ class SearchHistory private constructor(context: Context) {
          * letter matches too much to go on names alone; it needs [id] picked after it before.
          */
         fun clearlyAhead(id: String, points: Double, next: Double) =
-            points >= 70 && points - next >= 25 && (query.length > 1 || learned(id) >= LEARNED)
+            points >= 60 && points - next >= 25 && (query.length > 1 || learned(id) >= LEARNED)
     }
 
     companion object {

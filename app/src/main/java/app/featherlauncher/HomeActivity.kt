@@ -961,12 +961,12 @@ class HomeActivity : Activity(), HomeScreen.Host {
 
         val ranked = if (raw.isEmpty() || pickingApp) emptyList()
         else (contactHits + appHits + shortcutHits + settingHits + fileHits).sortedByDescending { it.points }
-        val top = ranked.firstOrNull()?.takeIf { ranker.clearlyAhead(it.id, it.points, ranked.getOrNull(1)?.points ?: 0.0) }
+        val top = ranked.firstOrNull()?.takeIf { shows(SearchSection.TOP) }?.takeIf { ranker.clearlyAhead(it.id, it.points, ranked.getOrNull(1)?.points ?: 0.0) }
         // Shown once: on top, and not again in its section.
         fun <T> List<Hit<T>>.rest() = filter { it !== top }.map { it.item }
 
         top?.let { hit ->
-            title("Top match")
+            title(SearchSection.TOP.title)
             rows += when (val item = hit.item) {
                 is Contacts.Contact -> DrawerAdapter.Row.Person(item)
                 is AppEntry -> DrawerAdapter.Row.Line(item)
@@ -1028,6 +1028,13 @@ class HomeActivity : Activity(), HomeScreen.Host {
                     if (searching && search.text.toString().trim() == raw) updateSearch()
                 }
             }
+        }
+
+        // Last, the same words searched on the web, if the phone has something to search it with.
+        val web = Intent(Intent.ACTION_WEB_SEARCH).putExtra(android.app.SearchManager.QUERY, raw)
+        if (raw.isNotEmpty() && shows(SearchSection.WEB) && packageManager.resolveActivity(web, 0) != null) {
+            title(SearchSection.WEB.title)
+            rows += DrawerAdapter.Row.Result(Found(raw, "Search the web", "web", iconRes = R.drawable.ic_search) { startSafely(web) })
         }
 
         if (raw.isNotEmpty() && sections == 0) rows += DrawerAdapter.Row.Title("Nothing matches \"$raw\"")
