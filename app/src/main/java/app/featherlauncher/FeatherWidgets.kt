@@ -369,10 +369,10 @@ class AgendaWidget(context: Context, item: HomeItem) : CardWidget(context, item)
                     setPadding(0, dp(2), 0, dp(2))
                 })
                 // Bold, the weight Hebrew has too (its font has no semibold).
-                addView(WidgetStyle.cardText(context, 12f, WidgetStyle.bold, WidgetStyle.onCardQuiet()).apply {
+                addView(WidgetStyle.cardText(context, 13f, WidgetStyle.bold).apply {
                     text = second ?: android.text.format.DateFormat.format("MMM", now).toString()
-                    // In line with the day above it, in Hebrew too, which would otherwise line up on the right.
-                    textDirection = View.TEXT_DIRECTION_LTR
+                    // On the left, in line with the day above it, in Hebrew too (which lines up on the right otherwise).
+                    gravity = Gravity.LEFT
                 })
             }, LinearLayout.LayoutParams(dp(76), LinearLayout.LayoutParams.WRAP_CONTENT))
             // A thin line between the date and the events.

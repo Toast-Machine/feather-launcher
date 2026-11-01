@@ -69,6 +69,15 @@ class WidgetView(context: Context) : AppWidgetHostView(context) {
     val cornerInset get() = cornerBox.left
     private var ringDp = 0
 
+    /**
+     * Android pads a widget 8dp on every side; it gets the same room as Feather's own cards
+     * ([CardWidget.GAP]) instead, so widgets side by side line up and their outlines match.
+     */
+    override fun setPadding(left: Int, top: Int, right: Int, bottom: Int) {
+        val gap = Ui.dp(context, CardWidget.GAP)
+        super.setPadding(gap, gap, gap, gap)
+    }
+
     override fun onLayout(changed: Boolean, left: Int, top: Int, right: Int, bottom: Int) {
         super.onLayout(changed, left, top, right, bottom)
         // Android sets its own corners while laying a widget out (and none on widgets that don't
