@@ -6,7 +6,7 @@ import java.util.Calendar
 import java.util.Date
 
 /**
- * At a glance: what the clock shows under the time. The date; a quieter line with the second
+ * At a glance: what the clock shows under the time, and Up next ([UpNextWidget]) shows on a card. The date; a quieter line with the second
  * calendar's date, today's holiday, the parsha, the Omer and Daf Yomi; then the weather and up
  * to two things coming up, the most pressing first. Each part can be turned
  * off in Calendar and times, and each only shows when it matters. The Jewish parts are there
@@ -16,9 +16,14 @@ class Glance(private val context: Context) {
     /** What tapping something does. */
     enum class Tap { ZMANIM, EVENT, ALARMS, CALLS, MESSAGES }
 
-    /** One thing coming up; lower [rank] is more pressing. */
-    class Item(val icon: Int, val text: String, val tap: Tap, val rank: Int, val event: ClockInfo.Event? = null)
+    /**
+     * One thing coming up; lower [rank] is more pressing. [name] and [at] ("in 25 min", "5:42 PM")
+     * are its two halves for a row; [text] is the two together, for a pill.
+     */
+    class Item(val icon: Int, val name: String, val at: String?, val tap: Tap, val rank: Int, val event: ClockInfo.Event? = null,
+               val text: String = listOfNotNull(name, at).joinToString(" "))
 
+    /** [coming] is everything coming up, the most pressing first; the clock shows the first two. */
     class Lines(val date: String, val detail: String?, val weather: Weather.Now?, val coming: List<Item>, val place: ClockInfo.Place?)
 
     private val info = ClockInfo(context)
@@ -53,8 +58,8 @@ class Glance(private val context: Context) {
 
         if (prefs.clockEvent) info.nextEvent(now)?.let { e ->
             val minutes = (e.begin - now) / 60_000
-            val text = if (minutes < 60) "${e.title} in ${minutes.coerceAtLeast(1)} min" else "${e.title} ${time.format(Date(e.begin))}"
-            coming += Item(R.drawable.ic_calendar, text, Tap.EVENT, if (minutes < 60) 0 else 6, e)
+            val at = if (minutes < 60) "in ${minutes.coerceAtLeast(1)} min" else time.format(Date(e.begin))
+            coming += Item(R.drawable.ic_calendar, e.title, at, Tap.EVENT, if (minutes < 60) 0 else 6, e)
         }
 
         // Candle lighting on Friday and Erev Yom Tov, until it's time.
@@ -63,14 +68,14 @@ class Glance(private val context: Context) {
             val erevYomTov = JewishCalendar.isYomTov(today + 1, israel) && !JewishCalendar.isYomTov(today, israel)
             val lighting = Zmanim.sun(now, place, Zmanim.SUNRISE, false)?.minus(prefs.candleMinutes * 60_000L)
             if (lighting != null && now < lighting && weekday != Calendar.SATURDAY && (weekday == Calendar.FRIDAY || erevYomTov)) {
-                coming += Item(R.drawable.ic_sunset, "Candle lighting ${placeTime.format(Date(lighting))}", Tap.ZMANIM,
+                coming += Item(R.drawable.ic_sunset, "Candle lighting", placeTime.format(Date(lighting)), Tap.ZMANIM,
                     if (lighting - now < 4 * HOUR) 1 else 5)
             }
         }
 
         // In the last hour before shkiah (the end of Mincha), it comes before messages and the like.
         val shkiahSoon = prefs.clockZman && sunset != null && now < sunset && sunset - now <= HOUR
-        if (shkiahSoon) coming += Item(R.drawable.ic_sunset, "Shkiah ${placeTime.format(Date(sunset!!))}", Tap.ZMANIM, 2)
+        if (shkiahSoon) coming += Item(R.drawable.ic_sunset, "Shkiah", placeTime.format(Date(sunset!!)), Tap.ZMANIM, 2)
 
         if (prefs.glanceMissed) {
             val calls = NotificationBadges.missedCalls
@@ -80,7 +85,7 @@ class Glance(private val context: Context) {
                 texts.takeIf { it > 0 }?.let { if (it == 1) "1 message" else "$it messages" },
             )
             if (parts.isNotEmpty()) coming += Item(if (calls > 0) R.drawable.ic_phone_call else R.drawable.ic_message,
-                parts.joinToString(" · "), if (calls > 0) Tap.CALLS else Tap.MESSAGES, 3)
+                parts.joinToString(" · "), null, if (calls > 0) Tap.CALLS else Tap.MESSAGES, 3)
         }
 
         // Tonight's alarm, once it's evening.
@@ -88,26 +93,29 @@ class Glance(private val context: Context) {
             val alarm = context.getSystemService(AlarmManager::class.java).nextAlarmClock?.triggerTime
             val evening = Calendar.getInstance().apply { timeInMillis = now }.get(Calendar.HOUR_OF_DAY) >= 18
             if (alarm != null && evening && alarm - now < 16 * HOUR) {
-                coming += Item(R.drawable.ic_time, "Alarm ${time.format(Date(alarm))}", Tap.ALARMS, 4)
+                coming += Item(R.drawable.ic_time, "Alarm", time.format(Date(alarm)), Tap.ALARMS, 4)
             }
         }
 
-        if (jewish && prefs.glanceUpcoming) upcoming(jewishDay, israel)?.let { coming += Item(R.drawable.ic_calendar, it, Tap.ZMANIM, 7) }
-
-        if (prefs.clockZman && place != null) info.nextZman(now, place)?.takeIf { !(shkiahSoon && it.name == "Shkiah") }?.let { z ->
-            coming += Item(R.drawable.ic_time, "${z.name} ${placeTime.format(Date(z.time))}", Tap.ZMANIM, 8)
+        if (jewish && prefs.glanceUpcoming) upcoming(jewishDay, israel)?.let { (name, ahead) ->
+            coming += Item(R.drawable.ic_calendar, name, if (ahead == 1) "Tomorrow" else "in $ahead days", Tap.ZMANIM, 7,
+                text = if (ahead == 1) "Tomorrow: $name" else "$name in $ahead days")
         }
 
-        return Lines(date, week.joinToString(" · ").ifEmpty { null }, weather, coming.sortedBy { it.rank }.take(2), place)
+        if (prefs.clockZman && place != null) info.nextZman(now, place)?.takeIf { !(shkiahSoon && it.name == "Shkiah") }?.let { z ->
+            coming += Item(R.drawable.ic_time, z.name, placeTime.format(Date(z.time)), Tap.ZMANIM, 8)
+        }
+
+        return Lines(date, week.joinToString(" · ").ifEmpty { null }, weather, coming.sortedBy { it.rank }, place)
     }
 
-    /** The next holiday in the coming week that isn't today's: "Tomorrow: Purim", "Pesach in 3 days". */
-    private fun upcoming(today: Long, israel: Boolean): String? {
+    /** The next holiday in the coming week that isn't today's, and how many days ahead it is. */
+    private fun upcoming(today: Long, israel: Boolean): Pair<String, Int>? {
         val current = JewishCalendar.holidays(today, israel).map(::family).toSet()
         for (ahead in 1..7) {
             val name = JewishCalendar.holidays(today + ahead, israel).map(::family)
                 .firstOrNull { it !in current && notable(it, ahead) } ?: continue
-            return if (ahead == 1) "Tomorrow: $name" else "$name in $ahead days"
+            return name to ahead
         }
         return null
     }

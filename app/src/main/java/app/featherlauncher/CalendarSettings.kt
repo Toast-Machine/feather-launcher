@@ -115,7 +115,7 @@ class CalendarSettings(private val s: SettingsActivity) {
             toggle(R.drawable.ic_time, if (zmanim) "Next zman" else "Next sunrise or sunset", prefs.clockZman) { prefs.clockZman = it },
         )))
         content.addView(Components.footnote(s, p, buildString {
-            append("Up to two of these show under the date, the most pressing first.")
+            append("The clock shows the two most pressing under the date. Up next shows as many as fit, without missed calls and messages.")
             if (jewish) append(" Candle lighting shows on Friday and Erev Yom Tov.")
             append(" The alarm shows in the evening.")
         }))

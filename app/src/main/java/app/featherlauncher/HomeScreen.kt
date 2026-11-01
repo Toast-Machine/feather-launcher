@@ -209,6 +209,13 @@ class HomeScreen(
                     }
                 }
                 is ZmanimWidget -> onOpen = { place -> ZmanimSheet.show(activity, palette(), overlays, place) }
+                is UpNextWidget -> {
+                    onTap = ::openGlance
+                    onLocation = {
+                        activity.startActivity(Intent(activity, SettingsActivity::class.java)
+                            .putExtra(SettingsActivity.EXTRA_PAGE, SettingsActivity.Page.CALENDAR.name))
+                    }
+                }
             }
             setOnLongClickListener { onItemLongPress(item, it); true }
         } ?: ClockWidget(activity, item).apply {
@@ -220,19 +227,7 @@ class HomeScreen(
                 ContentUris.appendId(uri, System.currentTimeMillis())
                 host.startSafely(Intent(Intent.ACTION_VIEW, uri.build()))
             }
-            onTap = { glanceItem, place ->
-                when (glanceItem.tap) {
-                    Glance.Tap.ZMANIM -> place?.let { ZmanimSheet.show(activity, palette(), overlays, it) }
-                    Glance.Tap.EVENT -> glanceItem.event?.let { e ->
-                        host.startSafely(Intent(Intent.ACTION_VIEW, ContentUris.withAppendedId(CalendarContract.Events.CONTENT_URI, e.id)))
-                    }
-                    Glance.Tap.ALARMS -> host.startSafely(Intent(AlarmClock.ACTION_SHOW_ALARMS))
-                    Glance.Tap.CALLS -> host.startSafely(Intent(Intent.ACTION_VIEW).setType(android.provider.CallLog.Calls.CONTENT_TYPE))
-                    // The phone's messages app.
-                    Glance.Tap.MESSAGES -> android.provider.Telephony.Sms.getDefaultSmsPackage(activity)
-                        ?.let { activity.packageManager.getLaunchIntentForPackage(it) }?.let(host::startSafely)
-                }
-            }
+            onTap = ::openGlance
             setOnLongClickListener { onItemLongPress(item, it); true }
             dateView.setOnLongClickListener { onItemLongPress(item, this); true }
         }
@@ -251,6 +246,21 @@ class HomeScreen(
                 repo.apps.firstOrNull { app -> app.packageName == pkg }?.let { app -> host.launch(app, it) }
                     ?: activity.packageManager.getLaunchIntentForPackage(pkg)?.let(host::startSafely)
             }
+        }
+    }
+
+    /** Tapping something coming up, on the clock or Up next: the day's zmanim, the event, the alarms. */
+    private fun openGlance(item: Glance.Item, place: ClockInfo.Place?) {
+        when (item.tap) {
+            Glance.Tap.ZMANIM -> place?.let { ZmanimSheet.show(activity, palette(), overlays, it) }
+            Glance.Tap.EVENT -> item.event?.let { e ->
+                host.startSafely(Intent(Intent.ACTION_VIEW, ContentUris.withAppendedId(CalendarContract.Events.CONTENT_URI, e.id)))
+            }
+            Glance.Tap.ALARMS -> host.startSafely(Intent(AlarmClock.ACTION_SHOW_ALARMS))
+            Glance.Tap.CALLS -> host.startSafely(Intent(Intent.ACTION_VIEW).setType(android.provider.CallLog.Calls.CONTENT_TYPE))
+            // The phone's messages app.
+            Glance.Tap.MESSAGES -> android.provider.Telephony.Sms.getDefaultSmsPackage(activity)
+                ?.let { activity.packageManager.getLaunchIntentForPackage(it) }?.let(host::startSafely)
         }
     }
 

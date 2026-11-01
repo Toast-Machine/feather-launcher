@@ -20,6 +20,7 @@ import java.util.Date
 /** Feather's own widgets: the clock, and the ones on cards. [ref] is the [HomeItem.ref] that says which; [about] says what it's for. */
 enum class FeatherKind(val ref: String, val label: String, val w: Int, val h: Int, val about: String) {
     CLOCK("", "Clock", 4, 2, "The time, the date and what's coming up"),
+    UP_NEXT("upnext", "Up next", 4, 2, "Your next event, zman and alarm, with the weather now"),
     AGENDA("agenda", "Agenda", 4, 2, "Upcoming calendar events"),
     WEATHER("weather", "Weather", 4, 2, "Current weather with hourly and daily forecasts"),
     MEDIA("media", "Now playing", 4, 1, "Play, pause and skip whatever's playing"),
@@ -159,12 +160,131 @@ abstract class CardWidget(context: Context, val item: HomeItem) : FrameLayout(co
 
         /** The view for a Feather widget that sits on a card, or null for the clock. */
         fun create(context: Context, item: HomeItem): CardWidget? = when (FeatherKind.of(item)) {
+            FeatherKind.UP_NEXT -> UpNextWidget(context, item)
             FeatherKind.AGENDA -> AgendaWidget(context, item)
             FeatherKind.WEATHER -> WeatherWidget(context, item)
             FeatherKind.MEDIA -> MediaWidget(context, item)
             FeatherKind.ZMANIM -> ZmanimWidget(context, item)
             else -> null
         }
+    }
+}
+
+/**
+ * What's coming up, the most pressing first, as many as fit: the next event, candle lighting,
+ * shkiah, the alarm, a holiday this week, the next zman ([Glance]), under the weather now. Missed
+ * calls and messages are left out: they've already happened. In a one-row card, just the first.
+ */
+@SuppressLint("ViewConstructor")
+class UpNextWidget(context: Context, item: HomeItem) : CardWidget(context, item) {
+    /** Tapping something coming up: the day's zmanim, the event, the alarms. */
+    var onTap: ((Glance.Item, ClockInfo.Place?) -> Unit)? = null
+    /** Without a location: where to choose one. */
+    var onLocation: (() -> Unit)? = null
+
+    private val glance = Glance(context)
+    /** A one-row card: the first thing coming up and the temperature, on one line. */
+    private var compact = false
+
+    override fun onSizeChanged(w: Int, h: Int, oldw: Int, oldh: Int) {
+        super.onSizeChanged(w, h, oldw, oldh)
+        val next = h < dp(140)
+        if (next != compact) {
+            compact = next
+            post { refresh() }
+        }
+    }
+
+    override fun refresh() {
+        content.removeAllViews()
+        content.gravity = if (compact) Gravity.CENTER_VERTICAL else Gravity.TOP
+        val lines = glance.lines(System.currentTimeMillis()) { if (isAttachedToWindow) refresh() }
+        val coming = lines.coming.filter { it.tap != Glance.Tap.CALLS && it.tap != Glance.Tap.MESSAGES }
+        val weather = lines.weather?.let { w ->
+            LinearLayout(context).apply {
+                orientation = LinearLayout.HORIZONTAL
+                gravity = Gravity.CENTER_VERTICAL
+                addView(ImageView(context).apply { setImageDrawable(WeatherArt.icon(w.sky, w.night)) },
+                    LinearLayout.LayoutParams(dp(20), dp(20)).apply { marginEnd = dp(6) })
+                addView(WidgetStyle.cardText(context, 14f, WidgetStyle.label).apply {
+                    text = if (compact) "${w.temperature}°" else "${w.temperature}°  ${w.description}"
+                    isSingleLine = true
+                })
+            }
+        }
+        // Without a location there are no zmanim or weather; one row says where to choose it.
+        val hint = if (lines.place == null) LinearLayout(context).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER_VERTICAL
+            background = Ui.pressable(context, 14, focusColor = WidgetStyle.onCard())
+            setPadding(dp(12), dp(6), dp(12), dp(6))
+            setOnClickListener { onLocation?.invoke() }
+            addView(icon(R.drawable.ic_location, WidgetStyle.accent()), LinearLayout.LayoutParams(dp(18), dp(18)).apply { marginEnd = dp(12) })
+            addView(WidgetStyle.cardText(context, 15f, WidgetStyle.body, WidgetStyle.onCardQuiet()).apply {
+                text = "Set a location for zmanim and weather"
+                isSingleLine = true
+                ellipsize = android.text.TextUtils.TruncateAt.END
+            }, LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f))
+        } else null
+
+        if (compact) {
+            val first = coming.firstOrNull()
+            content.addView(LinearLayout(context).apply {
+                orientation = LinearLayout.HORIZONTAL
+                gravity = Gravity.CENTER_VERTICAL
+                when {
+                    first != null -> addView(row(first, lines.place, true), LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f))
+                    hint != null -> addView(hint, LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f))
+                    else -> addView(nothing(), LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f))
+                }
+                weather?.let { addView(it, LinearLayout.LayoutParams(LinearLayout.LayoutParams.WRAP_CONTENT, LinearLayout.LayoutParams.WRAP_CONTENT).apply { marginStart = dp(12) }) }
+            })
+            return
+        }
+
+        content.addView(LinearLayout(context).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER_VERTICAL
+            setPadding(dp(4), 0, dp(4), 0)
+            minimumHeight = dp(24)
+            addView(WidgetStyle.cardText(context, 14f, WidgetStyle.label, WidgetStyle.accent()).apply { text = "Up next" },
+                LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f))
+            weather?.let { addView(it) }
+        })
+        coming.forEachIndexed { i, c -> content.addView(gapAbove(row(c, lines.place, i == 0), if (i == 0) 10 else 2)) }
+        hint?.let { content.addView(gapAbove(it, if (coming.isEmpty()) 10 else 2)) }
+        if (coming.isEmpty() && hint == null) content.addView(gapAbove(nothing(), 10))
+    }
+
+    /** One thing coming up: its icon, its name, and when on the right. The first stands out in the accent's soft fill. */
+    private fun row(c: Glance.Item, place: ClockInfo.Place?, first: Boolean) = LinearLayout(context).apply {
+        orientation = LinearLayout.HORIZONTAL
+        gravity = Gravity.CENTER_VERTICAL
+        background = if (first) Ui.rounded(context, WidgetStyle.accentFill(), 14) else null
+        foreground = Ui.pressable(context, 14, focusColor = WidgetStyle.onCard())
+        setPadding(dp(12), dp(if (first) 9 else 6), dp(12), dp(if (first) 9 else 6))
+        setOnClickListener { onTap?.invoke(c, place) }
+        val color = if (first) WidgetStyle.onAccentFill() else WidgetStyle.onCard()
+        addView(icon(c.icon, if (first) color else WidgetStyle.accent()), LinearLayout.LayoutParams(dp(18), dp(18)).apply { marginEnd = dp(12) })
+        addView(WidgetStyle.cardText(context, 15f, if (first) WidgetStyle.title else WidgetStyle.body, color).apply {
+            text = c.name
+            isSingleLine = true
+            ellipsize = android.text.TextUtils.TruncateAt.END
+        }, LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f).apply { marginEnd = dp(12) })
+        c.at?.let { at ->
+            addView(WidgetStyle.cardText(context, 15f, if (first) WidgetStyle.title else WidgetStyle.body,
+                if (first) color else WidgetStyle.onCardQuiet()).apply {
+                text = at
+                isSingleLine = true
+            })
+        }
+    }
+
+    private fun nothing() = quiet("Nothing coming up").apply { setPadding(dp(12), dp(6), dp(12), dp(6)) }
+
+    private fun icon(res: Int, color: Int) = ImageView(context).apply {
+        setImageResource(res)
+        imageTintList = ColorStateList.valueOf(color)
     }
 }
 

@@ -181,14 +181,15 @@ class ClockWidget(context: Context, val item: HomeItem) : FitColumn(context) {
         detail.text = lines.detail
         detail.visibility = if (lines.detail != null) VISIBLE else GONE
         pills.removeAllViews()
+        val coming = lines.coming.take(2)
         lines.weather?.let { w ->
             pills.addView(WidgetStyle.pill(context, WeatherArt.icon(w.sky, w.night), "${w.temperature}°  ${w.description}", pillPx).apply {
                 setOnClickListener { onWeather?.invoke() }
                 // With two things coming up and room for only some, the weather makes way.
-                if (lines.coming.size >= 2) FitColumn.dropFirst(this)
+                if (coming.size >= 2) FitColumn.dropFirst(this)
             })
         }
-        lines.coming.forEach { item ->
+        coming.forEach { item ->
             pills.addView(WidgetStyle.pill(context, WidgetStyle.icon(context, item.icon), item.text, pillPx).apply {
                 setOnClickListener { onTap?.invoke(item, place) }
             })
