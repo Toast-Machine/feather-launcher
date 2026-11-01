@@ -30,7 +30,7 @@ Plain Kotlin and platform Views, no AndroidX and no third-party libraries, so it
 - Type a number on the home screen to dial it; the Call key places the call.
 
 **Made for keypads**
-- Every screen works with the arrow keys and OK, with a clear highlight. Hold OK on anything for its menu, and move icons, widgets, categories and apps with the arrows.
+- Every screen works with the arrow keys and OK, with a clear highlight. Hold OK on anything for its menu (on empty space: Add widget, Wallpaper and Settings), and move icons, widgets, categories and apps with the arrows.
 - Hold a number to open its app. Hold Up for search, Down for the app list, Left and Right for pages and categories.
 - Key shortcuts: press, hold, double press or two keys together, in all apps, the home screen or one app. Open apps, call people, toggle the flashlight, switch keyboards and more.
 

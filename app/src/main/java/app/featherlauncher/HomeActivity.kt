@@ -1539,6 +1539,7 @@ class HomeActivity : Activity(), HomeScreen.Host {
         keyMover?.let { return it.handle(event) }
         // A held arrow does something (see holdAction); a press still just moves.
         if (heldArrow(event)) return true
+        if (heldOk(event)) return true
         // OK on the search bar opens the first result, as Enter does in the text box.
         if (event.keyCode in listOf(KeyEvent.KEYCODE_DPAD_CENTER, KeyEvent.KEYCODE_ENTER) &&
             currentFocus?.id == R.id.search_bar && drawerOpen && !overlays.isShowing) {
@@ -1616,6 +1617,12 @@ class HomeActivity : Activity(), HomeScreen.Host {
                 val focused = homeScreen.itemFor(currentFocus)
                 if (focused != null) homeScreen.showItemMenu(focused.first, focused.second)
                 else homeMenu(rectOf(currentFocus ?: home))
+            }
+            // Holding OK with nothing highlighted is holding empty space: the home screen's menu.
+            // Taken from the repeats, since after a touch Android keeps the first press itself.
+            isOk(keyCode) && (currentFocus == null || currentFocus === focusPark) -> if (event.isLongPress) {
+                okHeld = true
+                homeMenu(Rect(home.width / 2, home.height / 2, home.width / 2, home.height / 2))
             }
             else -> return super.onKeyDown(keyCode, event)
         }
@@ -1721,6 +1728,20 @@ class HomeActivity : Activity(), HomeScreen.Host {
     }
 
     private fun closeFromHold() = hideDrawer()
+
+    private fun isOk(code: Int) = code == KeyEvent.KEYCODE_DPAD_CENTER || code == KeyEvent.KEYCODE_ENTER
+
+    /** OK was held for the home screen's menu; the rest of that press doesn't also pick an option in it. */
+    private var okHeld = false
+
+    private fun heldOk(event: KeyEvent): Boolean {
+        if (!isOk(event.keyCode)) return false
+        // A new press always starts fresh (a release can go missing).
+        if (event.action == KeyEvent.ACTION_DOWN && event.repeatCount == 0) okHeld = false
+        if (!okHeld) return false
+        if (event.action == KeyEvent.ACTION_UP) okHeld = false
+        return true
+    }
 
     /**
      * Arrows on the home screen and in panels: a tap moves when the key is let go; a hold does
