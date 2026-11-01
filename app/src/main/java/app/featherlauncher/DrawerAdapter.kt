@@ -23,8 +23,6 @@ enum class ContactAction { OPEN, CALL, TEXT, EMAIL }
 class DrawerAdapter(
     private val context: Context,
     private val onContact: (Contacts.Contact, ContactAction) -> Unit = { _, _ -> },
-    /** Calls a number typed into search. */
-    private val onDial: (String) -> Unit = {},
     private val icon: (AppEntry) -> Bitmap?,
     private val digitFor: (AppEntry) -> Int?,
     /** Locked by an app limit right now: drawn gray with a lock. */
@@ -40,12 +38,10 @@ class DrawerAdapter(
         /** A section title, with an optional action on the right (like "Show more"). */
         class Title(val text: String, val action: String? = null, val onAction: (() -> Unit)? = null) : Row()
         class Person(val contact: Contacts.Contact) : Row()
-        /** A phone number typed into search, with a way to call it. */
-        class Dial(val number: String) : Row()
         class Notice(val text: String, val action: String, val onAction: () -> Unit) : Row()
         class Tiles(val apps: List<AppEntry>) : Row()
         class Line(val app: AppEntry) : Row()
-        /** A setting, shortcut or file found by Smart Search. */
+        /** A number to call, setting, shortcut or file found by Smart Search. */
         class Result(val found: Found) : Row()
         /** The thin line between search sections. */
         object Divider : Row()
@@ -72,7 +68,7 @@ class DrawerAdapter(
     override fun getCount() = rows.size
     override fun getItem(position: Int) = rows[position]
     override fun getItemId(position: Int) = position.toLong()
-    override fun getViewTypeCount() = 8
+    override fun getViewTypeCount() = 7
     override fun getItemViewType(position: Int) = when (rows[position]) {
         is Row.Title -> 0
         is Row.Tiles -> 1
@@ -81,7 +77,6 @@ class DrawerAdapter(
         is Row.Notice -> 4
         is Row.Result -> 5
         Row.Divider -> 6
-        is Row.Dial -> 7
     }
     // Rows themselves aren't selectable; the tiles inside them are.
     override fun areAllItemsEnabled() = false
@@ -111,7 +106,6 @@ class DrawerAdapter(
                 }
             }
             is Row.Person -> person(row.contact, p)
-            is Row.Dial -> dial(row.number, p)
             is Row.Notice -> LinearLayout(context).apply {
                 orientation = LinearLayout.HORIZONTAL
                 gravity = Gravity.CENTER_VERTICAL
@@ -214,7 +208,7 @@ class DrawerAdapter(
         }
     }
 
-    /** A setting, shortcut or file: icon, name with matches picked out, and what it is. */
+    /** A number to call, setting, shortcut or file: icon, name with matches picked out, and what it is. */
     private fun result(found: Found, p: Palette): View {
         val size = dp(44)
         val icon = ImageView(context).apply {
@@ -262,39 +256,6 @@ class DrawerAdapter(
             }, LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f).apply { marginStart = dp(Ui.SPACE_L) })
             setOnClickListener { found.open() }
         }
-    }
-
-    /** The typed number in large type, like a dial pad, with a Call button. The Call key does the same. */
-    private fun dial(number: String, p: Palette): View = LinearLayout(context).apply {
-        orientation = LinearLayout.HORIZONTAL
-        gravity = Gravity.CENTER_VERTICAL
-        minimumHeight = dp(72)
-        setPadding(dp(Ui.SPACE_L), dp(Ui.SPACE_S), dp(Ui.SPACE_L), dp(Ui.SPACE_S))
-        foreground = Ui.pressable(context, Ui.RADIUS_L, focusColor = p.onWall)
-        isFocusable = true
-        tag = number
-        addView(TextView(context).apply {
-            text = android.telephony.PhoneNumberUtils.formatNumber(number, java.util.Locale.getDefault().country) ?: number
-            style(TextStyle.Title, p.onWall)
-            setTextSize(TypedValue.COMPLEX_UNIT_SP, 28f)
-            maxLines = 1
-            ellipsize = TextUtils.TruncateAt.START
-        }, LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f))
-        addView(LinearLayout(context).apply {
-            orientation = LinearLayout.HORIZONTAL
-            gravity = Gravity.CENTER
-            setPadding(dp(Ui.SPACE_L), 0, dp(Ui.SPACE_L + 4), 0)
-            background = Ui.rounded(context, CALL_GREEN, Ui.RADIUS_PILL)
-            addView(ImageView(context).apply {
-                setImageResource(R.drawable.ic_phone_call)
-                imageTintList = android.content.res.ColorStateList.valueOf(0xFFFFFFFF.toInt())
-            }, LinearLayout.LayoutParams(dp(20), dp(20)).apply { marginEnd = dp(Ui.SPACE_S) })
-            addView(TextView(context).apply {
-                text = "Call"
-                style(TextStyle.Label, 0xFFFFFFFF.toInt())
-            })
-        }, LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, dp(44)))
-        setOnClickListener { onDial(number) }
     }
 
     /** A contact: picture or initial, name and number, and buttons to email (if they have an address), text and call. */
@@ -368,9 +329,6 @@ class DrawerAdapter(
     private fun dp(value: Int) = Ui.dp(context, value)
 
     companion object {
-        /** The usual green of a call button, so it reads as "call" at a glance. */
-        private const val CALL_GREEN = 0xFF2E9E5B.toInt()
-
         const val COLS = 4
     }
 }

@@ -449,7 +449,6 @@ class HomeActivity : Activity(), HomeScreen.Host {
         adapter = DrawerAdapter(
             this,
             onContact = ::openContact,
-            onDial = ::call,
             icon = { repo.icon(it) },
             digitFor = { KeyShortcuts.get(this).digitFor(it.key) },
             isLocked = { limits.isLocked(it.packageName) },
@@ -891,8 +890,9 @@ class HomeActivity : Activity(), HomeScreen.Host {
     }
 
     /**
-     * Smart Search: contacts, apps, app shortcuts, phone settings and files, each its own section
-     * with a few results and "Show more". Empty, it shows favorite contacts and frequent apps.
+     * Smart Search: a number to call, contacts, apps, app shortcuts, phone settings and files, each
+     * its own section with a few results and "Show more", and each can be turned off in Settings.
+     * Empty, it shows favorite contacts and frequent apps.
      */
     private fun updateSearch() {
         findViewById<View>(R.id.tabs_scroll).visibility = View.GONE
@@ -901,13 +901,18 @@ class HomeActivity : Activity(), HomeScreen.Host {
         val rows = ArrayList<DrawerAdapter.Row>()
         val pickingApp = pick != null
         var sections = 0
+        // Picking an app for something only ever shows apps.
+        fun shows(section: SearchSection) = if (pickingApp) section == SearchSection.APPS else prefs.searchShows(section)
 
-        fun section(key: String, title: String, total: Int, shown: Int, add: () -> Unit) {
-            if (total == 0) return
+        fun title(text: String, action: String? = null, onAction: (() -> Unit)? = null) {
             if (sections > 0) rows += DrawerAdapter.Row.Divider
             sections++
+            rows += DrawerAdapter.Row.Title(text, action, onAction)
+        }
+        fun section(key: String, title: String, total: Int, shown: Int, add: () -> Unit) {
+            if (total == 0) return
             val more = total > shown && key !in expanded
-            rows += DrawerAdapter.Row.Title(title, if (more) "Show more" else null) {
+            title(title, if (more) "Show more" else null) {
                 expanded += key
                 updateResults()
             }
@@ -916,21 +921,20 @@ class HomeActivity : Activity(), HomeScreen.Host {
         fun <T> limit(key: String, list: List<T>, n: Int) = if (key in expanded) list else list.take(n)
 
         // Numbers typed in search can be called straight away, like on a dial pad.
-        if (!pickingApp && raw.matches(DIALABLE)) {
-            rows += DrawerAdapter.Row.Dial(raw)
-            sections++
+        if (shows(SearchSection.CALL) && raw.matches(DIALABLE)) {
+            title(SearchSection.CALL.title)
+            val number = android.telephony.PhoneNumberUtils.formatNumber(raw, java.util.Locale.getDefault().country) ?: raw
+            rows += DrawerAdapter.Row.Result(Found(number, "Call this number", iconRes = R.drawable.ic_phone_call) { call(raw) })
         }
 
-        if (!pickingApp) {
+        if (shows(SearchSection.CONTACTS)) {
             if (contacts.allowed) {
                 val found = if (raw.isEmpty()) contacts.favorites else contacts.search(raw)
                 section("contacts", if (raw.isEmpty()) "Favorites" else "Contacts", found.size, CONTACTS_SHOWN) {
                     limit("contacts", found, CONTACTS_SHOWN).forEach { rows += DrawerAdapter.Row.Person(it) }
                 }
-            } else if (raw.isEmpty()) {
-                if (sections > 0) rows += DrawerAdapter.Row.Divider
-                sections++
-                rows += DrawerAdapter.Row.Title("Contacts")
+            } else {
+                title(SearchSection.CONTACTS.title)
                 rows += DrawerAdapter.Row.Notice("Allow contact search", "Allow") {
                     requestPermissions(arrayOf(android.Manifest.permission.READ_CONTACTS), REQUEST_CONTACTS)
                 }
@@ -952,28 +956,30 @@ class HomeActivity : Activity(), HomeScreen.Host {
                 .map { it.first }
         }
         val appsShown = if (pickingApp) apps.size else DrawerAdapter.COLS * (if (raw.isEmpty()) 2 else 1)
-        section("apps", if (raw.isEmpty() && !pickingApp) "Frequent apps" else "Apps", apps.size, appsShown) {
+        if (shows(SearchSection.APPS)) section("apps", if (raw.isEmpty() && !pickingApp) "Frequent apps" else "Apps", apps.size, appsShown) {
             addApps(rows, limit("apps", apps, appsShown))
         }
 
-        if (raw.isNotEmpty() && !pickingApp) {
+        if (raw.isNotEmpty() && shows(SearchSection.SHORTCUTS)) {
             val hiddenPackages = prefs.hidden.mapNotNull { repo.find(it)?.packageName }.toSet()
             val shortcutsFound = smartSearch.shortcuts(raw, hiddenPackages)
             section("shortcuts", "Shortcuts", shortcutsFound.size, RESULTS_SHOWN) {
                 limit("shortcuts", shortcutsFound, RESULTS_SHOWN).forEach { rows += DrawerAdapter.Row.Result(it) }
             }
+        }
+        if (raw.isNotEmpty() && shows(SearchSection.SETTINGS)) {
             val settingsFound = smartSearch.settings(raw)
             section("settings", "Settings", settingsFound.size, RESULTS_SHOWN) {
                 limit("settings", settingsFound, RESULTS_SHOWN).forEach { rows += DrawerAdapter.Row.Result(it) }
             }
+        }
+        if (raw.isNotEmpty() && shows(SearchSection.FILES)) {
             val media = mediaResults.takeIf { mediaFor == raw }.orEmpty()
             section("media", "Files", media.size, RESULTS_SHOWN) {
                 limit("media", media, RESULTS_SHOWN).forEach { rows += DrawerAdapter.Row.Result(it) }
             }
             if (!smartSearch.mediaAllowed && raw.length >= 2) {
-                if (sections > 0) rows += DrawerAdapter.Row.Divider
-                sections++
-                rows += DrawerAdapter.Row.Title("Files")
+                title(SearchSection.FILES.title)
                 rows += DrawerAdapter.Row.Notice("Allow photo, video and music search", "Allow") {
                     requestPermissions(smartSearch.mediaPermissions, REQUEST_MEDIA)
                 }
@@ -989,7 +995,7 @@ class HomeActivity : Activity(), HomeScreen.Host {
 
         if (raw.isNotEmpty() && sections == 0) rows += DrawerAdapter.Row.Title("Nothing matches \"$raw\"")
         adapter.query = raw
-        adapter.set(rows, if (raw.isNotEmpty()) apps.firstOrNull() else null)
+        adapter.set(rows, if (raw.isNotEmpty() && shows(SearchSection.APPS)) apps.firstOrNull() else null)
     }
 
     /** The category icons along the bottom; long-press one to edit it. */
@@ -1576,7 +1582,7 @@ class HomeActivity : Activity(), HomeScreen.Host {
             if (event.action == KeyEvent.ACTION_UP) adapter.primary?.let { choose(it, null) }
             return true
         }
-        // The Call key calls the highlighted contact, or the number typed in search.
+        // The Call key calls the highlighted contact, or the number typed in search (even with Call off in Settings).
         if (event.keyCode == KeyEvent.KEYCODE_CALL && drawerOpen && searching && !overlays.isShowing) {
             // On one of a contact's buttons, that contact.
             val contact = generateSequence(currentFocus) { it.parent as? View }.firstNotNullOfOrNull { it.tag as? Contacts.Contact }

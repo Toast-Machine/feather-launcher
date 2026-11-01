@@ -35,7 +35,7 @@ class SettingsActivity : Activity() {
 
     /** Each feature has its own page; the main page links to them. */
     enum class Page(val title: String) {
-        MAIN("Settings"), APPEARANCE("Appearance"), APP_LIST("App list"), CALENDAR("Calendar and times"), KEYS("Gestures and keys"),
+        MAIN("Settings"), APPEARANCE("Appearance"), APP_LIST("App list"), CALENDAR("Calendar and times"), KEYS("Gestures and keys"), SEARCH("Search"),
         LIMITS("App limits"), LIMIT("App limit"), NOTIFICATIONS("Notifications"), HIDDEN("Hidden apps"), SHORTCUT("Shortcut"),
         FILTER("Filter"), NOTIFICATION_HISTORY("Hidden notifications"),
     }
@@ -194,6 +194,7 @@ class SettingsActivity : Activity() {
             Page.FILTER -> NotificationSettings(this).buildFilter(p)
             Page.NOTIFICATION_HISTORY -> NotificationSettings(this).buildHistory(p)
             Page.HIDDEN -> hidden(p)
+            Page.SEARCH -> search(p)
             Page.CALENDAR -> CalendarSettings(this).build(p)
             Page.LIMITS -> LimitSettings(this).build(p)
             Page.LIMIT -> LimitSettings(this).buildLimit(p)
@@ -309,6 +310,9 @@ class SettingsActivity : Activity() {
             pageRow(p, R.drawable.ic_keyboard, Page.KEYS,
                 "Swipe down for ${if (prefs.swipeDownSearch) "Smart Search" else "notifications"}" +
                     if (keyCount > 0) " · $keyCount number keys" else ""),
+            pageRow(p, R.drawable.ic_search, Page.SEARCH, SearchSection.entries.filter { prefs.searchShows(it) }.let { on ->
+                when (on.size) { SearchSection.entries.size -> "All results"; 0 -> "Off"; else -> on.joinToString(", ") { it.title } }
+            }),
             pageRow(p, R.drawable.ic_hourglass, Page.LIMITS,
                 if (limitsOn.isEmpty()) "Off" else limitsOn.joinToString(", ") { it.name }),
             pageRow(p, R.drawable.ic_notification, Page.NOTIFICATIONS, NotificationFilters.get(this).filters.count { it.enabled }.let {
@@ -473,6 +477,19 @@ class SettingsActivity : Activity() {
             },
         )))
         content.addView(Components.footnote(this, p, "Hold a category tab or app for options. Drag to reorder, or choose Move to use the arrow keys."))
+    }
+
+    /** Which sections Smart Search shows. */
+    private fun search(p: Palette) {
+        content.addView(heading(p, "Show in results"))
+        content.addView(spacer())
+        content.addView(Components.group(this, p, SearchSection.entries.map { section ->
+            Components.toggleRow(this, p, section.icon, section.title, prefs.searchShows(section)) {
+                prefs.setSearchShows(section, it)
+                build()
+            }
+        }))
+        content.addView(Components.footnote(this, p, "Sections appear in this order. The Call key calls a typed number even with Call off."))
     }
 
     /** Hidden apps, listed here so they can be brought back, and the PIN that guards them. */
