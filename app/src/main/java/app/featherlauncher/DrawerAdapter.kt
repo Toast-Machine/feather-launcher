@@ -23,6 +23,8 @@ enum class ContactAction { OPEN, CALL, TEXT, EMAIL }
 class DrawerAdapter(
     private val context: Context,
     private val onContact: (Contacts.Contact, ContactAction) -> Unit = { _, _ -> },
+    /** Opens a number to call, setting, shortcut or file. */
+    private val onFound: (Found) -> Unit = { it.open() },
     private val icon: (AppEntry) -> Bitmap?,
     private val digitFor: (AppEntry) -> Int?,
     /** Locked by an app limit right now: drawn gray with a lock. */
@@ -55,11 +57,11 @@ class DrawerAdapter(
     var dragging: AppEntry? = null
     var rows: List<Row> = emptyList()
         private set
-    /** The app that OK/Enter opens: the first search result. */
-    var primary: AppEntry? = null
+    /** What OK/Enter opens: the Top match, or else the first search result. */
+    var primary: (() -> Unit)? = null
         private set
 
-    fun set(rows: List<Row>, primary: AppEntry?) {
+    fun set(rows: List<Row>, primary: (() -> Unit)?) {
         this.rows = rows
         this.primary = primary
         notifyDataSetChanged()
@@ -255,7 +257,7 @@ class DrawerAdapter(
                     })
                 }
             }, LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f).apply { marginStart = dp(Ui.SPACE_L) })
-            setOnClickListener { found.open() }
+            setOnClickListener { onFound(found) }
         }
     }
 

@@ -63,6 +63,7 @@ class HomeActivity : Activity(), HomeScreen.Host {
     private lateinit var list: ListView
     private lateinit var adapter: DrawerAdapter
     private lateinit var contacts: Contacts
+    private val history by lazy { SearchHistory.get(this) }
     /** The panel is in Smart Search mode rather than the app list. */
     private var searching = false
     /** Search sections opened with "Show more". */
@@ -449,6 +450,7 @@ class HomeActivity : Activity(), HomeScreen.Host {
         adapter = DrawerAdapter(
             this,
             onContact = ::openContact,
+            onFound = ::openFound,
             icon = { repo.icon(it) },
             digitFor = { KeyShortcuts.get(this).digitFor(it.key) },
             isLocked = { limits.isLocked(it.packageName) },
@@ -475,7 +477,7 @@ class HomeActivity : Activity(), HomeScreen.Host {
             }
         })
         search.setOnEditorActionListener { _, _, _ ->
-            adapter.primary?.let { choose(it, null) }
+            adapter.primary?.invoke()
             true
         }
         searchClear.setOnClickListener { search.setText("") }
@@ -889,10 +891,14 @@ class HomeActivity : Activity(), HomeScreen.Host {
         }
     }
 
+    /** A search result with its standing for what's typed (see [SearchHistory.Ranker]). */
+    private class Hit<T>(val item: T, val id: String, val points: Double)
+
     /**
      * Smart Search: a number to call, contacts, apps, app shortcuts, phone settings and files, each
      * its own section with a few results and "Show more", and each can be turned off in Settings.
-     * Empty, it shows favorite contacts and frequent apps.
+     * Each section puts what's most likely wanted first, and a result clearly ahead of all others
+     * goes above them all as the Top match. Empty, it shows favorite contacts and frequent apps.
      */
     private fun updateSearch() {
         findViewById<View>(R.id.tabs_scroll).visibility = View.GONE
@@ -903,6 +909,8 @@ class HomeActivity : Activity(), HomeScreen.Host {
         var sections = 0
         // Picking an app for something only ever shows apps.
         fun shows(section: SearchSection) = if (pickingApp) section == SearchSection.APPS else prefs.searchShows(section)
+        val ranker = history.ranker(raw)
+        val t9 = Search.isT9(raw)
 
         fun title(text: String, action: String? = null, onAction: (() -> Unit)? = null) {
             if (sections > 0) rows += DrawerAdapter.Row.Divider
@@ -923,17 +931,59 @@ class HomeActivity : Activity(), HomeScreen.Host {
             firstMore = rows.size
         }
         fun <T> limit(key: String, list: List<T>, n: Int) = if (key in expanded) list else list.take(n)
+        fun found(list: List<Found>) = list.map { Hit(it, it.id, ranker.points(it.id, ranker.wordsOf(it.title), elsewhere = true)!!) }
+            .sortedByDescending { it.points }
+
+        // Everything found, best first in each section. The empty search keeps its own order.
+        val contactHits = if (!shows(SearchSection.CONTACTS) || !contacts.allowed) emptyList()
+        else if (raw.isEmpty()) contacts.favorites.map { Hit(it, "contact:${it.id}", 0.0) }
+        else contacts.search(raw).map { c ->
+            val id = "contact:${c.id}"
+            Hit(c, id, ranker.points(id, if (t9) c.digitWords else c.words, elsewhere = true, starred = c.starred)!!)
+        }.sortedByDescending { it.points }
+        val appHits = if (!shows(SearchSection.APPS)) emptyList()
+        else if (raw.isEmpty()) {
+            repo.apps.filter { it.key !in prefs.hidden }
+                .sortedByDescending { prefs.launchCount(it.key) }
+                .let { if (pickingApp) it.sortedBy { e -> e.label.lowercase() } else it }
+                .map { Hit(it, "app:${it.key}", 0.0) }
+        } else {
+            // Hidden apps are only on the hidden apps page, never in search.
+            repo.apps.filter { it.key !in prefs.hidden }.mapNotNull { e ->
+                val id = "app:${e.key}"
+                ranker.points(id, if (t9) e.digitWords else e.words, launches = prefs.launchCount(e.key))?.let { Hit(e, id, it) }
+            }.sortedByDescending { it.points }
+        }
+        val shortcutHits = if (raw.isEmpty() || !shows(SearchSection.SHORTCUTS)) emptyList()
+        else found(smartSearch.shortcuts(raw, prefs.hidden.mapNotNull { repo.find(it)?.packageName }.toSet()))
+        val settingHits = if (raw.isEmpty() || !shows(SearchSection.SETTINGS)) emptyList() else found(smartSearch.settings(raw))
+        val fileHits = if (raw.isEmpty() || !shows(SearchSection.FILES)) emptyList() else found(mediaResults.takeIf { mediaFor == raw }.orEmpty())
+
+        val ranked = if (raw.isEmpty() || pickingApp) emptyList()
+        else (contactHits + appHits + shortcutHits + settingHits + fileHits).sortedByDescending { it.points }
+        val top = ranked.firstOrNull()?.takeIf { ranker.clearlyAhead(it.id, it.points, ranked.getOrNull(1)?.points ?: 0.0) }
+        // Shown once: on top, and not again in its section.
+        fun <T> List<Hit<T>>.rest() = filter { it !== top }.map { it.item }
+
+        top?.let { hit ->
+            title("Top match")
+            rows += when (val item = hit.item) {
+                is Contacts.Contact -> DrawerAdapter.Row.Person(item)
+                is AppEntry -> DrawerAdapter.Row.Line(item)
+                else -> DrawerAdapter.Row.Result(item as Found)
+            }
+        }
 
         // Numbers typed in search can be called straight away, like on a dial pad.
-        if (shows(SearchSection.CALL) && raw.matches(DIALABLE)) {
+        if (shows(SearchSection.CALL) && raw.length >= 3 && raw.matches(DIALABLE)) {
             title(SearchSection.CALL.title)
             val number = android.telephony.PhoneNumberUtils.formatNumber(raw, java.util.Locale.getDefault().country) ?: raw
-            rows += DrawerAdapter.Row.Result(Found(number, "Call this number", iconRes = R.drawable.ic_phone_call) { call(raw) })
+            rows += DrawerAdapter.Row.Result(Found(number, "Call this number", "call:$raw", iconRes = R.drawable.ic_phone_call) { call(raw) })
         }
 
         if (shows(SearchSection.CONTACTS)) {
             if (contacts.allowed) {
-                val found = if (raw.isEmpty()) contacts.favorites else contacts.search(raw)
+                val found = contactHits.rest()
                 section("contacts", if (raw.isEmpty()) "Favorites" else "Contacts", found.size, CONTACTS_SHOWN) {
                     limit("contacts", found, CONTACTS_SHOWN).forEach { rows += DrawerAdapter.Row.Person(it) }
                 }
@@ -945,40 +995,22 @@ class HomeActivity : Activity(), HomeScreen.Host {
             }
         }
 
-        val apps = if (raw.isEmpty()) {
-            repo.apps.filter { it.key !in prefs.hidden }
-                .sortedByDescending { prefs.launchCount(it.key) }
-                .let { if (pickingApp) it.sortedBy { e -> e.label.lowercase() } else it }
-        } else {
-            // Hidden apps are only on the hidden apps page, never in search.
-            val t9 = Search.isT9(raw)
-            val query = if (t9) raw else Search.normalizeText(raw)
-            repo.apps
-                .filter { it.key !in prefs.hidden }
-                .mapNotNull { e -> Search.score(query, if (t9) e.digitWords else e.words)?.let { e to it } }
-                .sortedWith(compareBy<Pair<AppEntry, Int>> { it.second }.thenByDescending { prefs.launchCount(it.first.key) })
-                .map { it.first }
-        }
+        val apps = appHits.rest()
         val appsShown = if (pickingApp) apps.size else DrawerAdapter.COLS * (if (raw.isEmpty()) 2 else 1)
-        if (shows(SearchSection.APPS)) section("apps", if (raw.isEmpty() && !pickingApp) "Frequent apps" else "Apps", apps.size, appsShown) {
+        section("apps", if (raw.isEmpty() && !pickingApp) "Frequent apps" else "Apps", apps.size, appsShown) {
             addApps(rows, limit("apps", apps, appsShown))
         }
 
-        if (raw.isNotEmpty() && shows(SearchSection.SHORTCUTS)) {
-            val hiddenPackages = prefs.hidden.mapNotNull { repo.find(it)?.packageName }.toSet()
-            val shortcutsFound = smartSearch.shortcuts(raw, hiddenPackages)
-            section("shortcuts", "Shortcuts", shortcutsFound.size, RESULTS_SHOWN) {
-                limit("shortcuts", shortcutsFound, RESULTS_SHOWN).forEach { rows += DrawerAdapter.Row.Result(it) }
-            }
+        val shortcuts = shortcutHits.rest()
+        section("shortcuts", "Shortcuts", shortcuts.size, RESULTS_SHOWN) {
+            limit("shortcuts", shortcuts, RESULTS_SHOWN).forEach { rows += DrawerAdapter.Row.Result(it) }
         }
-        if (raw.isNotEmpty() && shows(SearchSection.SETTINGS)) {
-            val settingsFound = smartSearch.settings(raw)
-            section("settings", "Settings", settingsFound.size, RESULTS_SHOWN) {
-                limit("settings", settingsFound, RESULTS_SHOWN).forEach { rows += DrawerAdapter.Row.Result(it) }
-            }
+        val settings = settingHits.rest()
+        section("settings", "Settings", settings.size, RESULTS_SHOWN) {
+            limit("settings", settings, RESULTS_SHOWN).forEach { rows += DrawerAdapter.Row.Result(it) }
         }
         if (raw.isNotEmpty() && shows(SearchSection.FILES)) {
-            val media = mediaResults.takeIf { mediaFor == raw }.orEmpty()
+            val media = fileHits.rest()
             section("media", "Files", media.size, RESULTS_SHOWN) {
                 limit("media", media, RESULTS_SHOWN).forEach { rows += DrawerAdapter.Row.Result(it) }
             }
@@ -999,7 +1031,23 @@ class HomeActivity : Activity(), HomeScreen.Host {
 
         if (raw.isNotEmpty() && sections == 0) rows += DrawerAdapter.Row.Title("Nothing matches \"$raw\"")
         adapter.query = raw
-        adapter.set(rows, if (raw.isNotEmpty() && shows(SearchSection.APPS)) apps.firstOrNull() else null)
+        // OK on the search bar opens the Top match, or else the first result (never a call).
+        val first = top ?: (contactHits + appHits + shortcutHits + settingHits + fileHits).firstOrNull()
+        adapter.set(rows, first?.takeIf { raw.isNotEmpty() }?.let { hit -> { open(hit.item) } })
+    }
+
+    /** Opens a search result of any kind, as tapping it would. */
+    private fun open(item: Any?) {
+        when (item) {
+            is Contacts.Contact -> openContact(item, ContactAction.OPEN)
+            is AppEntry -> choose(item, null)
+            is Found -> openFound(item)
+        }
+    }
+
+    private fun openFound(found: Found) {
+        history.record(search.text.toString().trim(), found.id)
+        found.open()
     }
 
     /** The category icons along the bottom; long-press one to edit it. */
@@ -1511,6 +1559,7 @@ class HomeActivity : Activity(), HomeScreen.Host {
     }
 
     private fun openContact(contact: Contacts.Contact, action: ContactAction) {
+        history.record(search.text.toString().trim(), "contact:${contact.id}")
         when (action) {
             ContactAction.CALL -> call(contact.number)
             ContactAction.TEXT -> startSafely(Intent(Intent.ACTION_SENDTO, Uri.fromParts("smsto", contact.number, null)))
@@ -1560,6 +1609,7 @@ class HomeActivity : Activity(), HomeScreen.Host {
             onPick(entry)
             hideDrawer()
         } else {
+            if (searching) history.record(search.text.toString().trim(), "app:${entry.key}")
             launch(entry, from)
         }
     }
@@ -1583,7 +1633,7 @@ class HomeActivity : Activity(), HomeScreen.Host {
         // OK on the search bar opens the first result, as Enter does in the text box.
         if (event.keyCode in listOf(KeyEvent.KEYCODE_DPAD_CENTER, KeyEvent.KEYCODE_ENTER) &&
             currentFocus?.id == R.id.search_bar && drawerOpen && !overlays.isShowing) {
-            if (event.action == KeyEvent.ACTION_UP) adapter.primary?.let { choose(it, null) }
+            if (event.action == KeyEvent.ACTION_UP) adapter.primary?.invoke()
             return true
         }
         // The Call key calls the highlighted contact, or the number typed in search (even with Call off in Settings).
