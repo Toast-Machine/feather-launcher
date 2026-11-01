@@ -173,7 +173,7 @@ abstract class CardWidget(context: Context, val item: HomeItem) : FrameLayout(co
 /**
  * What's coming up, in the spirit of Google's At a Glance: the most pressing thing in bold, when
  * it is under it ("in 25 min · 4:00 – 5:00 PM"), then where an event is or what comes after, and
- * the weather now in a scalloped badge on the right. On a card (Solid) or straight on the
+ * the weather now on the right. On a card (Solid) or straight on the
  * wallpaper (Transparent). Taller, the next few things follow in quieter lines. With nothing coming up, it shows the day; without
  * a location, where to choose one. Missed calls and messages stay on the clock: they've already
  * happened.
@@ -267,15 +267,14 @@ class UpNextWidget(context: Context, item: HomeItem) : CardWidget(context, item)
                 }, LinearLayout.LayoutParams(LinearLayout.LayoutParams.WRAP_CONTENT, LinearLayout.LayoutParams.WRAP_CONTENT).apply { topMargin = dp(4) })
             }, LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f).apply { marginEnd = dp(12) })
             lines.weather?.let { w ->
-                addView(Badge(context, dp(76)).apply {
-                    background = Scallop(WidgetStyle.accent())
-                    addView(LinearLayout(context).apply {
-                        orientation = LinearLayout.VERTICAL
-                        gravity = Gravity.CENTER_HORIZONTAL
-                        addView(ImageView(context).apply { setImageDrawable(WeatherArt.icon(w.sky, w.night)) }, LinearLayout.LayoutParams(dp(26), dp(26)))
-                        addView(WidgetStyle.cardText(context, 14f, WidgetStyle.label, WidgetStyle.onAccent()).apply { text = "${w.temperature}°" },
-                            LinearLayout.LayoutParams(LinearLayout.LayoutParams.WRAP_CONTENT, LinearLayout.LayoutParams.WRAP_CONTENT).apply { topMargin = dp(1) })
-                    }, LayoutParams(LayoutParams.WRAP_CONTENT, LayoutParams.WRAP_CONTENT, Gravity.CENTER))
+                // The weather now: its picture over the temperature, nothing behind them.
+                addView(LinearLayout(context).apply {
+                    orientation = LinearLayout.VERTICAL
+                    gravity = Gravity.CENTER_HORIZONTAL
+                    setPadding(dp(4), 0, dp(4), 0)
+                    addView(ImageView(context).apply { setImageDrawable(WeatherArt.icon(w.sky, w.night)) }, LinearLayout.LayoutParams(dp(36), dp(36)))
+                    addView(text(main, 16f, WidgetStyle.title).apply { text = "${w.temperature}°" },
+                        LinearLayout.LayoutParams(LinearLayout.LayoutParams.WRAP_CONTENT, LinearLayout.LayoutParams.WRAP_CONTENT).apply { topMargin = dp(2) })
                 })
             }
         })
@@ -313,48 +312,6 @@ class UpNextWidget(context: Context, item: HomeItem) : CardWidget(context, item)
     /** Text on the card, or white with a soft shadow on the wallpaper. */
     private fun text(color: Int, sp: Float, face: android.graphics.Typeface = WidgetStyle.body) =
         if (solid) WidgetStyle.cardText(context, sp, face, color) else WidgetStyle.text(context, sp, face, color)
-
-    /** As wide as it is tall: as tall as the card lets it be, up to [max] pixels. */
-    private class Badge(context: Context, private val max: Int) : FrameLayout(context) {
-        override fun onMeasure(widthMeasureSpec: Int, heightMeasureSpec: Int) {
-            val room = MeasureSpec.getSize(heightMeasureSpec)
-            val size = if (MeasureSpec.getMode(heightMeasureSpec) == MeasureSpec.UNSPECIFIED) max else minOf(room, max)
-            val exact = MeasureSpec.makeMeasureSpec(size, MeasureSpec.EXACTLY)
-            super.onMeasure(exact, exact)
-        }
-    }
-
-    /** A round badge with a scalloped edge, like Android's own weather badge. */
-    private class Scallop(private val color: Int) : android.graphics.drawable.Drawable() {
-        private val paint = android.graphics.Paint(android.graphics.Paint.ANTI_ALIAS_FLAG)
-        private val path = android.graphics.Path()
-
-        override fun onBoundsChange(bounds: android.graphics.Rect) {
-            path.reset()
-            val cx = bounds.exactCenterX()
-            val cy = bounds.exactCenterY()
-            val r = minOf(bounds.width(), bounds.height()) / 2f
-            for (i in 0..360) {
-                val a = Math.toRadians(i.toDouble())
-                // Nine soft lobes around the edge.
-                val radius = r * (0.93f + 0.07f * kotlin.math.cos(9 * a).toFloat())
-                val x = cx + radius * kotlin.math.cos(a).toFloat()
-                val y = cy + radius * kotlin.math.sin(a).toFloat()
-                if (i == 0) path.moveTo(x, y) else path.lineTo(x, y)
-            }
-            path.close()
-        }
-
-        override fun draw(canvas: android.graphics.Canvas) {
-            paint.color = color
-            canvas.drawPath(path, paint)
-        }
-
-        override fun setAlpha(alpha: Int) = Unit
-        override fun setColorFilter(filter: android.graphics.ColorFilter?) = Unit
-        @Deprecated("Deprecated in Java")
-        override fun getOpacity() = android.graphics.PixelFormat.TRANSLUCENT
-    }
 }
 
 /**
@@ -411,10 +368,11 @@ class AgendaWidget(context: Context, item: HomeItem) : CardWidget(context, item)
                     text = android.text.format.DateFormat.format("d", now).toString()
                     setPadding(0, dp(2), 0, dp(2))
                 })
-                addView(WidgetStyle.cardText(context, 12f, WidgetStyle.title, WidgetStyle.onCardQuiet()).apply {
+                // Bold, the weight Hebrew has too (its font has no semibold).
+                addView(WidgetStyle.cardText(context, 12f, WidgetStyle.bold, WidgetStyle.onCardQuiet()).apply {
                     text = second ?: android.text.format.DateFormat.format("MMM", now).toString()
-                    // In line with the day above it, in Hebrew too (which would otherwise line up on the right).
-                    textAlignment = View.TEXT_ALIGNMENT_VIEW_START
+                    // In line with the day above it, in Hebrew too, which would otherwise line up on the right.
+                    textDirection = View.TEXT_DIRECTION_LTR
                 })
             }, LinearLayout.LayoutParams(dp(76), LinearLayout.LayoutParams.WRAP_CONTENT))
             // A thin line between the date and the events.

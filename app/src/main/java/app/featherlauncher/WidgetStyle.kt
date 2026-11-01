@@ -49,6 +49,7 @@ object WidgetStyle {
     val title: Typeface = Typeface.create(Typeface.DEFAULT, 600, false)
     val body: Typeface = Typeface.create(Typeface.DEFAULT, 400, false)
     val label: Typeface = Typeface.create(Typeface.DEFAULT, 500, false)
+    val bold: Typeface = Typeface.create(Typeface.DEFAULT, 700, false)
 
     /** White text with the soft shadow that keeps it readable on any wallpaper. */
     fun text(ctx: Context, sp: Float, face: Typeface, color: Int = WHITE) = TextView(ctx).apply {
