@@ -57,6 +57,12 @@ class Prefs(context: Context) {
         get() = sp.getBoolean("swipe_down_search", true)
         set(value) = sp.edit().putBoolean("swipe_down_search", value).apply()
 
+    /** Whether Smart Search shows [section]. */
+    fun searchShows(section: SearchSection) = sp.getBoolean("search_${section.name.lowercase()}", true)
+
+    fun setSearchShows(section: SearchSection, on: Boolean) =
+        sp.edit().putBoolean("search_${section.name.lowercase()}", on).apply()
+
     var drawerCategories: Boolean
         get() = sp.getBoolean("drawer_categories", true)
         set(value) = sp.edit().putBoolean("drawer_categories", value).apply()

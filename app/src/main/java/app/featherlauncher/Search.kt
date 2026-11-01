@@ -59,3 +59,15 @@ object Search {
         return null
     }
 }
+
+/** The kinds of Smart Search results, each its own section, in the order they're shown. */
+enum class SearchSection(val title: String, val icon: Int) {
+    TOP("Top match", R.drawable.ic_cat_star),
+    CALL("Call", R.drawable.ic_phone_call),
+    CONTACTS("Contacts", R.drawable.ic_contact),
+    APPS("Apps", R.drawable.ic_cat_apps),
+    SHORTCUTS("Shortcuts", R.drawable.ic_set_link),
+    SETTINGS("Settings", R.drawable.ic_settings),
+    FILES("Files", R.drawable.ic_folder),
+    WEB("Web", R.drawable.ic_search),
+}

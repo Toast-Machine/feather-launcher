@@ -35,7 +35,7 @@ class SettingsActivity : Activity() {
 
     /** Each feature has its own page; the main page links to them. */
     enum class Page(val title: String) {
-        MAIN("Settings"), APPEARANCE("Appearance"), APP_LIST("App list"), CALENDAR("Calendar and times"), KEYS("Gestures and keys"),
+        MAIN("Settings"), APPEARANCE("Appearance"), APP_LIST("App list"), CALENDAR("Calendar and times"), KEYS("Gestures and keys"), SEARCH("Search"),
         LIMITS("App limits"), LIMIT("App limit"), NOTIFICATIONS("Notifications"), HIDDEN("Hidden apps"), SHORTCUT("Shortcut"),
         FILTER("Filter"), NOTIFICATION_HISTORY("Hidden notifications"),
     }
@@ -194,6 +194,7 @@ class SettingsActivity : Activity() {
             Page.FILTER -> NotificationSettings(this).buildFilter(p)
             Page.NOTIFICATION_HISTORY -> NotificationSettings(this).buildHistory(p)
             Page.HIDDEN -> hidden(p)
+            Page.SEARCH -> search(p)
             Page.CALENDAR -> CalendarSettings(this).build(p)
             Page.LIMITS -> LimitSettings(this).build(p)
             Page.LIMIT -> LimitSettings(this).buildLimit(p)
@@ -249,7 +250,8 @@ class SettingsActivity : Activity() {
                     open(Page.KEYS)
                 }
                 val d = draft
-                if (d?.changed == true) confirmDiscard(if (d.original == null) "This shortcut won't be added." else "Your changes to this shortcut won't be saved.", leave)
+                if (d?.changed == true) confirm("Discard changes?", if (d.original == null) "This shortcut won't be added." else "Your changes to this shortcut won't be saved.",
+                    "Discard", "Keep editing", leave)
                 else leave()
             }
             Page.FILTER, Page.NOTIFICATION_HISTORY -> {
@@ -261,8 +263,8 @@ class SettingsActivity : Activity() {
         }
     }
 
-    /** Asks before leaving an editor with changes in it: [discard] drops them, Keep editing stays. */
-    private fun confirmDiscard(message: String, discard: () -> Unit) {
+    /** Asks before something that can't be undone, like leaving an editor with changes in it. */
+    private fun confirm(title: String, message: String, action: String, keep: String, onConfirm: () -> Unit) {
         val p = palette
         val column = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
@@ -271,14 +273,14 @@ class SettingsActivity : Activity() {
                 text = message
                 style(TextStyle.Body, p.textSecondary)
             })
-            addView(Components.pillButton(this@SettingsActivity, "Discard", p.danger, p.onAccent) {
+            addView(Components.pillButton(this@SettingsActivity, action, p.danger, p.onAccent) {
                 overlays.dismiss()
-                discard()
+                onConfirm()
             }, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(48)).apply { topMargin = dp(Ui.SPACE_L) })
-            addView(Components.pillButton(this@SettingsActivity, "Keep editing", p.surfaceHigh, p.text) { overlays.dismiss() },
+            addView(Components.pillButton(this@SettingsActivity, keep, p.surfaceHigh, p.text) { overlays.dismiss() },
                 LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(48)).apply { topMargin = dp(Ui.SPACE_S) })
         }
-        overlays.showSheet("Discard changes?", column)
+        overlays.showSheet(title, column)
     }
 
     /** The main page: one row per area, each showing what it's set to, opening its own page. */
@@ -309,6 +311,9 @@ class SettingsActivity : Activity() {
             pageRow(p, R.drawable.ic_keyboard, Page.KEYS,
                 "Swipe down for ${if (prefs.swipeDownSearch) "Smart Search" else "notifications"}" +
                     if (keyCount > 0) " · $keyCount number keys" else ""),
+            pageRow(p, R.drawable.ic_search, Page.SEARCH, SearchSection.entries.filter { prefs.searchShows(it) }.let { on ->
+                when (on.size) { SearchSection.entries.size -> "All results"; 0 -> "Off"; else -> on.joinToString(", ") { it.title } }
+            }),
             pageRow(p, R.drawable.ic_hourglass, Page.LIMITS,
                 if (limitsOn.isEmpty()) "Off" else limitsOn.joinToString(", ") { it.name }),
             pageRow(p, R.drawable.ic_notification, Page.NOTIFICATIONS, NotificationFilters.get(this).filters.count { it.enabled }.let {
@@ -473,6 +478,36 @@ class SettingsActivity : Activity() {
             },
         )))
         content.addView(Components.footnote(this, p, "Hold a category tab or app for options. Drag to reorder, or choose Move to use the arrow keys."))
+    }
+
+    /** Which sections Smart Search shows. */
+    private fun search(p: Palette) {
+        content.addView(heading(p, "Show in results"))
+        content.addView(spacer())
+        content.addView(Components.group(this, p, SearchSection.entries.map { section ->
+            Components.toggleRow(this, p, section.icon, section.title, prefs.searchShows(section)) {
+                prefs.setSearchShows(section, it)
+                build()
+            }
+        }))
+        content.addView(Components.footnote(this, p, "Sections appear in this order. The Call key calls a typed number even with Call off."))
+        if (prefs.searchShows(SearchSection.CONTACTS) && checkSelfPermission(android.Manifest.permission.READ_CALL_LOG) != PackageManager.PERMISSION_GRANTED) {
+            content.addView(spacer())
+            content.addView(Components.group(this, p, listOf(Setup.row(this, p, Setup.items.first { it.title == "Call history" }))))
+        }
+        content.addView(spacer())
+        val history = SearchHistory.get(this)
+        content.addView(Components.group(this, p, listOf(
+            Components.row(this, p, R.drawable.ic_history, "Clear search history", if (history.isEmpty) "Empty" else null, inset = Ui.SPACE_L) {
+                if (!history.isEmpty) confirm("Clear search history?", "Search forgets which results you picked after typing. Top match starts learning again.",
+                    "Clear", "Cancel") {
+                    history.clear()
+                    build()
+                }
+            },
+        )))
+        content.addView(Components.footnote(this, p,
+            "Search learns which results you pick after typing, to show them first and as the Top match. This stays on your phone."))
     }
 
     /** Hidden apps, listed here so they can be brought back, and the PIN that guards them. */

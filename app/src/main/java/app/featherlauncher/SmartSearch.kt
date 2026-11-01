@@ -25,6 +25,8 @@ import java.util.concurrent.Executors
 class Found(
     val title: String,
     val subtitle: String?,
+    /** Stays the same from search to search, so Smart Search can learn what's picked. */
+    val id: String,
     /** A line icon (settings, file types)... */
     val iconRes: Int = 0,
     /** ...or a picture (shortcut icons, photo thumbnails). */
@@ -81,7 +83,7 @@ class SmartSearch(private val context: Context, private val start: (Intent) -> U
         return settings
             .mapNotNull { s -> Search.score(query, if (t9) s.digitWords else s.words)?.let { s to it } }
             .sortedBy { it.second }
-            .map { (s, _) -> Found(s.name, "Settings", iconRes = s.icon) { start(Intent(s.action)) } }
+            .map { (s, _) -> Found(s.name, "Settings", "setting:${s.action}", iconRes = s.icon) { start(Intent(s.action)) } }
     }
 
     // endregion
@@ -127,7 +129,7 @@ class SmartSearch(private val context: Context, private val start: (Intent) -> U
             .mapNotNull { s -> Search.score(query, if (t9) s.digitWords else s.words)?.let { s to it } }
             .sortedBy { it.second }
             .map { (s, _) ->
-                Found(s.label, s.app, drawable = runCatching { launcherApps.getShortcutIconDrawable(s.info, density) }.getOrNull()) {
+                Found(s.label, s.app, "shortcut:${s.info.`package`}/${s.info.id}", drawable = runCatching { launcherApps.getShortcutIconDrawable(s.info, density) }.getOrNull()) {
                     runCatching { launcherApps.startShortcut(s.info, null, null) }
                 }
             }
@@ -177,7 +179,7 @@ class SmartSearch(private val context: Context, private val start: (Intent) -> U
                             else -> Triple(R.drawable.ic_media_file, "File", uri)
                         }
                         val itemUri = ContentUris.withAppendedId(base, id)
-                        val found = Found(name, kind, iconRes = icon) {
+                        val found = Found(name, kind, "file:$itemUri", iconRes = icon) {
                             start(Intent(Intent.ACTION_VIEW).setDataAndType(itemUri, mime).addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION))
                         }
                         if (type == MediaStore.Files.FileColumns.MEDIA_TYPE_IMAGE || type == MediaStore.Files.FileColumns.MEDIA_TYPE_VIDEO) {
