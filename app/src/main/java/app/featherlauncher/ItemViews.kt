@@ -80,8 +80,8 @@ class AppIconView(context: Context, val item: HomeItem) : LinearLayout(context) 
 }
 
 /**
- * The built-in clock, always centred. On top, one small line about the day: the date, then
- * quieter, the Hebrew date, the parsha and the like. Under it the time, as large as the widget
+ * The built-in clock, always centred. On top, one small line about the day: the date, the
+ * Hebrew date, the parsha and the like. Under it the time, as large as the widget
  * allows, and under that the weather and what's coming up. Transparent, straight on the
  * wallpaper in white, or Solid, on a card in the wallpaper's colors ([Prefs.clockSolid]).
  */
@@ -89,7 +89,7 @@ class AppIconView(context: Context, val item: HomeItem) : LinearLayout(context) 
 class ClockWidget(context: Context, val item: HomeItem) : FitColumn(context) {
     private val time = TextClock(context)
     /** "Sun, Nov 1 · 10 Cheshvan · Lech Lecha", over two lines if it must. */
-    private val day = WidgetStyle.text(context, 15f, WidgetStyle.label)
+    private val day = WidgetStyle.text(context, 15f, WidgetStyle.body)
     /** The weather and up to two things coming up. */
     private val pills = FitRow(context).apply { gap = Ui.dp(context, 14) }
     private val glance = Glance(context)
@@ -192,16 +192,16 @@ class ClockWidget(context: Context, val item: HomeItem) : FitColumn(context) {
         super.onDetachedFromWindow()
     }
 
-    /** The main color, the quieter one, and whether text needs a shadow to stand off the wallpaper. */
+    /** The text's color: the card's, or white on the wallpaper. */
     private val main get() = if (solid) WidgetStyle.onCard() else WidgetStyle.WHITE
-    private val quiet get() = if (solid) WidgetStyle.onCardQuiet() else WidgetStyle.SOFT_WHITE
 
     /** Solid: on a card with the cards' corners; transparent: straight on the wallpaper. */
     fun setSolid(solid: Boolean) {
         this.solid = solid
         background = if (solid) android.graphics.drawable.InsetDrawable(WidgetStyle.cardBackground(context), dp(CardWidget.GAP)) else null
-        if (solid) setPadding(dp(CardWidget.GAP + 18), dp(CardWidget.GAP + 12), dp(CardWidget.GAP + 18), dp(CardWidget.GAP + 12))
-        else setPadding(dp(12), 0, dp(12), 0)
+        // The same room on every side of the card.
+        val edge = dp(if (solid) CardWidget.GAP + 20 else 12)
+        setPadding(edge, if (solid) edge else 0, edge, if (solid) edge else 0)
         time.setTextColor(if (solid) WidgetStyle.accent() else WidgetStyle.WHITE)
         listOf(time, day).forEach { shade(it) }
         sizedFor = 0
@@ -220,16 +220,9 @@ class ClockWidget(context: Context, val item: HomeItem) : FitColumn(context) {
     fun refresh() {
         val lines = glance.lines(System.currentTimeMillis()) { if (isAttachedToWindow) refresh() }
         place = lines.place
-        // Each part stays whole: a long line breaks only between them.
-        val parts = listOf(lines.date) + lines.detail?.split(" · ").orEmpty()
-        val text = android.text.SpannableStringBuilder()
-        parts.forEachIndexed { i, part ->
-            if (i > 0) text.append(" · ")
-            val start = text.length
-            text.append(part.replace(' ', '\u00A0'))
-            if (i > 0) text.setSpan(android.text.style.ForegroundColorSpan(quiet), start - 3, text.length, 0)
-        }
-        day.text = text
+        // Each part stays whole: a long line breaks only between them. All in one color, and in
+        // regular weight, the one Hebrew has too (its font has no medium).
+        day.text = (listOf(lines.date) + lines.detail?.split(" · ").orEmpty()).joinToString(" · ") { it.replace(' ', '\u00A0') }
         day.setTextColor(main)
         pills.removeAllViews()
         val coming = lines.coming.take(2)
@@ -265,7 +258,13 @@ class ClockWidget(context: Context, val item: HomeItem) : FitColumn(context) {
         sizedFor = width
         fitted = null
         val unit = width / 100f
-        timePx = 36f * unit
+        // As wide as the widget: four digits ("12:59") fill it, edge to edge.
+        val paint = android.graphics.Paint().apply {
+            typeface = time.typeface
+            letterSpacing = time.letterSpacing
+            textSize = 100f
+        }
+        timePx = 100f * width / paint.measureText("00:00")
         day.setTextSize(TypedValue.COMPLEX_UNIT_PX, 4.6f * unit)
         pillPx = 4.2f * unit
         for (i in 0 until pills.childCount) (pills.getChildAt(i) as? TextView)?.let { WidgetStyle.sizePill(it, pillPx) }

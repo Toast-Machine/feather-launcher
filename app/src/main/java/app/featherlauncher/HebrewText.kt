@@ -69,8 +69,11 @@ object HebrewText {
         return "${MASECHTOS[name] ?: name} ${number(page)}"
     }
 
-    /** [text] kept whole and in its own direction inside an English line, so the dots between stay put. */
-    fun isolate(text: String) = "⁨$text⁩"
+    /**
+     * [text] kept whole inside an English line, so the dots between stay put: marks on either
+     * side that read left to right keep two Hebrew parts in a row from swapping places.
+     */
+    fun isolate(text: String) = "\u200E$text\u200E"
 
     private val MONTHS = mapOf(
         "Tishrei" to "תשרי", "Cheshvan" to "חשון", "Kislev" to "כסלו", "Teves" to "טבת", "Shevat" to "שבט",
