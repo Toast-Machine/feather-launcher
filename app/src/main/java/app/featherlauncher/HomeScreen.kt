@@ -369,7 +369,18 @@ class HomeScreen(
                     ?: activity.packageManager.getLaunchIntentForPackage(pkg)?.let(host::startSafely)
             }
         }
-    }?.also { it.setTag(R.id.home_name, widgetName(item)) }
+    }?.also { name(item, it) }
+
+    /**
+     * A widget's name under it, as an app's. One straight on the wallpaper (Transparent) has
+     * none: with no card, there's nothing for it to name, and the widget takes its room.
+     */
+    private fun name(item: HomeItem, view: View) {
+        val bare = (view as? ClockWidget)?.solid == false || (view as? UpNextWidget)?.solid == false
+        view.setTag(R.id.home_name, if (bare) null else widgetName(item))
+        view.setTag(R.id.home_bare, bare)
+        (view.parent as? View)?.apply { requestLayout(); invalidate() }
+    }
 
     /** Tapping something coming up, on the clock or Up next: the day's zmanim, the event, the alarms. */
     private fun openGlance(item: Glance.Item, place: ClockInfo.Place?) {
@@ -781,6 +792,7 @@ class HomeScreen(
                 prefs.setWidgetSolid(item.id, it == 0)
                 (views[item.id] as? ClockWidget)?.setSolid(it == 0)
                 (views[item.id] as? UpNextWidget)?.solid = it == 0
+                views[item.id]?.let { view -> name(item, view) }
                 build()
             })
         }
@@ -1457,6 +1469,7 @@ class HomeScreen(
             next?.let {
                 val cells = containerFor(it.first)
                 cells.dropPreviewIsIcon = source?.item?.isWidget != true
+                cells.dropPreviewBare = source?.item?.let { views[it.id]?.getTag(R.id.home_bare) } == true
                 cells.dropPreview = Rect(it.second, it.third, it.second + w, it.third + h)
             }
         }
@@ -1736,7 +1749,7 @@ class HomeScreen(
         private fun bounds(): RectF {
             val cells = containerFor(item.page)
             val origin = rectInRoot(cells)
-            val r = cells.widgetRect(Rect(item.x, item.y, item.x + item.w, item.y + item.h))
+            val r = cells.widgetRect(Rect(item.x, item.y, item.x + item.w, item.y + item.h), view.getTag(R.id.home_bare) == true)
             r.offset(origin.left, origin.top)
             val inset = dp(2).toFloat()
             return RectF(r).apply { inset(inset, inset) }

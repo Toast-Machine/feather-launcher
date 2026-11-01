@@ -133,7 +133,8 @@ class ClockWidget(context: Context, val item: HomeItem) : FitColumn(context) {
     private val pills = FitRow(context).apply { gap = Ui.dp(context, 14) }
     private val glance = Glance(context)
     private var place: ClockInfo.Place? = null
-    private var solid = false
+    var solid = false
+        private set
     /** The text sizes, in pixels, worked out from the widget's width (see [sizeFor]). */
     private var pillPx = 30f
     private var sizedFor = 0

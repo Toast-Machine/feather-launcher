@@ -59,6 +59,8 @@ abstract class CardWidget(context: Context, val item: HomeItem) : FrameLayout(co
     private var inside = intArrayOf(0, 0, 0, 0)
     /** How much less room above and below what's on a short card (one row, an icon's height) than on a taller one. */
     private var trim = 0
+    /** The room at the end is trimmed as much, for a card that ends in a tile, so the tile is evenly inset. */
+    protected var trimsEnd = false
 
     init {
         isFocusable = true
@@ -70,7 +72,8 @@ abstract class CardWidget(context: Context, val item: HomeItem) : FrameLayout(co
     /** The room between the card's edges and what's on it (the gap around the card included). */
     protected fun pad(left: Int, top: Int, right: Int, bottom: Int) {
         inside = intArrayOf(left, top, right, bottom)
-        setPadding(left, top - minOf(trim, top - dp(GAP)), right, bottom - minOf(trim, bottom - dp(GAP)))
+        val end = if (trimsEnd) right - minOf(trim, right - dp(GAP)) else right
+        setPadding(left, top - minOf(trim, top - dp(GAP)), end, bottom - minOf(trim, bottom - dp(GAP)))
         // The keypad highlight is white around the card, as it is around app icons.
         foreground = Ui.focusHighlight(context, WidgetStyle.RADIUS + GAP)
     }
@@ -252,6 +255,7 @@ class UpNextWidget(context: Context, item: HomeItem) : CardWidget(context, item)
     private var roomy = true
 
     init {
+        trimsEnd = true
         pad(dp(GAP + 22), dp(GAP + 12), dp(GAP + 12), dp(GAP + 12))
     }
 
@@ -326,7 +330,7 @@ class UpNextWidget(context: Context, item: HomeItem) : CardWidget(context, item)
                 // The weather now: its picture over the temperature, on a square tile in the accent
                 // color, as tall as the card's room. Its corners run parallel to the card's, the
                 // padding in from them.
-                addView(Tile(context, dp(TILE)).apply {
+                addView(Tile(context, dp(TILE)) { dp(WidgetStyle.RADIUS) - (this@UpNextWidget.paddingRight - dp(GAP)) }.apply {
                     background = Ui.rounded(context, WidgetStyle.accent(), WidgetStyle.RADIUS - 12)
                     addView(LinearLayout(context).apply {
                         orientation = LinearLayout.VERTICAL
@@ -370,9 +374,10 @@ class UpNextWidget(context: Context, item: HomeItem) : CardWidget(context, item)
     private fun text(color: Int, sp: Float, face: android.graphics.Typeface = WidgetStyle.body) =
         if (solid) WidgetStyle.cardText(context, sp, face, color) else WidgetStyle.text(context, sp, face, color)
 
-    /** A square as tall as the card's room, up to [max] pixels. */
-    private class Tile(context: Context, private val max: Int) : FrameLayout(context) {
+    /** A square as tall as the card's room, up to [max] pixels, with corners [radius] pixels round. */
+    private class Tile(context: Context, private val max: Int, private val radius: () -> Int) : FrameLayout(context) {
         override fun onMeasure(widthMeasureSpec: Int, heightMeasureSpec: Int) {
+            (background as? android.graphics.drawable.GradientDrawable)?.cornerRadius = radius().toFloat()
             val room = MeasureSpec.getSize(heightMeasureSpec)
             val size = if (MeasureSpec.getMode(heightMeasureSpec) == MeasureSpec.UNSPECIFIED || room == 0) max else minOf(room, max)
             val exact = MeasureSpec.makeMeasureSpec(size, MeasureSpec.EXACTLY)

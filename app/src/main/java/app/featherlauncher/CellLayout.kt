@@ -26,6 +26,8 @@ class CellLayout(context: Context, attrs: AttributeSet? = null) : ViewGroup(cont
 
     /** The item being dropped is an app icon, so preview the icon's square, not the whole cell. */
     var dropPreviewIsIcon = false
+    /** The widget being dropped is straight on the wallpaper (see [widgetRect]). */
+    var dropPreviewBare = false
     /** Dropping here makes or fills a folder: draw the highlight stronger. */
     var dropPreviewGrow = false
 
@@ -154,7 +156,7 @@ class CellLayout(context: Context, attrs: AttributeSet? = null) : ViewGroup(cont
             val name = if (names) Ui.dp(context, AppIconView.LABEL_HEIGHT) else 0
             return Rect(cell.left, top, cell.right, (top + icon + 2 * inset + name).roundToInt())
         }
-        return widgetRect(cells)
+        return widgetRect(cells, child.getTag(R.id.home_bare) == true)
     }
 
     private fun pictureTop(row: Int) = originY + row * cellHeight + rowGap / 2
@@ -182,10 +184,15 @@ class CellLayout(context: Context, attrs: AttributeSet? = null) : ViewGroup(cont
         )
     }
 
-    /** A widget's bounds: its picture with the room for its keypad highlight around it. */
-    fun widgetRect(cells: Rect): Rect {
+    /**
+     * A widget's bounds: its picture with the room for its keypad highlight around it. A [bare]
+     * widget, straight on the wallpaper, has no edges to line up and no name: it reaches down
+     * over the room for one.
+     */
+    fun widgetRect(cells: Rect, bare: Boolean = false): Rect {
         val gap = Ui.dp(context, CardWidget.GAP).toFloat()
         val r = pictureRect(cells)
+        if (bare && names) r.bottom += Ui.dp(context, AppIconView.INSET + AppIconView.LABEL_HEIGHT)
         return Rect((r.left - gap).roundToInt(), (r.top - gap).roundToInt(), (r.right + gap).roundToInt(), (r.bottom + gap).roundToInt())
     }
 
@@ -217,7 +224,9 @@ class CellLayout(context: Context, attrs: AttributeSet? = null) : ViewGroup(cont
             } else {
                 // Exactly where the widget's card will be, with its corners.
                 val radius = Ui.dp(context, WidgetStyle.RADIUS).toFloat()
-                canvas.drawRoundRect(if (isPage) pictureRect(cells) else RectF(cellRect(cells)), radius, radius, previewPaint)
+                val gap = Ui.dp(context, CardWidget.GAP).toFloat()
+                val r = if (isPage) RectF(widgetRect(cells, dropPreviewBare)).apply { inset(gap, gap) } else RectF(cellRect(cells))
+                canvas.drawRoundRect(r, radius, radius, previewPaint)
             }
         }
         super.dispatchDraw(canvas)
