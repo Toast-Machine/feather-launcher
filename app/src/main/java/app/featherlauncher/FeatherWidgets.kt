@@ -88,8 +88,20 @@ abstract class CardWidget(context: Context, val item: HomeItem) : FrameLayout(co
         pad(inside[0], inside[1], inside[2], inside[3])
     }
 
+    /**
+     * The card's new size in pixels, as it's measured: true when what's on it must be worked out
+     * again for that size. It is, then and there, so a card being resized changes all at once.
+     */
+    protected open fun sizeChanged(w: Int, h: Int): Boolean = false
+    private var measuredFor = 0L
+
     // Worked out as it's measured, so a card being resized lays out once, at its new size.
     override fun onMeasure(widthMeasureSpec: Int, heightMeasureSpec: Int) {
+        val size = MeasureSpec.getSize(widthMeasureSpec).toLong() shl 32 or MeasureSpec.getSize(heightMeasureSpec).toLong()
+        if (size != measuredFor && MeasureSpec.getMode(widthMeasureSpec) == MeasureSpec.EXACTLY) {
+            measuredFor = size
+            if (sizeChanged(MeasureSpec.getSize(widthMeasureSpec), MeasureSpec.getSize(heightMeasureSpec))) refresh()
+        }
         // On a short card the room above and below what's on it is a share of its height.
         val h = MeasureSpec.getSize(heightMeasureSpec)
         val next = (inside[1] - dp(GAP) - ((h - 2 * dp(GAP)) * SHORT_ROOM).toInt()).coerceAtLeast(0)
@@ -202,7 +214,7 @@ abstract class CardWidget(context: Context, val item: HomeItem) : FrameLayout(co
          */
         const val GAP = AppIconView.INSET
         /** The room above and below what's on a short card, as a share of its height. */
-        private const val SHORT_ROOM = 0.15f
+        private const val SHORT_ROOM = 0.1f
 
         /** The view for a Feather widget that sits on a card, or null for the clock. */
         fun create(context: Context, item: HomeItem): CardWidget? = when (FeatherKind.of(item)) {
@@ -243,13 +255,11 @@ class UpNextWidget(context: Context, item: HomeItem) : CardWidget(context, item)
         pad(dp(GAP + 22), dp(GAP + 12), dp(GAP + 12), dp(GAP + 12))
     }
 
-    override fun onSizeChanged(w: Int, h: Int, oldw: Int, oldh: Int) {
-        super.onSizeChanged(w, h, oldw, oldh)
+    override fun sizeChanged(w: Int, h: Int): Boolean {
         val next = w >= dp(250)
-        if (next != roomy) {
-            roomy = next
-            post { refresh() }
-        }
+        if (next == roomy) return false
+        roomy = next
+        return true
     }
 
     override fun refresh() {
@@ -389,13 +399,11 @@ class CalendarWidget(context: Context, item: HomeItem) : CardWidget(context, ite
     /** Too narrow for the date beside the events: it goes on a line above them. */
     private var narrow = false
 
-    override fun onSizeChanged(w: Int, h: Int, oldw: Int, oldh: Int) {
-        super.onSizeChanged(w, h, oldw, oldh)
+    override fun sizeChanged(w: Int, h: Int): Boolean {
         val next = w < dp(260)
-        if (next != narrow) {
-            narrow = next
-            post { refresh() }
-        }
+        if (next == narrow) return false
+        narrow = next
+        return true
     }
 
     override fun refresh() {
@@ -546,15 +554,13 @@ class WeatherWidget(context: Context, item: HomeItem) : CardWidget(context, item
     /** A narrow card: just the weather now, stacked, as in iOS's small widget. */
     private var narrow = false
 
-    override fun onSizeChanged(w: Int, h: Int, oldw: Int, oldh: Int) {
-        super.onSizeChanged(w, h, oldw, oldh)
+    override fun sizeChanged(w: Int, h: Int): Boolean {
         val nextCompact = h < dp(250)
         val nextNarrow = w < dp(260)
-        if (nextCompact != compact || nextNarrow != narrow) {
-            compact = nextCompact
-            narrow = nextNarrow
-            post { refresh() }
-        }
+        if (nextCompact == compact && nextNarrow == narrow) return false
+        compact = nextCompact
+        narrow = nextNarrow
+        return true
     }
 
     override fun refresh() {
@@ -837,13 +843,11 @@ class MediaWidget(context: Context, item: HomeItem) : CardWidget(context, item) 
     /** Narrow: a small picture, the title on up to two lines, and only play and pause. */
     private var narrow = false
 
-    override fun onSizeChanged(w: Int, h: Int, oldw: Int, oldh: Int) {
-        super.onSizeChanged(w, h, oldw, oldh)
+    override fun sizeChanged(w: Int, h: Int): Boolean {
         val next = w < dp(260)
-        if (next != narrow) {
-            narrow = next
-            post { refresh() }
-        }
+        if (next == narrow) return false
+        narrow = next
+        return true
     }
 
     init {
@@ -985,13 +989,11 @@ class ZmanimWidget(context: Context, item: HomeItem) : CardWidget(context, item)
     /** Narrow: smaller type and less room around each time, so their names fit. */
     private var narrow = false
 
-    override fun onSizeChanged(w: Int, h: Int, oldw: Int, oldh: Int) {
-        super.onSizeChanged(w, h, oldw, oldh)
+    override fun sizeChanged(w: Int, h: Int): Boolean {
         val next = w < dp(260)
-        if (next != narrow) {
-            narrow = next
-            post { refresh() }
-        }
+        if (next == narrow) return false
+        narrow = next
+        return true
     }
 
     override fun refresh() {
