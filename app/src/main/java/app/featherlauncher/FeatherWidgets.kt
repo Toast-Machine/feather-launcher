@@ -272,18 +272,21 @@ class UpNextWidget(context: Context, item: HomeItem) : CardWidget(context, item)
                 }, LinearLayout.LayoutParams(LinearLayout.LayoutParams.WRAP_CONTENT, LinearLayout.LayoutParams.WRAP_CONTENT).apply { topMargin = dp(4) })
             }, LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f).apply { marginEnd = dp(12) })
             lines.weather?.let { w ->
-                // The weather now: its picture over the temperature, on a tile in the accent color
-                // whose corners follow the card's, the padding in from it.
-                addView(LinearLayout(context).apply {
-                    orientation = LinearLayout.VERTICAL
-                    gravity = Gravity.CENTER
+                // The weather now: its picture over the temperature, on a square tile in the accent
+                // color, as tall as the card's room. Its corners run parallel to the card's, the
+                // padding in from them.
+                addView(Tile(context, dp(TILE)).apply {
                     background = Ui.rounded(context, WidgetStyle.accent(), WidgetStyle.RADIUS - 12)
-                    addView(ImageView(context).apply { setImageDrawable(WeatherArt.icon(w.sky, w.night)) }, LinearLayout.LayoutParams(dp(28), dp(28)))
-                    addView(WidgetStyle.cardText(context, 14f, WidgetStyle.title, WidgetStyle.onAccent()).apply { text = "${w.temperature}°" },
-                        LinearLayout.LayoutParams(LinearLayout.LayoutParams.WRAP_CONTENT, LinearLayout.LayoutParams.WRAP_CONTENT).apply { topMargin = dp(2) })
-                }, LinearLayout.LayoutParams(dp(TILE), dp(TILE)))
+                    addView(LinearLayout(context).apply {
+                        orientation = LinearLayout.VERTICAL
+                        gravity = Gravity.CENTER_HORIZONTAL
+                        addView(ImageView(context).apply { setImageDrawable(WeatherArt.icon(w.sky, w.night)) }, LinearLayout.LayoutParams(dp(24), dp(24)))
+                        addView(WidgetStyle.cardText(context, 14f, WidgetStyle.title, WidgetStyle.onAccent()).apply { text = "${w.temperature}°" },
+                            LinearLayout.LayoutParams(LinearLayout.LayoutParams.WRAP_CONTENT, LinearLayout.LayoutParams.WRAP_CONTENT).apply { topMargin = dp(1) })
+                    }, FrameLayout.LayoutParams(FrameLayout.LayoutParams.WRAP_CONTENT, FrameLayout.LayoutParams.WRAP_CONTENT, Gravity.CENTER))
+                }, LinearLayout.LayoutParams(LinearLayout.LayoutParams.WRAP_CONTENT, LinearLayout.LayoutParams.MATCH_PARENT))
             }
-        })
+        }, LayoutParams(LayoutParams.MATCH_PARENT, LayoutParams.MATCH_PARENT))
     }
 
     /** "in 25 min · 4:00 PM" when it's within three hours, else "4:00 PM" (or "Tomorrow"). */
@@ -302,6 +305,16 @@ class UpNextWidget(context: Context, item: HomeItem) : CardWidget(context, item)
     /** Text on the card, or white with a soft shadow on the wallpaper. */
     private fun text(color: Int, sp: Float, face: android.graphics.Typeface = WidgetStyle.body) =
         if (solid) WidgetStyle.cardText(context, sp, face, color) else WidgetStyle.text(context, sp, face, color)
+
+    /** A square as tall as the card's room, up to [max] pixels. */
+    private class Tile(context: Context, private val max: Int) : FrameLayout(context) {
+        override fun onMeasure(widthMeasureSpec: Int, heightMeasureSpec: Int) {
+            val room = MeasureSpec.getSize(heightMeasureSpec)
+            val size = if (MeasureSpec.getMode(heightMeasureSpec) == MeasureSpec.UNSPECIFIED || room == 0) max else minOf(room, max)
+            val exact = MeasureSpec.makeMeasureSpec(size, MeasureSpec.EXACTLY)
+            super.onMeasure(exact, exact)
+        }
+    }
 
     private companion object {
         /** The tallest it gets, card and all, in dp. */
