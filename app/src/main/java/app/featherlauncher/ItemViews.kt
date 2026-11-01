@@ -175,7 +175,7 @@ class ClockWidget(context: Context, val item: HomeItem) : FitColumn(context) {
         if (MeasureSpec.getMode(heightMeasureSpec) != MeasureSpec.UNSPECIFIED) {
             stack(true)
             val tall = fit(widthMeasureSpec, heightMeasureSpec, stackedPx)
-            if (stackedPx * tall > timePx * line * 1.15f) {
+            if (stackedPx * tall > timePx * line) {
                 fitted = Fit(widthMeasureSpec, heightMeasureSpec, tall, true)
                 return
             }
@@ -211,7 +211,7 @@ class ClockWidget(context: Context, val item: HomeItem) : FitColumn(context) {
         time.format12Hour = if (on) "hh\nmm" else "h:mm"
         time.format24Hour = if (on) "HH\nmm" else "H:mm"
         // The lines closer than usual: digits have nothing above or below them to make room for.
-        time.setLineSpacing(0f, if (on) 0.82f else 1f)
+        time.setLineSpacing(0f, if (on) 0.72f else 1f)
         time.gravity = Gravity.CENTER
     }
 
@@ -306,7 +306,7 @@ class ClockWidget(context: Context, val item: HomeItem) : FitColumn(context) {
             textSize = 100f
         }
         timePx = 100f * width / paint.measureText("00:00")
-        stackedPx = 100f * width / paint.measureText("00") * 0.9f
+        stackedPx = 100f * width / paint.measureText("00") * 0.8f
         day.setTextSize(TypedValue.COMPLEX_UNIT_PX, 4.6f * unit)
         pillPx = 4.2f * unit
         for (i in 0 until pills.childCount) (pills.getChildAt(i) as? TextView)?.let { WidgetStyle.sizePill(it, pillPx) }
