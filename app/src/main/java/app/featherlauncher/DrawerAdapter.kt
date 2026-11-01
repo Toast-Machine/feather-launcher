@@ -345,6 +345,13 @@ class DrawerAdapter(
                 background = Ui.rounded(context, 0x1FFFFFFF, Ui.RADIUS_M)
             }
         }
+        val picture = if (searchColumns) FrameLayout(context).apply {
+            isFocusable = true
+            contentDescription = "Open ${contact.name}"
+            foreground = Ui.pressable(context, Ui.RADIUS_M, focusColor = p.onWall)
+            addView(avatar, FrameLayout.LayoutParams(size, size, Gravity.START or Gravity.CENTER_VERTICAL))
+            setOnClickListener { onContact(contact, ContactAction.OPEN) }
+        } else avatar
         val content = LinearLayout(context).apply {
             orientation = LinearLayout.HORIZONTAL
             gravity = Gravity.CENTER_VERTICAL
@@ -355,7 +362,7 @@ class DrawerAdapter(
             isFocusable = true
             // The Call key calls whoever is highlighted.
             tag = contact
-            addView(avatar, LinearLayout.LayoutParams(size, size))
+            addView(picture, LinearLayout.LayoutParams(if (searchColumns) dp(48) else size, if (searchColumns) dp(48) else size))
             addView(LinearLayout(context).apply {
                 orientation = LinearLayout.VERTICAL
                 addView(TextView(context).apply {
@@ -385,18 +392,19 @@ class DrawerAdapter(
             }
         }
         if (!searchColumns) return content
-        // One flat row; actions temporarily replace its contents without changing its height.
+        // Keep the picture available while actions sit over the faded name and number.
         content.isFocusable = false
+        content.tag = null
         content.foreground = null
         content.setPadding(dp(Ui.SPACE_S), 0, dp(Ui.SPACE_S), 0)
-        (content.getChildAt(1).layoutParams as LinearLayout.LayoutParams).marginStart = dp(Ui.SPACE_S)
+        val details = content.getChildAt(1)
+        (details.layoutParams as LinearLayout.LayoutParams).marginStart = 0
         val actions = LinearLayout(context).apply {
             orientation = LinearLayout.HORIZONTAL
             gravity = Gravity.END or Gravity.CENTER_VERTICAL
             addView(contactButton(R.drawable.ic_cat_phone, "Call ${contact.name}", p) { onContact(contact, ContactAction.CALL) })
             addView(contactButton(R.drawable.ic_message, "Text ${contact.name}", p) { onContact(contact, ContactAction.TEXT) })
             if (contact.email != null) addView(contactButton(R.drawable.ic_cat_mail, "Email ${contact.name}", p) { onContact(contact, ContactAction.EMAIL) })
-            addView(contactButton(R.drawable.ic_set_user, "Open ${contact.name}", p) { onContact(contact, ContactAction.OPEN) })
         }
         val toolbar = HorizontalScrollView(context).apply {
             isHorizontalScrollBarEnabled = false
@@ -407,11 +415,11 @@ class DrawerAdapter(
             visibility = View.INVISIBLE
         }
         return object : FrameLayout(context) {
-            private fun hide() { toolbar.visibility = View.INVISIBLE; content.visibility = View.VISIBLE }
+            private fun hide() { toolbar.visibility = View.INVISIBLE; details.alpha = 1f }
             private fun reveal() {
                 if (toolbar.visibility == View.VISIBLE) return
                 hideContactActions?.invoke()
-                content.visibility = View.INVISIBLE
+                details.alpha = 0.28f
                 toolbar.visibility = View.VISIBLE
                 toolbar.post { toolbar.scrollTo((actions.width - toolbar.width + toolbar.paddingRight).coerceAtLeast(0), 0) }
                 hideContactActions = { hide() }
@@ -431,7 +439,7 @@ class DrawerAdapter(
             private val focusListener = android.view.ViewTreeObserver.OnGlobalFocusChangeListener { _, focused ->
                 var child = focused
                 while (child != null && child !== this) child = child.parent as? View
-                if (child == null) hide()
+                if (child == null) hide() else reveal()
             }
             init {
                 isFocusable = true
@@ -440,7 +448,9 @@ class DrawerAdapter(
                 minimumHeight = dp(64)
                 foreground = Ui.pressable(context, Ui.RADIUS_L, focusColor = p.onWall)
                 addView(content, FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT))
-                addView(toolbar, FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(48), Gravity.CENTER_VERTICAL))
+                addView(toolbar, FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(48), Gravity.CENTER_VERTICAL).apply {
+                    marginStart = dp(Ui.SPACE_S + 48)
+                })
                 setOnClickListener { reveal() }
             }
         }

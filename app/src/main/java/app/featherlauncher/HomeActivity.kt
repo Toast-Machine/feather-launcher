@@ -1822,7 +1822,7 @@ class HomeActivity : Activity(), HomeScreen.Host {
         if (row != null) {
             val stops = if (contactRow != null && adapter.searchColumns) {
                 listOf<View>(row) + ArrayList<View>().also { row.addFocusables(it, View.FOCUS_RIGHT) }
-                    .filter { it !== row && it is ImageView && it.isShown }
+                    .filter { it !== row && it.isClickable && it.isShown }
             } else listOf<View>(row) + (0 until row.childCount).map(row::getChildAt).filter { it.isFocusable && it.visibility == View.VISIBLE }
             if (stops.size > 1) {
                 val next = stops.getOrNull(stops.indexOf(from) + if (direction == View.FOCUS_RIGHT) 1 else -1)

@@ -32,17 +32,22 @@ class SearchColumnsTests : Instrumentation() {
             prefs.onboarded = true
             prefs.searchColumns = true
             check(Prefs(targetContext).searchColumns)
+            val photo = contactPhoto()
             val activity = startActivitySync(Intent(targetContext, HomeActivity::class.java).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)) as HomeActivity
             home = activity
             Thread.sleep(1200)
             runOnMainSync {
                 val contactsField = HomeActivity::class.java.getDeclaredField("contacts").apply { isAccessible = true }
                 val contacts = contactsField.get(activity) as Contacts
-                Contacts::class.java.getDeclaredField("all").apply { isAccessible = true }.set(contacts,
+                val all = Contacts::class.java.getDeclaredField("all").apply { isAccessible = true }
+                val samples =
                     (listOf("Barbara Adams", "Carol Baker", "Casey Carter", "Cameron Bell", "Bailey Clark") +
                         (6..12).map { "Bailey Clark $it" }).mapIndexed { i, name ->
-                        Contacts.Contact(i.toLong(), name, "415-555-012$i", listOf("415-555-012$i"), null, true, if (i == 0) "barbara@example.com" else null)
-                    })
+                        Contacts.Contact(i.toLong(), name, "415-555-012$i", listOf("415-555-012$i"), if (i == 0) photo else null, true, if (i == 0) "barbara@example.com" else null)
+                    }
+                all.set(contacts, samples)
+                // Keep the fixture stable if the real provider finishes an asynchronous reload.
+                contacts.onLoaded = { all.set(contacts, samples) }
                 activity.pressDigit(2)
                 activity.findViewById<EditText>(R.id.search).setText("22")
             }
@@ -83,7 +88,30 @@ class SearchColumnsTests : Instrumentation() {
             }
             runOnMainSync { check(actions(row).visibility == View.VISIBLE) }
             screenshot("columns-touch-actions")
-            runOnMainSync { checkRightAligned(row) }
+            runOnMainSync { checkRightAligned(row); checkVisibleDetails(row) }
+            var opened: android.net.Uri? = null
+            val monitor = object : ActivityMonitor() {
+                override fun onStartActivity(intent: Intent): ActivityResult? {
+                    if (intent.action != Intent.ACTION_VIEW || intent.data?.authority != android.provider.ContactsContract.AUTHORITY) return null
+                    opened = intent.data
+                    return ActivityResult(Activity.RESULT_OK, null)
+                }
+            }
+            addMonitor(monitor)
+            try {
+                val picture = picture(row)
+                runOnMainSync { picture.getLocationOnScreen(point) }
+                val tapTime = android.os.SystemClock.uptimeMillis()
+                for (action in listOf(android.view.MotionEvent.ACTION_DOWN, android.view.MotionEvent.ACTION_UP)) {
+                    val event = android.view.MotionEvent.obtain(tapTime, android.os.SystemClock.uptimeMillis(), action,
+                        point[0] + picture.width / 2f, point[1] + picture.height / 2f, 0)
+                    event.source = android.view.InputDevice.SOURCE_TOUCHSCREEN
+                    check(uiAutomation.injectInputEvent(event, true))
+                    event.recycle()
+                }
+                settle()
+                check(opened?.lastPathSegment == "0") { "Photo tap must open the selected contact: $opened" }
+            } finally { removeMonitor(monitor) }
             runOnMainSync { activity.findViewById<View>(R.id.search_bar).requestFocusFromTouch() }
             var moves = 0
             while (activity.currentFocus?.tag !is Contacts.Contact && moves++ < 5) {
@@ -97,21 +125,32 @@ class SearchColumnsTests : Instrumentation() {
             }
             screenshot("columns-dpad-actions")
             sendKeyDownUpSync(KeyEvent.KEYCODE_DPAD_RIGHT)
+            runOnMainSync { check(activity.currentFocus === picture(row)) }
+            screenshot("columns-photo-focus")
+            sendKeyDownUpSync(KeyEvent.KEYCODE_DPAD_RIGHT)
             runOnMainSync { check(activity.currentFocus?.contentDescription?.startsWith("Call ") == true) }
             sendKeyDownUpSync(KeyEvent.KEYCODE_DPAD_RIGHT)
             runOnMainSync { check(activity.currentFocus?.contentDescription?.startsWith("Text ") == true) }
             sendKeyDownUpSync(KeyEvent.KEYCODE_DPAD_RIGHT)
             runOnMainSync { check(activity.currentFocus?.contentDescription?.startsWith("Email ") == true) }
             sendKeyDownUpSync(KeyEvent.KEYCODE_DPAD_RIGHT)
-            runOnMainSync { check(activity.currentFocus?.contentDescription?.startsWith("Open ") == true) }
-            sendKeyDownUpSync(KeyEvent.KEYCODE_DPAD_RIGHT)
             runOnMainSync { check(activity.currentFocus?.tag is AppEntry); check(actions(row).visibility == View.INVISIBLE) }
+            runOnMainSync { check(details(row).alpha == 1f) }
             sendKeyDownUpSync(KeyEvent.KEYCODE_DPAD_LEFT)
             runOnMainSync { check(activity.currentFocus?.tag is Contacts.Contact); check(actions(row).visibility == View.VISIBLE) }
             sendKeyDownUpSync(KeyEvent.KEYCODE_DPAD_DOWN)
             runOnMainSync { check((activity.currentFocus?.tag as? Contacts.Contact)?.name == "Carol Baker"); check(actions(row).visibility == View.INVISIBLE) }
             screenshot("columns-right-actions")
             runOnMainSync { checkRightAligned(activity.currentFocus as ViewGroup) }
+            runOnMainSync { picture(contactRows(list).first()).requestFocusFromTouch() }
+            settle()
+            opened = null
+            addMonitor(monitor)
+            try {
+                sendKeyDownUpSync(KeyEvent.KEYCODE_DPAD_CENTER)
+                waitForIdleSync()
+                check(opened?.lastPathSegment == "0") { "D-pad OK on the picture must open the contact" }
+            } finally { removeMonitor(monitor) }
             runOnMainSync {
                 val more = descendants(list).filterIsInstance<android.widget.TextView>().first { it.text == "Show more" }
                 more.performClick()
@@ -173,7 +212,7 @@ class SearchColumnsTests : Instrumentation() {
                 check(!stackedAdapter.searchColumns && stackedAdapter.rows.none { it is DrawerAdapter.Row.Columns })
                 stacked.finish()
             }
-            result.putString("stream", "PASS: columns, full-width Settings/Files, tap/focus actions, D-pad traversal, Show more, empty results, favorites, and settings persistence\n")
+            result.putString("stream", "PASS: visible photo, faded text under actions, no details button, photo tap/OK contact intents, column geometry, action callbacks, D-pad traversal/scrolling, files, and settings\n")
             finish(Activity.RESULT_OK, result)
         } catch (error: Throwable) {
             home?.let { runOnMainSync { it.finish() } }
@@ -195,7 +234,11 @@ class SearchColumnsTests : Instrumentation() {
         row.performClick()
         check(actions(row).visibility == View.VISIBLE && calls.isEmpty())
         descendants(actions(row)).filter { it.isClickable }.forEach { it.performClick() }
-        check(calls == listOf(ContactAction.CALL, ContactAction.TEXT, ContactAction.EMAIL, ContactAction.OPEN))
+        check(calls == listOf(ContactAction.CALL, ContactAction.TEXT, ContactAction.EMAIL))
+        check(descendants(actions(row)).none { it.contentDescription?.startsWith("Open ") == true })
+        checkVisibleDetails(row)
+        picture(row).performClick()
+        check(calls.last() == ContactAction.OPEN)
         adapter.searchColumns = false
         val stacked = adapter.getView(0, null, android.widget.FrameLayout(targetContext))
         stacked.performClick()
@@ -206,6 +249,28 @@ class SearchColumnsTests : Instrumentation() {
         if (view is ViewGroup) (0 until view.childCount).flatMap { descendants(view.getChildAt(it)) } else emptyList()
     private fun contactRows(list: ListView) = descendants(list).filterIsInstance<ViewGroup>().filter { it.tag is Contacts.Contact && it.isFocusable }
     private fun actions(row: ViewGroup) = row.getChildAt(1)
+    private fun picture(row: ViewGroup) = (row.getChildAt(0) as ViewGroup).getChildAt(0) as ViewGroup
+    private fun details(row: ViewGroup) = (row.getChildAt(0) as ViewGroup).getChildAt(1)
+    private fun checkVisibleDetails(row: ViewGroup) {
+        check(row.getChildAt(0).visibility == View.VISIBLE && row.getChildAt(0).alpha == 1f)
+        check(picture(row).visibility == View.VISIBLE && picture(row).alpha == 1f)
+        check(details(row).visibility == View.VISIBLE && details(row).alpha in 0.1f..0.5f)
+        check(actions(row).left >= picture(row).right + row.getChildAt(0).left) { "Actions must not cover the picture" }
+    }
+    private fun contactPhoto(): android.net.Uri {
+        val bitmap = android.graphics.Bitmap.createBitmap(96, 96, android.graphics.Bitmap.Config.ARGB_8888)
+        val canvas = android.graphics.Canvas(bitmap)
+        val paint = android.graphics.Paint(android.graphics.Paint.ANTI_ALIAS_FLAG)
+        canvas.drawColor(0xFFB4BDE0.toInt())
+        paint.color = 0xFF455685.toInt(); canvas.drawOval(12f, 60f, 84f, 125f, paint)
+        paint.color = 0xFF493A43.toInt(); canvas.drawOval(25f, 12f, 71f, 66f, paint)
+        paint.color = 0xFFF2C5A7.toInt(); canvas.drawOval(31f, 23f, 65f, 63f, paint)
+        paint.color = 0xFF493A43.toInt(); canvas.drawOval(27f, 14f, 69f, 35f, paint)
+        val file = File(targetContext.cacheDir, "contact-photo.png")
+        file.outputStream().use { bitmap.compress(android.graphics.Bitmap.CompressFormat.PNG, 100, it) }
+        bitmap.recycle()
+        return android.net.Uri.fromFile(file)
+    }
     private fun checkRightAligned(row: ViewGroup) {
         val toolbar = actions(row) as android.widget.HorizontalScrollView
         val actions = toolbar.getChildAt(0) as ViewGroup
