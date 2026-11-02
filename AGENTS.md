@@ -4,6 +4,8 @@
 
 Do all work directly on `main` unless told otherwise. Don't create feature branches or worktrees unless asked.
 
+Make every pull request from `main` unless told otherwise: its commits are the feature's own commits from `main`, put on top of upstream's main, leaving out everything else that's only on this fork (such as CI and this file). Don't rewrite the feature as new commits.
+
 ## Testing
 
 Test every change on two Android emulators before calling it done:
