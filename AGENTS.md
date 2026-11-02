@@ -1,0 +1,14 @@
+# Agent instructions
+
+## Branching
+
+Do all work directly on `main` unless told otherwise. Don't create feature branches or worktrees unless asked.
+
+## Testing
+
+Test every change on two Android emulators before calling it done:
+
+1. **A standard smartphone**: a typical touchscreen phone AVD, such as a Pixel image.
+2. **The Sonim X320**: an AVD set up to match the user's Sonim X320 (its screen size and density, its Android version, and a hardware keypad with D-pad navigation and no touch reliance).
+
+A change counts as tested only once it works on both. If either emulator isn't available, say so; don't just skip it.
