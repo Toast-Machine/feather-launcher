@@ -1,6 +1,5 @@
 package app.featherlauncher
 
-import android.annotation.SuppressLint
 import android.app.Activity
 import android.app.ActivityOptions
 import android.app.WallpaperManager
@@ -2317,13 +2316,7 @@ class HomeActivity : Activity(), HomeScreen.Host {
     override fun showAppInfo(entry: AppEntry) =
         launcherApps.startAppDetailsActivity(entry.component, Process.myUserHandle(), null, null)
 
-    @SuppressLint("WrongConstant")
-    private fun expandNotifications() {
-        runCatching {
-            val statusBar = getSystemService("statusbar")
-            statusBar.javaClass.getMethod("expandNotificationsPanel").invoke(statusBar)
-        }
-    }
+    private fun expandNotifications() = SystemPanels.notifications(this, LauncherService.running)
 
     override fun startSafely(intent: Intent) {
         try {
