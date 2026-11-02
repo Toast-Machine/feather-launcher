@@ -213,7 +213,7 @@ class LimitSettings(private val s: SettingsActivity) {
             },
         )))
         s.content.addView(Components.footnote(s, p,
-            "App limits need this to lock apps however they're opened. In Accessibility, open Feather Launcher and turn it on."))
+            "App limits need this to lock apps however they're opened. In Accessibility, open ${s.getString(R.string.app_name)} and turn it on."))
     }
 
     /** "Block · 11:00 PM–6:00 AM · 5 apps", or "Off". */
@@ -278,7 +278,7 @@ class LimitSettings(private val s: SettingsActivity) {
             if (guard == AppLimits.Guard.PIN) {
                 button.text = "Enter PIN"
                 button.setOnClickListener {
-                    PinPad.ask(s, p, s.overlays, limits.guardPin ?: return@setOnClickListener) {
+                    PinPad.ask(s, p, s.overlays, limits.guardPin ?: return@setOnClickListener, "To change app limits") {
                         limits.unlock()
                         s.build()
                     }
@@ -345,7 +345,7 @@ class LimitSettings(private val s: SettingsActivity) {
             limits.unlock()
             if (next == AppLimits.Guard.PIN) {
                 s.root.postDelayed({
-                    PinPad.create(s, p, s.overlays) {
+                    PinPad.create(s, p, s.overlays, "To change app limits") {
                         limits.guardPin = PinPad.hash(it)
                         limits.guard = next
                         s.build()

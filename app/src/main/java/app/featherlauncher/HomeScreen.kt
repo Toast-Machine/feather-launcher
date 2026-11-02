@@ -205,13 +205,16 @@ class HomeScreen(
 
     fun onAppsChanged() {
         fillDefaultDock()
-        // Drop apps that were uninstalled (only once the app list is known).
+        // Drop apps that were uninstalled (only once the app list is known), and hidden apps,
+        // which are never on the home screen.
         if (repo.apps.isNotEmpty()) {
-            workspace.items.filter { it.type == HomeItem.Type.FOLDER }.forEach { folder ->
-                folder.apps.filter { repo.find(it) == null }.forEach { removeFromFolder(folder, it) }
+            fun gone(key: String) = repo.find(key) == null || key in prefs.hidden
+            val inFolders = workspace.items.filter { it.type == HomeItem.Type.FOLDER }.flatMap { folder ->
+                folder.apps.filter(::gone).map { folder to it }
             }
-            val gone = workspace.items.filter { it.type == HomeItem.Type.APP && repo.find(it.ref) == null }
-            if (gone.isNotEmpty()) {
+            inFolders.forEach { (folder, key) -> removeFromFolder(folder, key) }
+            val gone = workspace.items.filter { it.type == HomeItem.Type.APP && gone(it.ref) }
+            if (gone.isNotEmpty() || inFolders.isNotEmpty()) {
                 workspace.items.removeAll(gone)
                 gone.forEach { views.remove(it.id)?.let { v -> (v.parent as? ViewGroup)?.removeView(v) } }
                 workspace.removeEmptyPages()
@@ -234,7 +237,7 @@ class HomeScreen(
         // New corners (names turned on or off, another icon shape): Feather's widgets are made
         // again with them, and other apps' are rounded again.
         if (applyCorners()) {
-            views.entries.filter { it.value is CardWidget || it.value is ClockWidget }.map { it.key }.forEach { id ->
+            views.entries.filter { it.value is CardWidget || it.value is ClockWidget || it.value is AnalogClockWidget }.map { it.key }.forEach { id ->
                 views.remove(id)?.let { (it.parent as? ViewGroup)?.removeView(it) }
             }
             views.values.filterIsInstance<WidgetView>().forEach { it.requestLayout() }
@@ -254,6 +257,7 @@ class HomeScreen(
         for (item in workspace.items) {
             val view = views[item.id] ?: createView(item)?.also { views[item.id] = it } ?: continue
             (view as? ClockWidget)?.refresh()
+            (view as? AnalogClockWidget)?.refresh()
             (view as? CardWidget)?.refresh()
             if (view is AppIconView) {
                 val showLabel = !item.inDock && prefs.showLabels
@@ -286,16 +290,17 @@ class HomeScreen(
         pages.updateFocusability()
     }
 
-    /** The home screen's icons, the same on pages and in the dock; bigger with no names under them. */
-    private fun homeIcon() = if (prefs.showLabels) AppIconView.ICON else AppIconView.LARGE_ICON
+    /** The home screen's icons, the same on pages and in the dock; bigger with no names under them, smaller on a narrow screen. */
+    private fun homeIcon() = Workspace.icon(prefs.showLabels)
 
     /**
-     * The dock is always [Ui.DOCK_HEIGHT] tall, as on iOS: bigger icons have less room around them.
-     * The room from its edges to the icons is the same on every side.
+     * The dock is always [Ui.DOCK_HEIGHT] tall, as on iOS (less on a narrow screen, see
+     * [Workspace.dockHeight]): bigger icons have less room around them. The room from its
+     * edges to the icons is the same on every side.
      */
     private fun sizeDock() {
         val icon = homeIcon()
-        val gap = (Ui.DOCK_HEIGHT - icon) / 2
+        val gap = (Workspace.dockHeight(prefs.showLabels) - icon) / 2
         dock.edgeGap = dp(gap)
         dock.iconSize = dp(icon)
         dock.boxDp = icon + 2 * AppIconView.INSET
@@ -363,7 +368,12 @@ class HomeScreen(
                 }
             }
             setOnLongClickListener { onItemLongPress(item, it); true }
-        } ?: ClockWidget(activity, item).apply {
+        } ?: if (FeatherKind.of(item) == FeatherKind.ANALOG) AnalogClockWidget(activity, item).apply {
+            setSolid(prefs.widgetSolid(item.id))
+            foreground = Ui.focusHighlight(activity, WidgetStyle.radius + CardWidget.GAP)
+            setOnClickListener { host.startSafely(Intent(AlarmClock.ACTION_SHOW_ALARMS)) }
+            setOnLongClickListener { onItemLongPress(item, it); true }
+        } else ClockWidget(activity, item).apply {
             setSolid(prefs.widgetSolid(item.id))
             // The keypad highlight follows the card's corner, as it does around the other widgets.
             foreground = Ui.focusHighlight(activity, WidgetStyle.radius + CardWidget.GAP)
@@ -402,7 +412,8 @@ class HomeScreen(
      * it to name, and the widget takes its room.
      */
     private fun name(item: HomeItem, view: View) {
-        val bare = (view as? ClockWidget)?.solid == false || (view as? UpNextWidget)?.solid == false || (view as? WidgetView)?.bare == true
+        val bare = (view as? ClockWidget)?.solid == false || (view as? AnalogClockWidget)?.solid == false ||
+            (view as? UpNextWidget)?.solid == false || (view as? WidgetView)?.bare == true
         view.setTag(R.id.home_name, if (bare) null else widgetName(item))
         view.setTag(R.id.home_bare, bare)
         (view.parent as? View)?.apply { requestLayout(); invalidate() }
@@ -449,7 +460,7 @@ class HomeScreen(
         // Feather's widgets take the wallpaper's colors too, so they're made again in the new ones.
         WidgetStyle.palette = palette
         WidgetStyle.context = activity.applicationContext
-        views.entries.filter { it.value is CardWidget || it.value is ClockWidget }.map { it.key }.forEach { id ->
+        views.entries.filter { it.value is CardWidget || it.value is ClockWidget || it.value is AnalogClockWidget }.map { it.key }.forEach { id ->
             views.remove(id)?.let { (it.parent as? ViewGroup)?.removeView(it) }
         }
         bindAll()
@@ -473,7 +484,15 @@ class HomeScreen(
     /** Puts an app on the first free spot, starting at the visible page, adding a page if all are full. */
     fun addApp(entry: AppEntry) = addItem(1, 1, HomeItem.Type.APP, entry.key)
 
-    fun addWidget(appWidgetId: Int, spanX: Int, spanY: Int) = addItem(spanX, spanY, HomeItem.Type.WIDGET, appWidgetId.toString())
+    /** Another app's widget, where it was dropped ([at]) if that's still free, else the first place with room. */
+    fun addWidget(appWidgetId: Int, spanX: Int, spanY: Int, at: Triple<Int, Int, Int>?) {
+        if (at == null || at.first !in 0 until workspace.pageCount || !workspace.isFree(at.first, at.second, at.third, spanX, spanY))
+            return addItem(spanX, spanY, HomeItem.Type.WIDGET, appWidgetId.toString())
+        workspace.add(at.first, at.second, at.third, spanX, spanY, HomeItem.Type.WIDGET, appWidgetId.toString())
+        workspace.save()
+        bindAll()
+        pages.snapTo(at.first)
+    }
 
     /** The clock, or At a glance: the same lines without the time, in a shorter space. */
     fun addFeather(kind: FeatherKind) = addItem(kind.w, kind.height(cellSizeDp().second), HomeItem.Type.CLOCK, kind.ref)
@@ -497,8 +516,9 @@ class HomeScreen(
             alpha = 0f
             scaleX = 0.85f
             scaleY = 0.85f
+            // Its name is drawn by the page, so the page draws again as it fades in.
             animate().alpha(1f).scaleX(1f).scaleY(1f).setStartDelay(120).setDuration(260)
-                .setInterpolator(DecelerateInterpolator(2f)).start()
+                .setInterpolator(DecelerateInterpolator(2f)).setUpdateListener { (parent as? View)?.invalidate() }.start()
         }
     }
 
@@ -809,7 +829,7 @@ class HomeScreen(
         val open: () -> Unit = when (item.type) {
             HomeItem.Type.WIDGET -> if (widgets.canReconfigure(item.ref.toInt())) ({ widgets.reconfigure(item.ref.toInt()) }) else return null
             HomeItem.Type.CLOCK -> when (FeatherKind.of(item)) {
-                FeatherKind.CLOCK, FeatherKind.UP_NEXT -> ({ featherSettings(item) })
+                FeatherKind.CLOCK, FeatherKind.ANALOG, FeatherKind.UP_NEXT -> ({ featherSettings(item) })
                 else -> return null
             }
             else -> return null
@@ -831,6 +851,7 @@ class HomeScreen(
             column.addView(Components.segmented(activity, p, listOf("Solid", "Transparent"), if (solid) 0 else 1) {
                 prefs.setWidgetSolid(item.id, it == 0)
                 (views[item.id] as? ClockWidget)?.setSolid(it == 0)
+                (views[item.id] as? AnalogClockWidget)?.setSolid(it == 0)
                 (views[item.id] as? UpNextWidget)?.solid = it == 0
                 views[item.id]?.let { view -> name(item, view) }
                 build()
@@ -916,6 +937,10 @@ class HomeScreen(
     /** Lets a widget held in the widget list be dragged onto a page; [preview] is how it looks there. */
     fun armWidget(kind: FeatherKind, preview: View) = drag.arm(DragSource(null, null, preview, kind = kind))
 
+    /** Lets another app's widget held in the widget list be dragged onto a page; it's added where it's dropped. */
+    fun armOtherWidget(info: android.appwidget.AppWidgetProviderInfo, preview: View, w: Int, h: Int) =
+        drag.arm(DragSource(null, null, preview, other = OtherWidget(info, w, h)))
+
     /** Lets a long-pressed app in the app list be dragged onto the home screen. */
     fun armFromDrawer(entry: AppEntry, row: View) = drag.arm(DragSource(null, entry, row))
 
@@ -935,7 +960,11 @@ class HomeScreen(
      */
     private class DragSource(val item: HomeItem?, val entry: AppEntry?, val view: View, val folder: HomeItem? = null, val kind: FeatherKind? = null,
         /** Where [view] was when it was picked up, for one that's gone by the time the drag starts (an app in a folder: its menu closes the folder). */
-        val from: Rect? = null)
+        val from: Rect? = null,
+        /** Another app's widget from the widget list, bound and set up once it's dropped. */
+        val other: OtherWidget? = null)
+
+    private class OtherWidget(val info: android.appwidget.AppWidgetProviderInfo, val w: Int, val h: Int)
 
     private inner class Drag {
         var downX = 0f
@@ -1093,14 +1122,14 @@ class HomeScreen(
             return active
         }
 
-        private val w get() = source?.item?.w ?: source?.kind?.w ?: 1
-        private val h get() = source?.item?.h ?: source?.kind?.height(cellSizeDp().second) ?: 1
+        private val w get() = source?.item?.w ?: source?.kind?.w ?: source?.other?.w ?: 1
+        private val h get() = source?.item?.h ?: source?.kind?.height(cellSizeDp().second) ?: source?.other?.h ?: 1
 
         private fun start(src: DragSource, ev: MotionEvent) {
             active = true
             // A widget's picture is taken from the widget list before it closes, and where an
             // app in a folder is before the folder closes: once it's closing, it's gone or moving.
-            val listShot = src.kind?.let { snapshot(src.view) to rectInRoot(src.view) }
+            val listShot = if (src.kind != null || src.other != null) snapshot(src.view) to rectInRoot(src.view) else null
             val inFolder = src.from ?: src.folder?.let { rectInRoot(src.view) }
             overlays.dismiss()
             finishResize()
@@ -1127,7 +1156,7 @@ class HomeScreen(
                 }
             }
             // Hold the icon where the finger first pressed it, so it stays under the finger.
-            val fromPress = src.item != null || src.folder != null || src.kind != null
+            val fromPress = src.item != null || src.folder != null || src.kind != null || src.other != null
             grabX = (if (fromPress) downX else ev.x) - origin.left
             grabY = (if (fromPress) downY else ev.y) - origin.top
             dragView = ImageView(activity).apply {
@@ -1315,9 +1344,9 @@ class HomeScreen(
          * meaning a drop would make or fill a folder. Folders can't go inside folders.
          */
         private fun folderCandidate(page: Int, col: Int, row: Int, view: View): HomeItem? {
-            if (source?.item?.type == HomeItem.Type.FOLDER) return null
+            if (source?.item?.type == HomeItem.Type.FOLDER || source?.kind != null || source?.other != null) return null
             val occupant = workspace.on(page).firstOrNull {
-                it.x == col && it.y == row && it !== source?.item && it !== source?.folder && it !in shifted.keys &&
+                it.x == col && it.y == row && it !== source?.item && it !== source?.folder && it !in shifted.keys && it !== bumped?.first &&
                     (it.type == HomeItem.Type.APP || it.type == HomeItem.Type.FOLDER)
             } ?: return null
             val cells = containerFor(page)
@@ -1385,7 +1414,14 @@ class HomeScreen(
             val plan = if (w == 1 && h == 1) planReorder(page, x, y) else planWidgetReorder(page, x, y)
             when (plan) {
                 null -> {
-                    // No way to make room here (a widget, or a full page): use the closest free spot.
+                    // A full page: everything slides along and the last app goes on to the next page.
+                    val overflow = if (w == 1 && h == 1) planOverflow(page, x, y) else null
+                    if (overflow != null) {
+                        setShifted(overflow.first, overflow.second)
+                        setTarget(Triple(page, x, y))
+                        return
+                    }
+                    // No way to make room here (a widget in the way): use the closest free spot.
                     setShifted(emptyMap())
                     val spot = workspace.nearestSpot(page, x, y, w, h, source?.item)
                     setTarget(spot?.let { Triple(page, it.first, it.second) })
@@ -1396,6 +1432,34 @@ class HomeScreen(
                 }
             }
         }
+
+        /**
+         * On a full page, as on iOS: the app at ([cx], [cy]) and every app after it in reading
+         * order slide along one place (past widgets), and the last one goes on to the next page
+         * with room, or a new one after the last. The slides, and the app leaving with where it
+         * goes. Null when a widget is in the way.
+         */
+        private fun planOverflow(page: Int, cx: Int, cy: Int): Pair<Map<HomeItem, Pair<Int, Int>>, Pair<HomeItem, Triple<Int, Int, Int>>>? {
+            val dragged = source?.item
+            val others = workspace.on(page).filter { it !== dragged }
+            fun at(x: Int, y: Int) = others.firstOrNull { x >= it.x && x < it.x + it.w && y >= it.y && y < it.y + it.h }
+            var moving = at(cx, cy)?.takeIf { it.w == 1 && it.h == 1 } ?: return null
+            val cols = workspace.cols(page)
+            val plan = LinkedHashMap<HomeItem, Pair<Int, Int>>()
+            for (i in cy * cols + cx + 1 until workspace.rows(page) * cols) {
+                val next = at(i % cols, i / cols)?.takeIf { it.w == 1 && it.h == 1 } ?: continue
+                plan[moving] = next.x to next.y
+                moving = next
+            }
+            // Where the dragged app came from counts as room: it's leaving.
+            val to = (page + 1 until workspace.pageCount).firstNotNullOfOrNull { p ->
+                workspace.nearestSpot(p, 0, 0, 1, 1, dragged)?.let { Triple(p, it.first, it.second) }
+            } ?: Triple(workspace.pageCount, 0, 0)
+            return plan to (moving to to)
+        }
+
+        /** The app going on to another page, with where it goes there. Nothing is saved until drop. */
+        private var bumped: Pair<HomeItem, Triple<Int, Int, Int>>? = null
 
         /**
          * Which icons move where so a dragged app fits at ([cx], [cy]). The icon in the way
@@ -1471,20 +1535,31 @@ class HomeScreen(
             return plan
         }
 
-        /** Slides icons to their temporary cells (and others back home). Nothing is saved until drop. */
-        private fun setShifted(next: Map<HomeItem, Pair<Int, Int>>) {
-            (shifted.keys - next.keys).forEach { item ->
-                views[item.id]?.animate()?.translationX(0f)?.translationY(0f)?.setDuration(180)?.start()
+        /**
+         * Slides icons to their temporary cells, [leaving] off the page's edge toward the page it's
+         * going to, and others back home. Nothing is saved until drop.
+         */
+        private fun setShifted(next: Map<HomeItem, Pair<Int, Int>>, leaving: Pair<HomeItem, Triple<Int, Int, Int>>? = null) {
+            val gone = leaving?.first
+            (shifted.keys + listOfNotNull(bumped?.first) - next.keys - setOfNotNull(gone)).forEach { item ->
+                views[item.id]?.animate()?.translationX(0f)?.translationY(0f)?.alpha(1f)?.setDuration(180)?.start()
             }
             next.forEach { (item, cell) ->
                 val view = views[item.id] ?: return@forEach
                 val cells = containerFor(item.page)
                 val from = cells.cellRect(Rect(item.x, item.y, item.x + 1, item.y + 1))
                 val to = cells.cellRect(Rect(cell.first, cell.second, cell.first + 1, cell.second + 1))
-                view.animate().translationX((to.left - from.left).toFloat()).translationY((to.top - from.top).toFloat())
+                view.animate().translationX((to.left - from.left).toFloat()).translationY((to.top - from.top).toFloat()).alpha(1f)
                     .setDuration(180).setInterpolator(DecelerateInterpolator(2f)).start()
             }
+            if (gone != null && gone !== bumped?.first) views[gone.id]?.let { view ->
+                // Out past the page's edge, as if into the next page.
+                val past = (view.parent as View).width - view.left
+                view.animate().translationX(past.toFloat()).translationY(0f).alpha(0f).setDuration(240)
+                    .setInterpolator(DecelerateInterpolator(2f)).start()
+            }
             shifted = next
+            bumped = leaving
         }
 
         private fun clearReorder(commit: Boolean) {
@@ -1497,6 +1572,19 @@ class HomeScreen(
                     views[item.id]?.apply { animate().cancel(); translationX = 0f; translationY = 0f }
                 }
                 shifted = emptyMap()
+                bumped?.let { (item, place) ->
+                    // Every page was full: it starts a new one.
+                    if (place.first >= workspace.pageCount) {
+                        workspace.addPage()
+                        pages.addView(newPage())
+                        dots.count = workspace.pageCount
+                    }
+                    item.page = place.first
+                    item.x = place.second
+                    item.y = place.third
+                    views[item.id]?.apply { animate().cancel(); translationX = 0f; translationY = 0f; alpha = 1f }
+                }
+                bumped = null
             } else {
                 setShifted(emptyMap())
             }
@@ -1508,7 +1596,7 @@ class HomeScreen(
             target = next
             next?.let {
                 val cells = containerFor(it.first)
-                cells.dropPreviewIsIcon = source?.item?.isWidget != true
+                cells.dropPreviewIsIcon = source?.item?.isWidget != true && source?.kind == null && source?.other == null
                 cells.dropPreviewBare = source?.item?.let { views[it.id]?.getTag(R.id.home_bare) } == true
                 cells.dropPreview = Rect(it.second, it.third, it.second + w, it.third + h)
             }
@@ -1551,6 +1639,15 @@ class HomeScreen(
                 return
             }
             clearReorder(commit = true)
+            // Another app's widget is only made once it's bound and set up; then it's placed here.
+            src.other?.let { other ->
+                setTarget(null)
+                workspace.save()
+                bindAll()
+                fadeOut()
+                widgets.add(other.info, t)
+                return
+            }
             val item = src.item
                 ?: src.kind?.let { workspace.add(t.first, t.second, t.third, it.w, h, HomeItem.Type.CLOCK, it.ref) }
                 ?: workspace.add(t.first, t.second, t.third, 1, 1, HomeItem.Type.APP, src.entry!!.key)
@@ -1802,7 +1899,7 @@ class HomeScreen(
             val b = bounds()
             // Around a card, its curve runs parallel to the card's, the frame's distance out.
             val radius = when (view) {
-                is CardWidget, is ClockWidget -> dp(WidgetStyle.radius + CardWidget.GAP - 2).toFloat()
+                is CardWidget, is ClockWidget, is AnalogClockWidget -> dp(WidgetStyle.radius + CardWidget.GAP - 2).toFloat()
                 is WidgetView -> (view.corner + view.cornerInset - dp(2)).coerceAtLeast(dp(18).toFloat())
                 else -> dp(18).toFloat()
             }
@@ -1906,7 +2003,7 @@ class HomeScreen(
         val bitmap = Bitmap.createBitmap(view.width.coerceAtLeast(1), view.height.coerceAtLeast(1), Bitmap.Config.ARGB_8888)
         // Draw without the keypad highlight or press scale.
         // A Feather widget's background is its card; others' is just the keypad highlight.
-        if (view is CardWidget || view is ClockWidget) {
+        if (view is CardWidget || view is ClockWidget || view is AnalogClockWidget) {
             view.draw(Canvas(bitmap))
             return bitmap
         }

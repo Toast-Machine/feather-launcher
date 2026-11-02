@@ -24,6 +24,7 @@ import java.util.Date
  */
 enum class FeatherKind(val ref: String, val label: String, val w: Int, val h: Int, val about: String, val minW: Int = 2, val minH: Int = 1, val maxH: Int = Int.MAX_VALUE) {
     CLOCK("", "Clock", 4, 2, "The time, the date and what's coming up"),
+    ANALOG("analog", "Analog clock", 2, 2, "The time on a clock face", minH = 2),
     // One row only, as Google's At a Glance: taller, it's mostly empty card.
     UP_NEXT("upnext", "Up next", 4, 1, "Your next event, zman and alarm, with the weather now", maxH = 1),
     CALENDAR("agenda", "Calendar", 4, 2, "Your upcoming events", minH = 2),
@@ -332,15 +333,24 @@ class UpNextWidget(context: Context, item: HomeItem) : CardWidget(context, item)
             lines.weather?.takeIf { roomy }?.let { w ->
                 // The weather now: its picture over the temperature, on a square tile in the accent
                 // color, as tall as the card's room. Its corners run parallel to the card's, the
-                // padding in from them.
+                // padding in from them. When rain or snow is likely in the next few hours, its
+                // chance sits beside them under a drop, and the tile widens to fit.
+                val rain = w.hours.take(RAIN_HOURS).maxOfOrNull { it.rain }?.takeIf { it >= RAIN_LIKELY }
                 addView(Tile(context, dp(TILE)) { dp(WidgetStyle.radius) - (this@UpNextWidget.paddingRight - dp(GAP)) }.apply {
                     background = Ui.rounded(context, WidgetStyle.accent(), WidgetStyle.radius - 12)
-                    addView(LinearLayout(context).apply {
+                    fun column(icon: android.graphics.drawable.Drawable, text: String) = LinearLayout(context).apply {
                         orientation = LinearLayout.VERTICAL
                         gravity = Gravity.CENTER_HORIZONTAL
-                        addView(ImageView(context).apply { setImageDrawable(WeatherArt.icon(w.sky, w.night)) }, LinearLayout.LayoutParams(dp(24), dp(24)))
-                        addView(WidgetStyle.cardText(context, 14f, WidgetStyle.title, WidgetStyle.onAccent()).apply { text = "${w.temperature}°" },
+                        addView(ImageView(context).apply { setImageDrawable(icon) }, LinearLayout.LayoutParams(dp(24), dp(24)))
+                        addView(WidgetStyle.cardText(context, 14f, WidgetStyle.title, WidgetStyle.onAccent()).apply { this.text = text },
                             LinearLayout.LayoutParams(LinearLayout.LayoutParams.WRAP_CONTENT, LinearLayout.LayoutParams.WRAP_CONTENT).apply { topMargin = dp(1) })
+                    }
+                    addView(LinearLayout(context).apply {
+                        orientation = LinearLayout.HORIZONTAL
+                        gravity = Gravity.CENTER_VERTICAL
+                        addView(column(WeatherArt.icon(w.sky, w.night), "${w.temperature}°"))
+                        if (rain != null) addView(column(context.getDrawable(R.drawable.ic_drop)!!.mutate().apply { setTint(WidgetStyle.onAccent()) }, "$rain%"),
+                            LinearLayout.LayoutParams(LinearLayout.LayoutParams.WRAP_CONTENT, LinearLayout.LayoutParams.WRAP_CONTENT).apply { marginStart = dp(12) })
                     }, FrameLayout.LayoutParams(FrameLayout.LayoutParams.WRAP_CONTENT, FrameLayout.LayoutParams.WRAP_CONTENT, Gravity.CENTER))
                 }, LinearLayout.LayoutParams(LinearLayout.LayoutParams.WRAP_CONTENT, LinearLayout.LayoutParams.MATCH_PARENT))
             }
@@ -378,19 +388,26 @@ class UpNextWidget(context: Context, item: HomeItem) : CardWidget(context, item)
         if (solid) WidgetStyle.cardText(context, sp, face, color) else WidgetStyle.text(context, sp, face, color)
 
     /** A square as tall as the card's room, up to [max] pixels, with corners [radius] pixels round. */
+    /** Square, as tall as there's room for up to [max]; wider only when what's on it needs it. */
     private class Tile(context: Context, private val max: Int, private val radius: () -> Int) : FrameLayout(context) {
         override fun onMeasure(widthMeasureSpec: Int, heightMeasureSpec: Int) {
             (background as? android.graphics.drawable.GradientDrawable)?.cornerRadius = radius().toFloat()
             val room = MeasureSpec.getSize(heightMeasureSpec)
             val size = if (MeasureSpec.getMode(heightMeasureSpec) == MeasureSpec.UNSPECIFIED || room == 0) max else minOf(room, max)
             val exact = MeasureSpec.makeMeasureSpec(size, MeasureSpec.EXACTLY)
-            super.onMeasure(exact, exact)
+            // As much room either side of what's on it as there is above and below.
+            val content = getChildAt(0)?.apply { measure(MeasureSpec.UNSPECIFIED, MeasureSpec.UNSPECIFIED) }
+            val side = ((size - (content?.measuredHeight ?: 0)) / 2).coerceAtLeast(0)
+            super.onMeasure(MeasureSpec.makeMeasureSpec(maxOf(size, (content?.measuredWidth ?: 0) + 2 * side), MeasureSpec.EXACTLY), exact)
         }
     }
 
     private companion object {
         /** The weather tile's size, in dp. */
         const val TILE = 64
+        /** Rain or snow this likely (percent) in the next [RAIN_HOURS] hours shows on the weather tile. */
+        const val RAIN_LIKELY = 30
+        const val RAIN_HOURS = 6
     }
 }
 
@@ -1039,7 +1056,7 @@ class ZmanimWidget(context: Context, item: HomeItem) : CardWidget(context, item)
                 }
                 val sp = if (narrow) 14f else 15f
                 val color = if (next) WidgetStyle.onAccentFill() else WidgetStyle.onCard()
-                addView(WidgetStyle.cardText(context, sp, if (next) WidgetStyle.title else WidgetStyle.body, color).apply { text = z.name },
+                addView(WidgetStyle.cardText(context, sp, if (next) WidgetStyle.title else WidgetStyle.body, color).apply { text = info.zmanName(z) },
                     LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f).apply { marginEnd = dp(if (narrow) 8 else 12) })
                 addView(WidgetStyle.cardText(context, sp, if (next) WidgetStyle.title else WidgetStyle.body,
                     if (next) color else WidgetStyle.onCardQuiet()).apply { text = time(z.time, place.zone) })

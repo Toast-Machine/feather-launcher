@@ -43,6 +43,8 @@ class SettingsActivity : Activity() {
     /** The notification filter open in its editor, and whether it's a new one. */
     internal var filterDraft: NotificationFilter? = null
     internal var filterIsNew = false
+    /** The filter as it was when its editor opened, to tell whether leaving would lose changes. */
+    internal var filterOriginal: NotificationFilter? = null
 
     /** The app limit open on its page. */
     internal var limitId: Long? = null
@@ -53,9 +55,10 @@ class SettingsActivity : Activity() {
     internal var keyCapture: ((List<Int>) -> Unit)? = null
         set(value) {
             field = value
-            // Android hands Back to back handlers, not as a key; while a key is being chosen, this
-            // one takes it so Back can be chosen too (on a phone without a power button, double
-            // pressing it can lock the screen). Older Android sends Back as a key, caught below.
+            // Android 16 and newer hand Back to back handlers, not as a key; while a key is being
+            // chosen, this one takes it so Back can be chosen too (on a phone without a power
+            // button, double pressing it can lock the screen). Older Android sends Back as a key,
+            // caught below.
             if (Build.VERSION.SDK_INT < Build.VERSION_CODES.TIRAMISU) return
             if (value != null) onBackInvokedDispatcher.registerOnBackInvokedCallback(
                 android.window.OnBackInvokedDispatcher.PRIORITY_OVERLAY, captureBack)
@@ -77,7 +80,12 @@ class SettingsActivity : Activity() {
     override fun onActivityResult(requestCode: Int, resultCode: Int, data: Intent?) {
         @Suppress("DEPRECATION")
         super.onActivityResult(requestCode, resultCode, data)
-        build()
+        // Once onResume has redrawn the page: a sheet opened before that (Restore this backup?)
+        // would be wiped away with it.
+        root.post { onResult(requestCode, resultCode, data) }
+    }
+
+    private fun onResult(requestCode: Int, resultCode: Int, data: Intent?) {
         val uri = data?.data
         if (resultCode == RESULT_OK && uri != null) {
             if (requestCode == REQUEST_BACKUP) return saveBackup(uri)
@@ -117,7 +125,7 @@ class SettingsActivity : Activity() {
         setContentView(root)
 
         // Newer Android sends Back here instead of as a key press.
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) onBackInvokedDispatcher.registerOnBackInvokedCallback(android.window.OnBackInvokedDispatcher.PRIORITY_DEFAULT) { if (!overlays.dismiss()) back() }
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) onBackInvokedDispatcher.registerOnBackInvokedCallback(android.window.OnBackInvokedDispatcher.PRIORITY_DEFAULT) { onBack() }
         root.setOnApplyWindowInsetsListener { _, windowInsets ->
             val bars = windowInsets.getInsets(WindowInsets.Type.systemBars())
             val next = Rect(bars.left, bars.top, bars.right, bars.bottom)
@@ -239,6 +247,12 @@ class SettingsActivity : Activity() {
         })
     }
 
+    /** Back: takes a digit off the PIN pad, or closes what's open, or goes back a page. */
+    private fun onBack() {
+        if (PinPad.active?.takeIf { overlays.isShowing }?.back() == true) return
+        if (!overlays.dismiss()) back()
+    }
+
     private fun back() {
         if (openedDirectly && current != Page.SHORTCUT && current != Page.FILTER) return finish()
         when (current) {
@@ -254,7 +268,17 @@ class SettingsActivity : Activity() {
                     "Discard", "Keep editing", leave)
                 else leave()
             }
-            Page.FILTER, Page.NOTIFICATION_HISTORY -> {
+            Page.FILTER -> {
+                val leave = {
+                    filterDraft = null
+                    open(Page.NOTIFICATIONS)
+                }
+                if (filterDraft != null && filterDraft != filterOriginal) {
+                    confirm("Discard changes?", if (filterIsNew) "This filter won't be added." else "Your changes to this filter won't be saved.",
+                        "Discard", "Keep editing", leave)
+                } else leave()
+            }
+            Page.NOTIFICATION_HISTORY -> {
                 filterDraft = null
                 open(Page.NOTIFICATIONS)
             }
@@ -324,7 +348,7 @@ class SettingsActivity : Activity() {
         )))
         system(p)
         content.addView(TextView(this).apply {
-            text = "Feather Launcher ${packageManager.getPackageInfo(packageName, 0).versionName}"
+            text = "${getString(R.string.app_name)} ${packageManager.getPackageInfo(packageName, 0).versionName}"
             style(TextStyle.Caption, p.textTertiary)
             gravity = Gravity.CENTER
             setPadding(0, dp(Ui.SPACE_XL), 0, 0)
@@ -333,7 +357,7 @@ class SettingsActivity : Activity() {
 
     private fun pageRow(p: Palette, icon: Int, page: Page, summary: String) =
         Components.row(this, p, icon, page.title, subtitle = summary, chevron = true, inset = Ui.SPACE_L) {
-            if (page == Page.HIDDEN && prefs.hiddenPin != null) PinPad.ask(this, palette, overlays, prefs.hiddenPin!!) { open(page) }
+            if (page == Page.HIDDEN && prefs.hiddenPin != null) PinPad.ask(this, palette, overlays, prefs.hiddenPin!!, "To change hidden apps") { open(page) }
             else open(page)
         }
 
@@ -518,7 +542,7 @@ class SettingsActivity : Activity() {
                 chevron = true, inset = Ui.SPACE_L) { pinOptions() },
         )))
         content.addView(Components.footnote(this, p, "A PIN is required to open Hidden apps or these settings."))
-        val apps = repo.apps.filter { it.key in prefs.hidden }.sortedBy { it.label.lowercase() }
+        val apps = Categories(this).sorted(Categories.HIDDEN, repo.apps.filter { it.key in prefs.hidden })
         content.addView(heading(p, "Hidden apps"))
         content.addView(spacer())
         if (apps.isEmpty()) {
@@ -580,6 +604,37 @@ class SettingsActivity : Activity() {
             orientation = LinearLayout.VERTICAL
             setPadding(0, 0, 0, dp(Ui.SPACE_M))
         }
+        if (updates.isDev) {
+            column.addView(TextView(this).apply {
+                text = "This is Feather Dev, a test build. It doesn't update itself: install a newer Dev build over it."
+                style(TextStyle.Body, p.text)
+                setPadding(dp(Ui.SPACE_XL), 0, dp(Ui.SPACE_XL), dp(Ui.SPACE_L))
+            })
+            overlays.showSheet("Updates", column)
+            return
+        }
+        fun check() {
+            say("Checking…")
+            updates.check { ok ->
+                when {
+                    !ok -> say("Couldn't check. Make sure you're online and try again.")
+                    updates.available == null && release == null -> say("You have the newest version.")
+                    else -> {
+                        overlays.dismiss()
+                        build()
+                        updatesSheet()
+                    }
+                }
+            }
+        }
+        fun addBetaSwitch() {
+            column.addView(Components.toggleRow(this, p, R.drawable.ic_set_code, "Get beta updates", updates.betas) {
+                updates.betas = it
+                check()
+            })
+            column.addView(Components.footnote(this, p,
+                "Betas are test builds of what's coming next, made after every change. They can have bugs."))
+        }
         if (release == null) {
             column.addView(TextView(this).apply {
                 text = "You have version ${updates.currentVersion}."
@@ -587,20 +642,8 @@ class SettingsActivity : Activity() {
                 setPadding(dp(Ui.SPACE_XL), 0, dp(Ui.SPACE_XL), dp(Ui.SPACE_M))
             })
             column.addView(status)
-            column.addView(Components.row(this, p, R.drawable.ic_refresh, "Check for updates", color = p.accent) {
-                say("Checking…")
-                updates.check { ok ->
-                    when {
-                        !ok -> say("Couldn't check. Make sure you're online and try again.")
-                        updates.available == null -> say("You have the newest version.")
-                        else -> {
-                            overlays.dismiss()
-                            build()
-                            updatesSheet()
-                        }
-                    }
-                }
-            })
+            column.addView(Components.row(this, p, R.drawable.ic_refresh, "Check for updates", color = p.accent) { check() })
+            addBetaSwitch()
             overlays.showSheet("Updates", column)
             return
         }
@@ -641,6 +684,7 @@ class SettingsActivity : Activity() {
         }
         installRow = Components.row(this, p, R.drawable.ic_arrow_downward, "Install ${release.version}", color = p.accent) { install() }
         column.addView(installRow)
+        addBetaSwitch()
         overlays.showSheet("Feather Launcher ${release.version}", column, scrollable = notes)
         if (installNow) install()
     }
@@ -710,7 +754,7 @@ class SettingsActivity : Activity() {
     private fun pinOptions() {
         val pin = prefs.hiddenPin
         val setNew = {
-            PinPad.create(this, palette, overlays) {
+            PinPad.create(this, palette, overlays, "To open hidden apps") {
                 prefs.hiddenPin = PinPad.hash(it)
                 build()
                 Toast.makeText(this, "PIN set for hidden apps", Toast.LENGTH_SHORT).show()
@@ -722,12 +766,12 @@ class SettingsActivity : Activity() {
             setPadding(0, 0, 0, dp(Ui.SPACE_M))
             addView(Components.row(this@SettingsActivity, palette, R.drawable.ic_edit, "Change PIN") {
                 overlays.dismiss()
-                root.postDelayed({ PinPad.ask(this@SettingsActivity, palette, overlays, pin) { root.postDelayed(setNew, 160) } }, 160)
+                root.postDelayed({ PinPad.ask(this@SettingsActivity, palette, overlays, pin, "To change your PIN") { root.postDelayed(setNew, 160) } }, 160)
             })
             addView(Components.row(this@SettingsActivity, palette, R.drawable.ic_close, "Turn off PIN", color = palette.danger) {
                 overlays.dismiss()
                 root.postDelayed({
-                    PinPad.ask(this@SettingsActivity, palette, overlays, pin) {
+                    PinPad.ask(this@SettingsActivity, palette, overlays, pin, "To turn off the PIN") {
                         prefs.hiddenPin = null
                         build()
                     }
@@ -744,8 +788,8 @@ class SettingsActivity : Activity() {
     }
 
     override fun dispatchKeyEvent(event: KeyEvent): Boolean {
-        val backIsKey = Build.VERSION.SDK_INT < Build.VERSION_CODES.TIRAMISU
-        keyCapture?.takeIf { overlays.isShowing && (event.keyCode != KeyEvent.KEYCODE_BACK || backIsKey) || captured.isNotEmpty() }?.let { capture ->
+        // Back too: up to Android 15 it comes as a key (16 and newer give it to captureBack instead).
+        keyCapture?.takeIf { overlays.isShowing || captured.isNotEmpty() }?.let { capture ->
             // Decided when the first key comes back up, so a second key pressed with it counts too.
             if (event.action == KeyEvent.ACTION_DOWN && event.repeatCount == 0 && event.keyCode !in captured && captured.size < 2) {
                 captured += event.keyCode
@@ -759,18 +803,15 @@ class SettingsActivity : Activity() {
         PinPad.active?.takeIf { overlays.isShowing }?.let { pad ->
             val k = event.keyCode
             val digit = if (k in KeyEvent.KEYCODE_0..KeyEvent.KEYCODE_9) k - KeyEvent.KEYCODE_0 else null
-            val handled = digit != null || k == KeyEvent.KEYCODE_DEL || k == KeyEvent.KEYCODE_DPAD_CENTER || k == KeyEvent.KEYCODE_ENTER
-            if (handled) {
-                if (event.action == KeyEvent.ACTION_DOWN && event.repeatCount == 0) when {
-                    digit != null -> pad.type('0' + digit)
-                    k == KeyEvent.KEYCODE_DEL -> pad.delete()
-                    else -> pad.confirm()
+            if (digit != null || k == KeyEvent.KEYCODE_DEL) {
+                if (event.action == KeyEvent.ACTION_DOWN) {
+                    if (digit != null) { if (event.repeatCount == 0) pad.type('0' + digit) } else pad.delete()
                 }
                 return true
             }
         }
         if (event.keyCode == KeyEvent.KEYCODE_BACK) {
-            if (event.action == KeyEvent.ACTION_UP && !overlays.dismiss()) back()
+            if (event.action == KeyEvent.ACTION_UP) onBack()
             return true
         }
         return super.dispatchKeyEvent(event)
