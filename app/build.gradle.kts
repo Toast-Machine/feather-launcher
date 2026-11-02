@@ -55,7 +55,9 @@ android {
         // settings, for trying out work that isn't released yet.
         debug {
             applicationIdSuffix = ".dev"
-            versionNameSuffix = " dev"
+            // A fork's own Dev builds add which upstream commit they're on and a decimal for theirs on
+            // top (-PdevVersion=135.3, "1.6 dev 135.3"). The versionCode stays 1 either way.
+            versionNameSuffix = " dev" + (providers.gradleProperty("devVersion").orNull?.let { " $it" } ?: "")
             signingConfig = signingConfigs.getByName("dev")
         }
         release {

@@ -1,0 +1,61 @@
+# On a fork, builds Feather Dev from every push to main and publishes it as the "dev"
+# pre-release, replacing the one before. It's the same app as upstream's Dev builds
+# (app.featherlauncher.dev, signed with the public test key in the repo, versionCode 1), so
+# either one installs over the other, whichever is newer.
+#
+# Its name says what it's built on: "1.6 dev 135.3" is upstream's main at its 135th commit,
+# with 3 of this fork's commits on top.
+name: Fork Dev
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: fork-dev
+
+jobs:
+  dev:
+    if: ${{ github.event.repository.fork }}
+    runs-on: ubuntu-latest
+    env:
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+      - name: Version
+        id: version
+        run: |
+          upstream=$(gh api "repos/$GITHUB_REPOSITORY" -q .parent.full_name)
+          git fetch --no-tags "https://github.com/$upstream.git" main
+          base=$(git merge-base HEAD FETCH_HEAD)
+          number="$(git rev-list --count "$base").$(git rev-list --count "$base"..HEAD)"
+          echo "number=$number" >> "$GITHUB_OUTPUT"
+          echo "upstream=$upstream" >> "$GITHUB_OUTPUT"
+          echo "base=$base" >> "$GITHUB_OUTPUT"
+      - uses: actions/setup-java@v6
+        with:
+          distribution: temurin
+          java-version: 21
+      - uses: gradle/actions/setup-gradle@v6
+      - run: ./gradlew assembleDebug -PdevVersion=${{ steps.version.outputs.number }}
+      - name: Publish
+        env:
+          NUMBER: ${{ steps.version.outputs.number }}
+          UPSTREAM: ${{ steps.version.outputs.upstream }}
+          BASE: ${{ steps.version.outputs.base }}
+        run: |
+          apk="FeatherDev-$NUMBER.apk"
+          mv app/build/outputs/apk/debug/app-debug.apk "$apk"
+          notes="Feather Dev from this fork's main: $(git log -1 --format=%s).
+
+          Built on $UPSTREAM@${BASE:0:7} with ${NUMBER#*.} of this fork's commits on top. It installs next to the real Feather, and over any Feather Dev build, this fork's or upstream's."
+          notes=$(printf '%s\n' "$notes" | sed 's/^          //')
+          gh release delete dev --cleanup-tag --yes || true
+          gh release create dev "$apk" --target "$GITHUB_SHA" --prerelease --latest=false \
+            --title "Feather Dev $NUMBER" --notes "$notes"

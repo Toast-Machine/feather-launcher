@@ -18,6 +18,8 @@ concurrency:
 
 jobs:
   beta:
+    # Forks have no release key; they build Feather Dev instead (fork-dev.yml).
+    if: ${{ !github.event.repository.fork }}
     runs-on: ubuntu-latest
     environment: beta
     steps:
