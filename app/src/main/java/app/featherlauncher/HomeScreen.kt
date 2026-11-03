@@ -57,13 +57,18 @@ class HomeScreen(
         fun returnToDrawer(entry: AppEntry, x: Float, y: Float)
         /** Cancels the touch gesture currently going to the views, once a drag takes it over. */
         fun cancelViewTouches()
-        /** The home screen's own options (Add widget, Wallpaper, Settings). */
+        /** The home screen's own options (Add widget, Pages, Wallpaper, Settings). */
         fun homeMenuItems(): List<MenuItem>
     }
 
     val workspace = Workspace(activity)
     private val shortcuts = Shortcuts(activity)
     private val views = HashMap<Long, View>()
+    /**
+     * Each folder's picture and what it was drawn from; drawn again only when that changes, not at
+     * every return home. Up here, before init draws the first ones.
+     */
+    private val folderIcons = HashMap<Long, Pair<List<Any?>, Bitmap>>()
     private val drag = Drag()
     private var resize: ResizeFrame? = null
 
@@ -111,6 +116,8 @@ class HomeScreen(
         root.addView(pageTarget, FrameLayout.LayoutParams(0, 0, Gravity.TOP or Gravity.START))
         pageRings += pageTarget
         pages.addOnLayoutChangeListener { _, _, _, _, _, _, _, _, _ ->
+            // Not while the Pages screen has the pages (see lendPages).
+            if (pages.pageCount == 0) return@addOnLayoutChangeListener
             placePageTarget()
             // The dots sit midway between the last row and the dock.
             dots.aboveDock = pages.page(0).rowGap / 2
@@ -206,17 +213,22 @@ class HomeScreen(
     fun onAppsChanged() {
         fillDefaultDock()
         // Drop apps that were uninstalled (only once the app list is known), and hidden apps,
-        // which are never on the home screen.
+        // which are never on the home screen. Hidden pages too, so an app is never brought back
+        // with its page after it's gone.
         if (repo.apps.isNotEmpty()) {
             fun gone(key: String) = repo.find(key) == null || key in prefs.hidden
-            val inFolders = workspace.items.filter { it.type == HomeItem.Type.FOLDER }.flatMap { folder ->
-                folder.apps.filter(::gone).map { folder to it }
-            }
-            inFolders.forEach { (folder, key) -> removeFromFolder(folder, key) }
-            val gone = workspace.items.filter { it.type == HomeItem.Type.APP && gone(it.ref) }
-            if (gone.isNotEmpty() || inFolders.isNotEmpty()) {
-                workspace.items.removeAll(gone)
+            var changed = false
+            for (list in listOf(workspace.items) + workspace.hidden.map { it.items }) {
+                val inFolders = list.filter { it.type == HomeItem.Type.FOLDER }.flatMap { folder ->
+                    folder.apps.filter(::gone).map { folder to it }
+                }
+                inFolders.forEach { (folder, key) -> removeFromFolder(folder, key, list) }
+                val gone = list.filter { it.type == HomeItem.Type.APP && gone(it.ref) }
+                list.removeAll(gone)
                 gone.forEach { views.remove(it.id)?.let { v -> (v.parent as? ViewGroup)?.removeView(v) } }
+                if (gone.isNotEmpty() || inFolders.isNotEmpty()) changed = true
+            }
+            if (changed) {
                 workspace.removeEmptyPages()
                 workspace.save()
             }
@@ -226,6 +238,7 @@ class HomeScreen(
 
     /** Puts every item's view in its cell, creating views as needed and reusing the rest. */
     fun bindAll() {
+        if (lent) return
         while (pages.pageCount < workspace.pageCount) pages.addView(newPage())
         while (pages.pageCount > workspace.pageCount) pages.removeViewAt(pages.pageCount - 1)
         dots.count = workspace.pageCount
@@ -256,26 +269,7 @@ class HomeScreen(
         val now = System.currentTimeMillis()
         for (item in workspace.items) {
             val view = views[item.id] ?: createView(item)?.also { views[item.id] = it } ?: continue
-            (view as? ClockWidget)?.refresh()
-            (view as? AnalogClockWidget)?.refresh()
-            (view as? CardWidget)?.refresh()
-            if (view is AppIconView) {
-                val showLabel = !item.inDock && prefs.showLabels
-                if (item.type == HomeItem.Type.FOLDER) {
-                    // As on iOS, a folder's badge adds up its apps' (locked ones don't count).
-                    val badge = item.apps.mapNotNull(repo::find).distinctBy { it.packageName }
-                        .filter { !limits.isLocked(it.packageName, now) }.sumOf { prefs.badgeCount(it.packageName) }
-                    view.bind(folderIcon(item), item.label ?: FOLDER_NAME, showLabel, badge = badge,
-                        iconDp = homeIcon())
-                } else {
-                    val entry = repo.find(item.ref)
-                    view.bind(entry?.let(repo::icon), item.label ?: entry?.label.orEmpty(), showLabel,
-                        locked = entry != null && limits.isLocked(entry.packageName, now),
-                        isNew = entry != null && newApps.isNew(entry),
-                        badge = entry?.let { prefs.badgeCount(it.packageName) } ?: 0,
-                        iconDp = homeIcon())
-                }
-            }
+            bindItem(item, view, limits, newApps, now)
             val target = containerFor(item.page)
             val lp = view.layoutParams as? CellLayout.LayoutParams
             if (view.parent !== target || lp == null || lp.x != item.x || lp.y != item.y || lp.w != item.w || lp.h != item.h) {
@@ -288,6 +282,47 @@ class HomeScreen(
         }
         sizeDock()
         pages.updateFocusability()
+    }
+
+    /**
+     * Other apps' widgets are drawn once, in the light or dark mode the phone was in; they're made
+     * again ([applyTheme] then puts them back) so they take on the new one, as they would if the
+     * launcher had started in it.
+     */
+    fun remakeOtherWidgets() {
+        views.entries.filter { it.value is WidgetView }.map { it.key }.forEach { id ->
+            views.remove(id)?.let { (it.parent as? ViewGroup)?.removeView(it) }
+        }
+    }
+
+    /**
+     * Feather's widgets look again at what they show, coming home (a setting may have changed);
+     * each changes only if something on it did. New ones do as they're added.
+     */
+    fun refreshWidgets() {
+        for (view in views.values) {
+            (view as? ClockWidget)?.refresh()
+            (view as? CardWidget)?.refresh()
+        }
+    }
+
+    private fun bindItem(item: HomeItem, view: View, limits: AppLimits, newApps: NewApps, now: Long) {
+        if (view !is AppIconView) return
+        val showLabel = !item.inDock && prefs.showLabels
+        if (item.type == HomeItem.Type.FOLDER) {
+            // As on iOS, a folder's badge adds up its apps' (locked ones don't count).
+            val badge = item.apps.mapNotNull(repo::find).distinctBy { it.packageName }
+                .filter { !limits.isLocked(it.packageName, now) }.sumOf { prefs.badgeCount(it.packageName) }
+            view.bind(folderIcon(item), item.label ?: FOLDER_NAME, showLabel, badge = badge,
+                iconDp = homeIcon())
+        } else {
+            val entry = repo.find(item.ref)
+            view.bind(entry?.let(repo::icon), item.label ?: entry?.label.orEmpty(), showLabel,
+                locked = entry != null && limits.isLocked(entry.packageName, now),
+                isNew = entry != null && newApps.isNew(entry),
+                badge = entry?.let { prefs.badgeCount(it.packageName) } ?: 0,
+                iconDp = homeIcon())
+        }
     }
 
     /** The home screen's icons, the same on pages and in the dock; bigger with no names under them, smaller on a narrow screen. */
@@ -362,7 +397,6 @@ class HomeScreen(
                 }
                 is NotificationsWidget -> {
                     onMore = { NotificationsSheet.show(activity, palette(), overlays) }
-                    onAllow = { Setup.NOTIFICATIONS.start(activity) }
                     // Opening one up brings new buttons; the keypad reaches them as it did the rows.
                     onRebuilt = { if (inside === this) pressablesIn(this).forEach { keyTarget(it, this) } }
                 }
@@ -537,6 +571,78 @@ class HomeScreen(
 
     // endregion
 
+    // region Pages
+
+    /** The Pages screen has the pages' grids: nothing is put on them until they're back. */
+    private var lent = false
+
+    /** The shown pages' grids, in order. */
+    fun shownPages(): List<CellLayout> = (0 until pages.pageCount).map { pages.page(it) }
+
+    /**
+     * Gives the shown pages' grids to [PagesScreen], which puts them in its own pictures. The grids
+     * themselves move, so nothing on them is made again or moved however the pages change; the
+     * home screen has none until [returnPages].
+     */
+    fun lendPages() {
+        pages.removeAllViews()
+        lent = true
+    }
+
+    /** Takes back the grids of the pages that are shown now, in their order. */
+    fun returnPages(shown: List<CellLayout>) {
+        lent = false
+        for (page in shown) {
+            (page.parent as? ViewGroup)?.removeView(page)
+            page.scaleX = 1f
+            page.scaleY = 1f
+            page.translationY = 0f
+            pages.addView(page)
+        }
+        pages.snapTo(pages.currentPage, animate = false)
+        bindAll()
+    }
+
+    /** A hidden page laid out as it would be on the home screen, for [PagesScreen]. */
+    fun buildPage(items: List<HomeItem>): CellLayout {
+        val page = newPage()
+        page.names = prefs.showLabels
+        page.iconDp = homeIcon()
+        val limits = AppLimits.get(activity)
+        val newApps = NewApps.get(activity)
+        val now = System.currentTimeMillis()
+        for (item in items) {
+            // Kept, so a page shown again has them ready (they go if it stays hidden).
+            val view = views[item.id] ?: createView(item)?.also { views[item.id] = it } ?: continue
+            bindItem(item, view, limits, newApps, now)
+            page.place(view, item.x, item.y, item.w, item.h)
+        }
+        return page
+    }
+
+    /** Hides or shows the page at [position] among all of them. */
+    fun setPageHidden(position: Int, hide: Boolean) = changePages { it[position] = Workspace.Page(it[position].items, hide) }
+
+    fun movePage(from: Int, to: Int) = changePages { it.add(to, it.removeAt(from)) }
+
+    /**
+     * Deletes the hidden page at [position]. Its apps stay in the app list; other apps' widgets on
+     * it are let go, and Feather's own simply go with it.
+     */
+    fun deletePage(position: Int) = changePages { pages ->
+        pages.removeAt(position).items.filter { it.type == HomeItem.Type.WIDGET }.forEach { widgets.delete(it.ref.toInt()) }
+    }
+
+    private fun changePages(change: (MutableList<Workspace.Page>) -> Unit) {
+        val pages = workspace.allPages().toMutableList()
+        change(pages)
+        workspace.arrange(pages)
+        workspace.save()
+        bindAll()
+    }
+
+    // endregion
+
     // region Menus
 
     private fun onItemLongPress(item: HomeItem, view: View) {
@@ -655,18 +761,29 @@ class HomeScreen(
 
     // region Folders
 
-    /** The folder's icon: a tile in the icon shape with up to four of its apps inside. */
+    /**
+     * The folder's icon: a tile in the icon shape with up to four of its apps inside. In the
+     * dock, a tile the dock's own color would vanish, so it takes an open folder's lighter tone.
+     */
     private fun folderIcon(item: HomeItem): Bitmap {
+        val icons = item.apps.take(4).map { key -> repo.find(key)?.let(repo::icon) }
+        val fill = if (item.inDock) palette().folderPanel else palette().folderFill
+        val from = listOf(prefs.iconShape, fill, dp(64)) + icons.map { it?.let(System::identityHashCode) }
+        folderIcons[item.id]?.let { (drawnFrom, bitmap) -> if (drawnFrom == from) return bitmap }
+        return drawFolderIcon(icons, fill).also { folderIcons[item.id] = from to it }
+    }
+
+    private fun drawFolderIcon(icons: List<Bitmap?>, fill: Int): Bitmap {
         val size = dp(64)
         val bitmap = Bitmap.createBitmap(size, size, Bitmap.Config.ARGB_8888)
         val canvas = Canvas(bitmap)
-        canvas.drawPath(prefs.iconShape.path(size.toFloat()), Paint(Paint.ANTI_ALIAS_FLAG).apply { color = palette().folderFill })
+        canvas.drawPath(prefs.iconShape.path(size.toFloat()), Paint(Paint.ANTI_ALIAS_FLAG).apply { color = fill })
         val pad = size * 0.17f
         val gap = size * 0.07f
         val mini = (size - 2 * pad - gap) / 2
         val paint = Paint(Paint.ANTI_ALIAS_FLAG or Paint.FILTER_BITMAP_FLAG)
-        item.apps.take(4).forEachIndexed { i, key ->
-            val icon = repo.find(key)?.let(repo::icon) ?: return@forEachIndexed
+        icons.forEachIndexed { i, icon ->
+            if (icon == null) return@forEachIndexed
             val x = pad + (i % 2) * (mini + gap)
             val y = pad + (i / 2) * (mini + gap)
             canvas.drawBitmap(icon, null, RectF(x, y, x + mini, y + mini), paint)
@@ -715,13 +832,13 @@ class HomeScreen(
     }
 
     /** Takes [key] out; a folder left with one app becomes that app, an empty one disappears. */
-    private fun removeFromFolder(folder: HomeItem, key: String) {
+    private fun removeFromFolder(folder: HomeItem, key: String, list: MutableList<HomeItem> = workspace.items) {
         folder.apps.remove(key)
         when (folder.apps.size) {
-            0 -> workspace.items.remove(folder)
+            0 -> list.remove(folder)
             1 -> {
-                workspace.items.remove(folder)
-                workspace.add(folder.page, folder.x, folder.y, 1, 1, HomeItem.Type.APP, folder.apps.first())
+                list.remove(folder)
+                list += HomeItem(workspace.nextId(), folder.page, folder.x, folder.y, 1, 1, HomeItem.Type.APP, folder.apps.first())
             }
         }
     }
@@ -1199,7 +1316,12 @@ class HomeScreen(
             val dockRect = rectInRoot(dock)
             val inDock = dockRect.contains(x.toInt(), y.toInt())
             // The dock lights up with an outline while the item is over it.
-            dockOutline?.animate()?.alpha(if (inDock && w == 1 && h == 1) 1f else 0f)?.setDuration(120)?.start()
+            // Only when it changes: a new fade on every move kept one running all through the drag.
+            val outline = if (inDock && w == 1 && h == 1) 1f else 0f
+            if (outline != dockOutlineTarget) {
+                dockOutlineTarget = outline
+                dockOutline?.animate()?.alpha(outline)?.setDuration(120)?.start()
+            }
             val page = when {
                 inDock && w == 1 && h == 1 -> Workspace.DOCK
                 inDock -> null
@@ -1223,20 +1345,25 @@ class HomeScreen(
             val cy = ((centerY - h * cells.cellHeight / 2) / cells.cellHeight).roundToInt()
             val col = cx.coerceIn(0, workspace.cols(page) - w)
             val row = cy.coerceIn(0, workspace.rows(page) - h)
-            val candidate = if (w == 1 && h == 1) folderCandidate(page, col, row, view) else null
-            setFolderTarget(candidate)
-            if (candidate != null) {
+            val near = if (w == 1 && h == 1) iconNear(page, col, row, view) else null
+            val onto = folderOnto(near)
+            if (onto != null) {
                 clearReorder(commit = false)
                 setTarget(null)
+                setFolderTarget(onto)
             } else {
+                setFolderTarget(null)
                 // After a short hover, what's in the way slides aside: icons for an app, anything for a widget.
-                // Over a free spot there's nothing to wait for: the highlight follows at once.
+                // Over a free spot there's nothing to wait for: the highlight follows at once. Close
+                // to an icon it waits longer, so it doesn't slide away while it's being moved onto.
                 val cell = Triple(page, col, row)
-                if (cell != hoverCell) {
+                val close = near != null && near.second < nearRadius
+                if (cell != hoverCell || close != hoverClose) {
                     hoverCell = cell
+                    hoverClose = close
                     root.removeCallbacks(reorder)
                     if (workspace.isFree(page, col, row, w, h, source?.item)) applyReorder()
-                    else root.postDelayed(reorder, REORDER_DELAY)
+                    else root.postDelayed(reorder, if (close) NEAR_DELAY else REORDER_DELAY)
                 }
             }
         }
@@ -1246,6 +1373,8 @@ class HomeScreen(
         private var bottomZone: DropZone? = null
         private var pageOutline: DropZone? = null
         private var dockOutline: View? = null
+        /** The alpha [dockOutline] is fading to. */
+        private var dockOutlineTarget = -1f
 
         /**
          * While dragging, outlines appear and nothing else moves: one around the page, slivers of
@@ -1274,11 +1403,11 @@ class HomeScreen(
                 if (gravity == Gravity.END) rightMargin = sliver - dp(80) else leftMargin = sliver - dp(80)
             })
             val dockBox0 = rectInRoot(dock)
+            dockOutlineTarget = 0f
             dockOutline = View(activity).apply {
                 background = android.graphics.drawable.GradientDrawable().apply {
                     cornerRadius = dp(Ui.RADIUS_BAR).toFloat()
                     setStroke(dp(2), 0xB3FFFFFF.toInt())
-                    setColor(0x1AFFFFFF)
                 }
                 alpha = 0f
                 root.addView(this, FrameLayout.LayoutParams(dockBox0.width(), dockBox0.height(), Gravity.TOP or Gravity.START).apply {
@@ -1339,11 +1468,29 @@ class HomeScreen(
 
         private var folderTarget: HomeItem? = null
 
+        /** How close to an icon's middle a drop makes or fills a folder. */
+        private val folderRadius get() = dp(AppIconView.ICON) * 0.45f
+        /** How far off its middle a folder about to be made stays lit. */
+        private val litRadius get() = dp(AppIconView.ICON) * 0.65f
+        /** How close to an icon it waits longer before sliding aside ([NEAR_DELAY]). */
+        private val nearRadius get() = dp(AppIconView.ICON) * 0.8f
+        /** Whether the hover being timed is close to an icon. */
+        private var hoverClose = false
+
         /**
-         * The app or folder at ([col], [row]) if the dragged icon is over the middle of it,
-         * meaning a drop would make or fill a folder. Folders can't go inside folders.
+         * The icon a drop would make or fill a folder with, from the nearest one and how far its
+         * middle is: once one is lit, it stays until the dragged icon is clearly off it.
          */
-        private fun folderCandidate(page: Int, col: Int, row: Int, view: View): HomeItem? {
+        private fun folderOnto(near: Pair<HomeItem, Float>?): HomeItem? {
+            val (item, distance) = near ?: return null
+            return item.takeIf { distance < folderRadius || it === folderTarget && distance < litRadius }
+        }
+
+        /**
+         * The app or folder at ([col], [row]) that could take the dragged icon, and how far the
+         * dragged icon is from its middle. Folders can't go inside folders.
+         */
+        private fun iconNear(page: Int, col: Int, row: Int, view: View): Pair<HomeItem, Float>? {
             if (source?.item?.type == HomeItem.Type.FOLDER || source?.kind != null || source?.other != null) return null
             val occupant = workspace.on(page).firstOrNull {
                 it.x == col && it.y == row && it !== source?.item && it !== source?.folder && it !in shifted.keys && it !== bumped?.first &&
@@ -1354,19 +1501,22 @@ class HomeScreen(
             val r = cells.cellRect(Rect(col, row, col + 1, row + 1))
             val cx = origin.left + r.exactCenterX()
             val cy = origin.top + r.exactCenterY() - cells.iconOffset
-            val distance = hypot(view.x + view.width / 2f - cx, view.y + view.height / 2f - cy)
-            return occupant.takeIf { distance < dp(AppIconView.ICON) * 0.45f }
+            return occupant to hypot(view.x + view.width / 2f - cx, view.y + view.height / 2f - cy)
         }
 
+        /** Lights up [next] as the folder a drop would make or fill: a plate behind it, and it grows a little. */
         private fun setFolderTarget(next: HomeItem?) {
             if (next === folderTarget) return
             folderTarget?.let { old ->
                 val cells = containerFor(old.page)
                 cells.dropPreviewGrow = false
                 cells.dropPreview = null
+                (views[old.id] as? AppIconView)?.iconView?.animate()?.scaleX(1f)?.scaleY(1f)?.setDuration(150)?.start()
             }
             folderTarget = next
             next?.let {
+                (views[it.id] as? AppIconView)?.iconView?.animate()?.scaleX(1.12f)?.scaleY(1.12f)?.setDuration(150)
+                    ?.setInterpolator(DecelerateInterpolator(2f))?.start()
                 val cells = containerFor(it.page)
                 cells.dropPreviewIsIcon = true
                 cells.dropPreviewGrow = true
@@ -1391,12 +1541,17 @@ class HomeScreen(
             workspace.removeEmptyPages()
             workspace.save()
             bindAll()
-            val icon = (views[folder.id] as? AppIconView)?.iconView
             val view = dragView ?: return finish()
-            if (icon == null) return fadeOut()
-            val rect = rectInRoot(icon)
-            view.animate().x(rect.left.toFloat()).y(rect.top.toFloat()).scaleX(0.45f).scaleY(0.45f).alpha(0f)
-                .setDuration(200).withEndAction { finish() }.start()
+            // A new folder's icon is only laid out on the next frame; before that it's at the top left.
+            root.post {
+                val icon = (views[folder.id] as? AppIconView)?.iconView
+                if (icon == null || icon.width == 0) return@post fadeOut()
+                val rect = rectInRoot(icon)
+                val w = view.width.takeIf { it > 0 } ?: view.layoutParams.width
+                val h = view.height.takeIf { it > 0 } ?: view.layoutParams.height
+                view.animate().x(rect.exactCenterX() - w / 2f).y(rect.exactCenterY() - h / 2f).scaleX(0.45f).scaleY(0.45f).alpha(0f)
+                    .setDuration(200).withEndAction { finish() }.start()
+            }
         }
 
         /** Items slid aside to make room, with the cell each was moved to. */
@@ -1628,6 +1783,7 @@ class HomeScreen(
             hideEdgeZones()
             // Released before the hover delay ran: work out the spot now.
             if (hoverCell != null && target?.let { Triple(it.first, it.second, it.third) } != hoverCell) applyReorder()
+            dockWait?.let { root.removeCallbacks(dockMove); dockMove.run() }
             val src = source ?: return finish()
             val t = target
             val intoFolder = folderTarget
@@ -1709,23 +1865,42 @@ class HomeScreen(
         /** The last place in the dock the dragged app can go: after the others, while there's room. */
         private fun dockLast() = minOf(dockCount(), workspace.cols(Workspace.DOCK) - 1)
 
-        /** Over the dock with an app: onto an app's icon makes a folder; elsewhere, the others make room. */
+        /**
+         * Over the dock with an app: onto an app's icon makes a folder; between two, they make
+         * room. Both go by where the others are now, so the room opens beside an icon and never
+         * slides it out from under the app.
+         */
         private fun moveOverDock(view: View) {
             clearReorder(commit = false)
             val x = view.x + view.width / 2f
             val y = view.y + view.height / 2f
-            val onto = if (source?.item?.type == HomeItem.Type.FOLDER) null else workspace.on(Workspace.DOCK).firstOrNull { other ->
-                other !== source?.item && other !== source?.folder &&
-                    (views[other.id] as? AppIconView)?.let { v ->
-                        val r = rectInRoot(v.iconView)
-                        hypot(x - r.exactCenterX(), y - r.exactCenterY()) < dp(AppIconView.ICON) * 0.45f
-                    } == true
+            val others = workspace.on(Workspace.DOCK).filter { it !== source?.item }.mapNotNull { other ->
+                (views[other.id] as? AppIconView)?.let { other to rectInRoot(it.iconView) }
             }
-            setFolderTarget(onto)
-            if (onto != null) return setTarget(null)
-            // Which place it's over, with the others spread out to make room for it.
-            val slot = ((x - rectInRoot(dock).left - dock.originFor(dockCount() + 1)) / dock.cellWidth).toInt()
-            overDock(slot)
+            val near = if (source?.item?.type == HomeItem.Type.FOLDER) null else others.filter { it.first !== source?.folder }
+                .map { (other, r) -> other to hypot(x - r.exactCenterX(), y - r.exactCenterY()) }.minByOrNull { it.second }
+            stopDockWait()
+            val onto = folderOnto(near)
+            if (onto != null) {
+                setTarget(null)
+                return setFolderTarget(onto)
+            }
+            setFolderTarget(null)
+            // Close to an icon, the others wait before making room, so it doesn't slide away while
+            // it's being moved onto; elsewhere they move at once.
+            val slot = others.count { (_, r) -> r.exactCenterX() < x }
+            if (near == null || near.second >= nearRadius || slot == dockGap) return overDock(slot)
+            dockWait = slot
+            root.postDelayed(dockMove, NEAR_DELAY)
+        }
+
+        /** The place in the dock being waited on, close to an icon, if any. */
+        private var dockWait: Int? = null
+        private val dockMove = Runnable { dockWait?.let { dockWait = null; overDock(it) } }
+
+        private fun stopDockWait() {
+            root.removeCallbacks(dockMove)
+            dockWait = null
         }
 
         /** Opens up place [slot] in the dock for the dragged app, sliding the others aside; none when it's full. */
@@ -1746,6 +1921,7 @@ class HomeScreen(
 
         /** Away from the dock: the others close up, over the dragged app's place too if it came from there. */
         private fun leaveDock() {
+            stopDockWait()
             if (dockGap == null && (dockArranged || source?.item?.inDock != true)) return
             dockGap = null
             dockArranged = true
@@ -1778,6 +1954,7 @@ class HomeScreen(
         }
 
         private fun finish() {
+            stopDockWait()
             setFolderTarget(null)
             dragView?.let(root::removeView)
             dragView = null
@@ -2180,7 +2357,8 @@ class HomeScreen(
 
     /** Back inside a widget: out to the widget itself. Returns false when not inside one. */
     fun leaveWidget(): Boolean {
-        val widget = inside ?: return false
+        // By touch too, Back closes a notification opened up in its widget.
+        val widget = inside ?: return views.values.any { (it as? NotificationsWidget)?.collapse() == true }
         // A notification opened up to show its buttons closes first.
         if ((widget as? NotificationsWidget)?.collapse() == true && activity.currentFocus?.isInTouchMode == false) return true
         inside = null
@@ -2280,5 +2458,7 @@ class HomeScreen(
         private const val TOOLBAR_PADDING = 6
         /** How long a dragged app hovers over a spot before icons there make room. */
         private const val REORDER_DELAY = 180L
+        /** How long a dragged icon waits close to another before that one slides aside. */
+        private const val NEAR_DELAY = 500L
     }
 }

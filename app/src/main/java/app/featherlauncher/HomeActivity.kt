@@ -82,8 +82,6 @@ class HomeActivity : Activity(), HomeScreen.Host {
     private var showingHidden = false
 
     private var drawerOpen = false
-    /** Set while the drawer is choosing an app for something (a number key). */
-    private var pick: ((AppEntry) -> Unit)? = null
     /** The query was typed on the keypad, so Back deletes a character instead of closing. */
     private var keypadQuery = false
 
@@ -96,6 +94,7 @@ class HomeActivity : Activity(), HomeScreen.Host {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) onBackInvokedDispatcher.registerOnBackInvokedCallback(android.window.OnBackInvokedDispatcher.PRIORITY_DEFAULT) { onBack() }
 
         prefs = Prefs(this)
+        shownNight = resources.configuration.uiMode and android.content.res.Configuration.UI_MODE_NIGHT_MASK
         palette = currentPalette()
         Workspace.fitRows(this)
         repo = Launcher.repo(this)
@@ -138,12 +137,30 @@ class HomeActivity : Activity(), HomeScreen.Host {
         updateResults()
         applyTheme()
 
-        WallpaperManager.getInstance(this).addOnColorsChangedListener({ _, _ ->
-            if (prefs.colorStyle == ColorStyle.WALLPAPER) {
-                palette = currentPalette()
+        Palette.wallpaperChanged += wallpaperChanged
+    }
+
+    /**
+     * New wallpaper colors, if they make new colors here; while the home screen is hidden that's
+     * left to [onResume], so a wallpaper changing in the background doesn't make it all again.
+     */
+    private val wallpaperChanged = {
+        if (lifecycleStarted && prefs.colorStyle == ColorStyle.WALLPAPER) {
+            val next = currentPalette()
+            if (!next.sameAs(palette)) {
+                palette = next
                 applyTheme()
             }
-        }, Handler(mainLooper))
+        }
+    }
+    private var lifecycleStarted = false
+
+    override fun onDestroy() {
+        Palette.wallpaperChanged -= wallpaperChanged
+        contacts.close()
+        smartSearch.close()
+        if (::adapter.isInitialized) adapter.close()
+        super.onDestroy()
     }
 
     private fun currentPalette() = Palette.from(this, prefs.colorStyle, prefs.themeMode, prefs.accentColor)
@@ -152,9 +169,17 @@ class HomeActivity : Activity(), HomeScreen.Host {
         super.onConfigurationChanged(newConfig)
         // Light/dark mode switched while the launcher was running.
         palette = currentPalette()
+        val night = newConfig.uiMode and android.content.res.Configuration.UI_MODE_NIGHT_MASK
+        if (night != shownNight) {
+            shownNight = night
+            homeScreen.remakeOtherWidgets()
+        }
         applyTheme()
         applyDarkMode()
     }
+
+    /** The phone's light or dark mode that other apps' widgets were last made in. */
+    private var shownNight = 0
 
     /** Icons, the wallpaper dimming and the wallpaper pair, for the current light or dark mode. */
     /** The screen went off; the darkening comes back after the unlock (see [applyDarkMode]). */
@@ -213,6 +238,7 @@ class HomeActivity : Activity(), HomeScreen.Host {
 
     override fun onStart() {
         super.onStart()
+        lifecycleStarted = true
         widgets.startListening()
     }
 
@@ -270,20 +296,22 @@ class HomeActivity : Activity(), HomeScreen.Host {
     override fun onResume() {
         super.onResume()
         running = this
+        webSearch = null
         if (::smartSearch.isInitialized) preloadSearch()
         // Settings may have changed on the settings page.
         prefs.reload()
         WeatherWallpaper.refresh(this)
         Shuffle.next(this)
         val next = currentPalette()
-        // The wallpaper may have changed too, which changes the app list's colors.
-        if (next.accent != palette.accent || next.dark != palette.dark || next.drawer != palette.drawer) {
+        // The wallpaper may have changed too (while the home screen was hidden), which changes its colors.
+        if (!next.sameAs(palette)) {
             palette = next
             applyTheme()
         }
         repo.setShape(prefs.iconShape)
         applyDarkMode()
         homeScreen.bindAll()
+        homeScreen.refreshWidgets()
         focusDockStart()
         updateResults()
         watchLimits()
@@ -329,6 +357,7 @@ class HomeActivity : Activity(), HomeScreen.Host {
 
     override fun onStop() {
         super.onStop()
+        lifecycleStarted = false
         // The screen went off (the phone is locking): see applyDarkMode.
         if (!getSystemService(android.os.PowerManager::class.java).isInteractive) {
             dimAfterUnlock = true
@@ -344,7 +373,7 @@ class HomeActivity : Activity(), HomeScreen.Host {
     override fun onNewIntent(intent: Intent) {
         super.onNewIntent(intent)
         // Home pressed while already home.
-        overlays.dismiss()
+        overlays.dismissScreen() || overlays.dismiss()
         homeScreen.finishResize()
         if (openFromKey(intent.getStringExtra(EXTRA_OPEN))) return
         if (!drawerOpen) homeScreen.pages.snapTo(0)
@@ -461,7 +490,7 @@ class HomeActivity : Activity(), HomeScreen.Host {
             onClick = { entry, view -> choose(entry, view) },
             onLongClick = { entry, view ->
                 // Only a finger's hold can turn into a drag; held with the keypad, the next touch would pick it up.
-                if (pick == null && view.isInTouchMode) appDrag.arm(entry, view)
+                if (view.isInTouchMode) appDrag.arm(entry, view)
                 appMenu(entry, view)
             },
         )
@@ -489,6 +518,7 @@ class HomeActivity : Activity(), HomeScreen.Host {
         // Contacts and shortcuts are loaded ahead of time (on start and on return), so search opens
         // complete in one go; later changes only redraw if something actually changed.
         contacts.onLoaded = { if (searching) updateResults() }
+        contacts.onReloaded = adapter::forgetPhotos
         preloadSearch()
 
         // Closing follows the finger too: down on the app list, up on Smart Search.
@@ -520,7 +550,6 @@ class HomeActivity : Activity(), HomeScreen.Host {
     /** Swipe up: the app list. */
     private fun openDrawer() {
         searching = false
-        pick = null
         keypadQuery = false
         search.setText("")
         if (category == null) category = visibleCategories().firstOrNull()?.id
@@ -528,21 +557,11 @@ class HomeActivity : Activity(), HomeScreen.Host {
         updateResults()
     }
 
-    /**
-     * Swipe down (or the search button, or a number key): Smart Search.
-     * With [onPick], it's choosing an app for something instead of opening it.
-     */
-    private fun openSearch(
-        query: String = "",
-        fromKeypad: Boolean = false,
-        hint: String = "Search apps, contacts and more",
-        onPick: ((AppEntry) -> Unit)? = null,
-    ) {
+    /** Swipe down (or the search button, or a number key): Smart Search. */
+    private fun openSearch(query: String = "", fromKeypad: Boolean = false) {
         searching = true
-        pick = onPick
         keypadQuery = fromKeypad
         expanded.clear()
-        search.hint = hint
         search.setText(query)
         search.setSelection(query.length)
         showPanel(fromTop = !drawerOpen)
@@ -568,12 +587,10 @@ class HomeActivity : Activity(), HomeScreen.Host {
         val f = progress.coerceIn(0f, 1f)
         if (searching != search || drawer.visibility != View.VISIBLE) {
             searching = search
-            pick = null
             this.search.setText("")
-            this.search.hint = "Search apps, contacts and more"
             if (!search && category == null) category = visibleCategories().firstOrNull()?.id
             setPanelLook()
-            updateResults()
+            updateResults(force = true)
             panelAnimator?.cancel()
             drawer.animate().cancel()
             drawer.visibility = View.VISIBLE
@@ -681,7 +698,6 @@ class HomeActivity : Activity(), HomeScreen.Host {
         if (!drawerOpen) return
         drawerOpen = false
         showingHidden = false
-        pick = null
         getSystemService(InputMethodManager::class.java).hideSoftInputFromWindow(search.windowToken, 0)
         search.clearFocus()
         home.visibility = View.VISIBLE
@@ -781,8 +797,11 @@ class HomeActivity : Activity(), HomeScreen.Host {
     /** What the list was last showing; a refresh of the same thing keeps the scroll and highlight. */
     private var shownKey = ""
 
-    private fun updateResults(keepFocus: Boolean = true) {
+    private fun updateResults(keepFocus: Boolean = true, force: Boolean = false) {
         if (!::adapter.isInitialized) return
+        // Closed, there's nothing to show them in: they're made as the panel opens (every way of
+        // opening it asks), not each time the home screen shows or a notification comes.
+        if (drawer.visibility != View.VISIBLE && !force) return
         val key = "$searching|$showingHidden|$category|$chipCategory|${search.text}|${prefs.drawerCategories}"
         // Results arrive in stages (contacts, shortcuts, files); each refresh rebuilds the rows,
         // so the highlighted item is found again afterwards instead of being lost.
@@ -845,6 +864,10 @@ class HomeActivity : Activity(), HomeScreen.Host {
         adapter.set(rows, null)
     }
 
+    /** What the tabs and chips were last made for ([renderTabs], [renderChips]). */
+    private var tabsShown: Any? = null
+    private var chipsShown: Any? = null
+
     /** In the All apps view, the category picked from the chips; null shows every app. */
     private var chipCategory: String? = null
     private val chipsScroll by lazy {
@@ -862,8 +885,12 @@ class HomeActivity : Activity(), HomeScreen.Host {
     /** "All" and then every category, as pills; the chosen one is filled. */
     private fun renderChips(shown: List<Categories.Item>) {
         val chips = findViewById<LinearLayout>(R.id.chips)
-        chips.removeAllViews()
         val options = listOf<Categories.Item?>(null) + shown
+        // The same chips are left as they are.
+        val key = listOf(shown.map { listOf(it.id, it.name, it.iconRes, it.filledIconRes) }, chipCategory, palette)
+        if (key == chipsShown && chips.childCount == options.size) return
+        chipsShown = key
+        chips.removeAllViews()
         options.forEach { c ->
             val selected = c?.id == chipCategory
             val fg = if (selected) palette.drawer or 0xFF000000.toInt() else palette.onWall
@@ -899,6 +926,10 @@ class HomeActivity : Activity(), HomeScreen.Host {
     /** A search result with its standing for what's typed (see [SearchHistory.Ranker]). */
     private class Hit<T>(val item: T, val id: String, val points: Double)
 
+    /** Whether something can search the web; asked once per return to the home screen, not per letter. */
+    private var webSearch: Boolean? = null
+    private fun canSearchWeb(web: Intent) = webSearch ?: (packageManager.resolveActivity(web, 0) != null).also { webSearch = it }
+
     /**
      * Smart Search: a number to call, contacts, apps, app shortcuts, phone settings and files, each
      * its own section with a few results and "Show more", and each can be turned off in Settings.
@@ -910,10 +941,8 @@ class HomeActivity : Activity(), HomeScreen.Host {
         chipsScroll.visibility = View.GONE
         val raw = search.text.toString().trim()
         val rows = ArrayList<DrawerAdapter.Row>()
-        val pickingApp = pick != null
         var sections = 0
-        // Picking an app for something only ever shows apps.
-        fun shows(section: SearchSection) = if (pickingApp) section == SearchSection.APPS else prefs.searchShows(section)
+        fun shows(section: SearchSection) = prefs.searchShows(section)
         val ranker = history.ranker(raw)
         val t9 = Search.isT9(raw)
 
@@ -950,9 +979,9 @@ class HomeActivity : Activity(), HomeScreen.Host {
         }.sortedByDescending { it.points }
         val appHits = if (!shows(SearchSection.APPS)) emptyList()
         else if (raw.isEmpty()) {
+            // Each app's count read once, not again for every comparison.
             repo.apps.filter { it.key !in prefs.hidden }
-                .sortedByDescending { prefs.launchCount(it.key) }
-                .let { if (pickingApp) it.sortedBy { e -> e.label.lowercase() } else it }
+                .map { it to prefs.launchCount(it.key) }.sortedByDescending { it.second }.map { it.first }
                 .map { Hit(it, "app:${it.key}", 0.0) }
         } else {
             // Hidden apps are only on the hidden apps page, never in search.
@@ -966,7 +995,7 @@ class HomeActivity : Activity(), HomeScreen.Host {
         val settingHits = if (raw.isEmpty() || !shows(SearchSection.SETTINGS)) emptyList() else found(smartSearch.settings(raw))
         val fileHits = if (raw.isEmpty() || !shows(SearchSection.FILES)) emptyList() else found(mediaResults.takeIf { mediaFor == raw }.orEmpty())
 
-        val ranked = if (raw.isEmpty() || pickingApp) emptyList()
+        val ranked = if (raw.isEmpty()) emptyList()
         else (contactHits + appHits + shortcutHits + settingHits + fileHits).sortedByDescending { it.points }
         val top = ranked.firstOrNull()?.takeIf { shows(SearchSection.TOP) }?.takeIf { ranker.clearlyAhead(it.id, it.points, ranked.getOrNull(1)?.points ?: 0.0) }
         // Shown once: on top, and not again in its section.
@@ -1004,8 +1033,8 @@ class HomeActivity : Activity(), HomeScreen.Host {
         }
 
         val apps = appHits.rest()
-        val appsShown = if (pickingApp) apps.size else DrawerAdapter.COLS * (if (raw.isEmpty()) 2 else 1)
-        section("apps", if (raw.isEmpty() && !pickingApp) "Frequent apps" else "Apps", apps.size, appsShown) {
+        val appsShown = DrawerAdapter.COLS * (if (raw.isEmpty()) 2 else 1)
+        section("apps", if (raw.isEmpty()) "Frequent apps" else "Apps", apps.size, appsShown) {
             addApps(rows, limit("apps", apps, appsShown))
         }
 
@@ -1039,7 +1068,7 @@ class HomeActivity : Activity(), HomeScreen.Host {
 
         // Last, the same words searched on the web, if the phone has something to search it with.
         val web = Intent(Intent.ACTION_WEB_SEARCH).putExtra(android.app.SearchManager.QUERY, raw)
-        if (raw.isNotEmpty() && shows(SearchSection.WEB) && packageManager.resolveActivity(web, 0) != null) {
+        if (raw.isNotEmpty() && shows(SearchSection.WEB) && canSearchWeb(web)) {
             title(SearchSection.WEB.title)
             rows += DrawerAdapter.Row.Result(Found(raw, "Search the web", "web", iconRes = R.drawable.ic_search) { startSafely(web) })
         }
@@ -1068,13 +1097,21 @@ class HomeActivity : Activity(), HomeScreen.Host {
     /** The category icons along the bottom; long-press one to edit it. */
     private fun renderTabs(shown: List<Categories.Item>) {
         val tabs = findViewById<LinearLayout>(R.id.tabs)
+        // Categories holding an app that's new and not opened yet get a dot, like the app itself.
+        val withNew = repo.apps.filter { newApps.isNew(it) && it.key !in prefs.hidden }.map { categories.of(it) }.toSet()
+        // Opening the app list asks every time; the same tabs are left as they are (a tab let go
+        // of where it was picked up goes back into line).
+        val key = listOf(shown.map { listOf(it.id, it.name, it.iconRes, it.filledIconRes) }, category, showingHidden, withNew, palette)
+        if (key == tabsShown && tabs.childCount == shown.size) {
+            for (i in 0 until tabs.childCount) tabs.getChildAt(i).translationX = 0f
+            return
+        }
+        tabsShown = key
         // Same proportions as the dock: its corner is the same share of its height.
         tabs.background = Ui.rounded(this, palette.glass, Ui.RADIUS_BAR * TAB_BAR_HEIGHT / Ui.DOCK_HEIGHT, palette.hairline)
         tabs.removeAllViews()
         // Tabs share the bar's width; with more than fit, they keep a minimum size and the bar scrolls.
         val fits = shown.size <= MAX_FITTING_TABS
-        // Categories holding an app that's new and not opened yet get a dot, like the app itself.
-        val withNew = repo.apps.filter { newApps.isNew(it) && it.key !in prefs.hidden }.map { categories.of(it) }.toSet()
         shown.forEach { c ->
             val selected = c.id == category && !showingHidden
             tabs.addView(FrameLayout(this).apply {
@@ -1631,15 +1668,8 @@ class HomeActivity : Activity(), HomeScreen.Host {
     }
 
     private fun choose(entry: AppEntry, from: View?) {
-        val onPick = pick
-        if (onPick != null) {
-            pick = null
-            onPick(entry)
-            hideDrawer()
-        } else {
-            if (searching) history.record(search.text.toString().trim(), "app:${entry.key}")
-            launch(entry, from)
-        }
+        if (searching) history.record(search.text.toString().trim(), "app:${entry.key}")
+        launch(entry, from)
     }
 
     // endregion
@@ -1686,11 +1716,8 @@ class HomeActivity : Activity(), HomeScreen.Host {
         val digit = digitOf(event.keyCode)
         if (drawerOpen && digit != null && !overlays.isShowing) {
             if (!search.isFocused) {
-                if (event.action == KeyEvent.ACTION_DOWN && event.repeatCount == 0) {
-                    // Typing a number in the app list jumps to Smart Search.
-                    if (!searching) openSearch(digit.toString(), fromKeypad = true) else search.append(digit.toString())
-                    keypadQuery = true
-                }
+                // Typing a number in the app list jumps to Smart Search.
+                if (event.action == KeyEvent.ACTION_DOWN && event.repeatCount == 0) typeDigit(digit, event.downTime)
                 return true
             }
         }
@@ -1703,6 +1730,7 @@ class HomeActivity : Activity(), HomeScreen.Host {
             keyMover != null -> keyMover?.undo?.invoke().also { keyMover = null }
             PinPad.active?.takeIf { overlays.isShowing }?.back() == true -> Unit
             overlays.dismiss() -> Unit
+            overlays.dismissScreen() -> Unit
             homeScreen.finishResize() -> Unit
             homeScreen.leaveWidget() -> Unit
             drawerOpen && showingHidden -> {
@@ -1760,7 +1788,7 @@ class HomeActivity : Activity(), HomeScreen.Host {
      * A key the service held back (to see if it was held) and then let through. Arrow keys move
      * the keypad highlight; anything else goes through the usual key handling.
      */
-    fun pressKey(code: Int) {
+    fun pressKey(code: Int, downTime: Long = android.os.SystemClock.uptimeMillis()) {
         val now = android.os.SystemClock.uptimeMillis()
         if (homeScreen.takesKeys) {
             homeScreen.keyMove(KeyEvent(now, now, KeyEvent.ACTION_DOWN, code, 0))
@@ -1772,8 +1800,9 @@ class HomeActivity : Activity(), HomeScreen.Host {
             homeScreen.moveFocus(direction)
             return
         }
-        dispatchKeyEvent(KeyEvent(now, now, KeyEvent.ACTION_DOWN, code, 0))
-        dispatchKeyEvent(KeyEvent(now, now, KeyEvent.ACTION_UP, code, 0))
+        // When it was really pressed, so a number lands in search where it was typed ([typeDigit]).
+        dispatchKeyEvent(KeyEvent(downTime, now, KeyEvent.ACTION_DOWN, code, 0))
+        dispatchKeyEvent(KeyEvent(downTime, now, KeyEvent.ACTION_UP, code, 0))
     }
 
     /** A key the service held back that turned out to be held: its built-in hold action, if any. */
@@ -1783,28 +1812,58 @@ class HomeActivity : Activity(), HomeScreen.Host {
     }
 
     /** A quick press of a number on the home screen: search, starting with that number. */
-    fun pressDigit(digit: Int) = openSearch(digit.toString(), fromKeypad = true)
+    fun pressDigit(digit: Int, downTime: Long) = typeDigit(digit, downTime)
 
-    /** A held number: what it's set to do, or, when it isn't set, offer to choose an app for it. */
+    /** When each number in the search text was pressed, for those typed on the keypad ([typeDigit]). */
+    private val keyTimes = ArrayList<Long>()
+
+    /**
+     * A number pressed on the keypad ([downTime] is when) goes into search: opening it, or among
+     * the numbers already there. Numbers come by two ways, straight from the keypad, or from
+     * LauncherService after it waited to see if they were held, and when the phone is busy a
+     * later one can come before an earlier one ("3417727303" for "3477127303"), or one can come
+     * both ways. Each goes where it was pressed, and only once.
+     */
+    private fun typeDigit(digit: Int, downTime: Long) {
+        if (overlays.isShowing) return
+        if (!drawerOpen || !searching) {
+            openSearch(digit.toString(), fromKeypad = true)
+            keyTimes.clear()
+            keyTimes += downTime
+            return
+        }
+        keypadQuery = true
+        val text = search.text
+        // Changed some other way (a number deleted): what's there counts as typed before.
+        if (keyTimes.size != text.length) {
+            keyTimes.clear()
+            repeat(text.length) { keyTimes += Long.MIN_VALUE }
+        }
+        // The same press, the second way it came.
+        if (keyTimes.indices.any { keyTimes[it] == downTime && text[it] == '0' + digit }) return
+        var at = keyTimes.size
+        while (at > 0 && keyTimes[at - 1] > downTime) at--
+        keyTimes.add(at, downTime)
+        text.insert(at, digit.toString())
+    }
+
+    /** A held number: its shortcut, or, when it has none, the shortcut editor to set one. */
     fun holdDigit(digit: Int) {
-        val keys = KeyShortcuts.get(this)
-        val action = keys.digit(digit)?.action
+        val code = KeyEvent.KEYCODE_0 + digit
+        val action = KeyShortcuts.get(this).forKey(code, packageName, atHome = true).firstOrNull { it.press == Press.LONG }?.action
         val app = action?.takeIf { it.type == ActionType.APP }?.value?.let(repo::find)
         when {
             // Opened the usual way, so app limits and recent apps see it.
             app != null -> launch(app, null)
-            action != null && action.type != ActionType.APP -> KeyActionRunner.run(this, action, LauncherService.running)
-            else -> openSearch(fromKeypad = true, hint = "Choose an app for $digit") {
-                keys.setDigit(digit, KeyAction(ActionType.APP, it.key))
-                toast("Hold $digit to open ${it.label}")
-            }
+            action != null -> KeyActionRunner.run(this, action, LauncherService.running)
+            else -> startActivity(Intent(this, SettingsActivity::class.java).putExtra(SettingsActivity.EXTRA_HOLD_KEY, code))
         }
     }
 
     override fun onKeyUp(keyCode: Int, event: KeyEvent): Boolean {
         val digit = digitOf(keyCode)
         if (!drawerOpen && !overlays.isShowing && digit != null && event.isTracking && !event.isCanceled) {
-            openSearch(digit.toString(), fromKeypad = true)
+            typeDigit(digit, event.downTime)
             return true
         }
         return super.onKeyUp(keyCode, event)
@@ -2091,6 +2150,7 @@ class HomeActivity : Activity(), HomeScreen.Host {
 
     override fun homeMenuItems() = listOf(
         MenuItem("Add widget", R.drawable.ic_widgets) { widgets.pick() },
+        MenuItem("Pages", R.drawable.ic_grid) { PagesScreen(this, home, homeScreen, overlays) { palette }.open() },
         MenuItem("Wallpaper", R.drawable.ic_wallpaper) { startActivity(Intent(this, WallpaperActivity::class.java)) },
         MenuItem("Settings", R.drawable.ic_settings) { startActivity(Intent(this, SettingsActivity::class.java)) },
     )
@@ -2349,7 +2409,7 @@ class HomeActivity : Activity(), HomeScreen.Host {
         private const val REQUEST_MEDIA = 22
         private const val MAX_FITTING_TABS = 9
         private const val TAB_BAR_HEIGHT = 60
-        private val PANEL_EASING = android.view.animation.PathInterpolator(0.05f, 0.7f, 0.1f, 1f)
+        val PANEL_EASING = android.view.animation.PathInterpolator(0.05f, 0.7f, 0.1f, 1f)
         /** How far to drag (dp) for a panel to be fully shown. */
         private const val PANEL_PULL = 160
     }

@@ -14,8 +14,18 @@ import android.service.notification.StatusBarNotification
 class NotificationService : NotificationListenerService() {
     private var media: MediaGuard? = null
     private val main = android.os.Handler(android.os.Looper.getMainLooper())
-    private val refilterNow = Runnable {
-        runCatching { activeNotifications }.getOrNull()?.forEach(::filter)
+    /**
+     * What's showing, by key, kept up as notifications come and go: asking Android for all of
+     * them on every one copied every notification over, on the thread that handles key presses.
+     */
+    private val showing = LinkedHashMap<String, StatusBarNotification>()
+    private val refilterNow = Runnable { reread() }
+
+    /** Starts again from what Android says is showing. */
+    private fun reread() {
+        val active = runCatching { activeNotifications }.getOrNull()
+        showing.clear()
+        active?.forEach { if (!filter(it)) showing[it.key] = it }
         recount()
     }
 
@@ -25,8 +35,7 @@ class NotificationService : NotificationListenerService() {
         // Ones already showing when access was given (or the service restarted) are filtered too.
         // Just after the phone starts, apps are still putting theirs up (some before this
         // connects, unseen), so it looks again a few times.
-        runCatching { activeNotifications }.getOrNull()?.forEach(::filter)
-        recount()
+        reread()
         listOf(5_000L, 30_000L, 120_000L).forEach { main.postDelayed(refilterNow, it) }
     }
 
@@ -35,29 +44,34 @@ class NotificationService : NotificationListenerService() {
         main.removeCallbacks(refilterNow)
         media?.stop()
         media = null
+        showing.clear()
         NotificationBadges.clear()
         ActiveNotifications.clear()
     }
 
     override fun onNotificationPosted(sbn: StatusBarNotification) {
-        filter(sbn)
+        // One a filter hides or a limit holds is gone in a moment; it isn't shown on the way.
+        if (filter(sbn)) showing.remove(sbn.key) else showing[sbn.key] = sbn
         recount()
     }
 
-    override fun onNotificationRemoved(sbn: StatusBarNotification) = recount()
+    override fun onNotificationRemoved(sbn: StatusBarNotification) {
+        showing.remove(sbn.key)
+        recount()
+    }
 
     // Someone turned an app's notification dots on or off.
     override fun onNotificationRankingUpdate(rankingMap: RankingMap) = recount()
 
     private fun recount() {
-        val active = runCatching { activeNotifications }.getOrNull()
-        NotificationBadges.update(this, active)
-        ActiveNotifications.update(this, active)
+        NotificationBadges.update(this, showing.values)
+        ActiveNotifications.update(this, showing.values)
     }
 
-    private fun filter(sbn: StatusBarNotification) {
+    /** Hides [sbn] if a filter says to, or holds it back for an app limit. Returns whether it did. */
+    private fun filter(sbn: StatusBarNotification): Boolean {
         val n = sbn.notification
-        if (sbn.packageName == packageName || n.flags and Notification.FLAG_GROUP_SUMMARY != 0) return
+        if (sbn.packageName == packageName || n.flags and Notification.FLAG_GROUP_SUMMARY != 0) return false
         val extras = n.extras
         val title = extras.getCharSequence(Notification.EXTRA_TITLE)?.toString().orEmpty()
         val text = (extras.getCharSequence(Notification.EXTRA_BIG_TEXT) ?: extras.getCharSequence(Notification.EXTRA_TEXT))?.toString().orEmpty()
@@ -73,11 +87,11 @@ class NotificationService : NotificationListenerService() {
             // Snoozed, not dismissed: it comes back by itself when the limit ends.
             snoozeNotification(sbn.key, until - now)
             filters.remember(HiddenNotification(sbn.packageName, title, text, now, "Held until ${AppLimits.formatTime(this, until)}"))
-            return
+            return true
         }
 
         val on = limits.limits.filter { it.isOn(now) }.map { it.id }.toSet()
-        val filter = filters.filters.firstOrNull { it.hides(sbn.packageName, "$title\n$text", on) } ?: return
+        val filter = filters.filters.firstOrNull { it.hides(sbn.packageName, "$title\n$text", on) } ?: return false
         if (sbn.isClearable) {
             cancelNotification(sbn.key)
         } else {
@@ -89,6 +103,7 @@ class NotificationService : NotificationListenerService() {
         if (filters.history.firstOrNull()?.let { it.app == sbn.packageName && it.title == title && it.text == text } != true) {
             filters.remember(HiddenNotification(sbn.packageName, title, text, now, describe(filter)))
         }
+        return true
     }
 
     private fun describe(filter: NotificationFilter) = when {
