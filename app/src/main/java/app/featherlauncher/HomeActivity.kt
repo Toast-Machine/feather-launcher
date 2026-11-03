@@ -668,6 +668,8 @@ class HomeActivity : Activity(), HomeScreen.Host {
         home.alpha = 1f
         drawer.background?.alpha = 255
         for (i in 0 until drawer.childCount) drawer.getChildAt(i).apply { alpha = 1f; translationY = 0f }
+        // Closed: it opens from the top next time, however it was left (scrolled with the keypad or by touch).
+        shownKey = ""
     }
 
     private fun setPanelLook() {
@@ -819,7 +821,7 @@ class HomeActivity : Activity(), HomeScreen.Host {
         if (searching) updateSearch() else updateAppList()
         if (key != shownKey) {
             shownKey = key
-            list.setSelection(0)
+            listToTop()
         } else if (keep != null) {
             list.post {
                 val position = (keep.first until adapter.count).firstOrNull(::canFocusRow)
@@ -867,6 +869,20 @@ class HomeActivity : Activity(), HomeScreen.Host {
         }
         chipsScroll.visibility = if (!prefs.drawerCategories && !showingHidden) View.VISIBLE else View.GONE
         adapter.set(rows, null)
+    }
+
+    /**
+     * Back to the first row. ListView's setSelection only scrolls in touch mode: with the keypad
+     * it looks for a selectable row to land on, and there are none (the items inside the rows
+     * take the highlight), so it does nothing. Setting the adapter again lays the list out from
+     * the top in either mode; it's only done when the list isn't there already, since it makes
+     * the rows anew.
+     */
+    private fun listToTop() {
+        when {
+            list.isInTouchMode -> list.setSelection(0)
+            list.firstVisiblePosition > 0 || list.canScrollVertically(-1) -> list.adapter = adapter
+        }
     }
 
     /** What the tabs and chips were last made for ([renderTabs], [renderChips]). */
@@ -919,7 +935,7 @@ class HomeActivity : Activity(), HomeScreen.Host {
                 setOnClickListener {
                     chipCategory = c?.id
                     updateResults()
-                    list.setSelection(0)
+                    listToTop()
                 }
             }, LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, dp(38)).apply {
                 setMargins(dp(4), 0, dp(4), 0)
