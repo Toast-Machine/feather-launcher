@@ -218,18 +218,18 @@ class HomeActivity : Activity(), HomeScreen.Host {
         Ui.cursor(search, palette.onWall)
         searchIcon.imageTintList = android.content.res.ColorStateList.valueOf(palette.onWallSecondary)
         searchClear.imageTintList = android.content.res.ColorStateList.valueOf(palette.onWallSecondary)
-        searchClear.background = Ui.pressable(this, Ui.RADIUS_PILL, focusColor = palette.onWall)
+        searchClear.background = Ui.pressable(this, Ui.RADIUS_PILL)
         // With the keypad, the search bar (not the text box in it) holds the highlight, with the same
         // ring as everything else; see openSearch.
         findViewById<View>(R.id.search_bar).apply {
             isFocusable = true
-            foreground = Ui.focusRing(this@HomeActivity, Ui.RADIUS_PILL, palette.onWall)
+            foreground = Ui.focusRing(this@HomeActivity, Ui.RADIUS_PILL)
         }
         findViewById<TextView>(R.id.drawer_title).setTextColor(palette.onWall)
         listOf(R.id.drawer_search, R.id.drawer_more).forEach {
             findViewById<ImageView>(it).apply {
                 imageTintList = android.content.res.ColorStateList.valueOf(palette.onWall)
-                background = Ui.pressable(this@HomeActivity, Ui.RADIUS_PILL, focusColor = palette.onWall)
+                background = Ui.pressable(this@HomeActivity, Ui.RADIUS_PILL)
             }
         }
         adapter.palette = palette
@@ -905,8 +905,7 @@ class HomeActivity : Activity(), HomeScreen.Host {
                 gravity = android.view.Gravity.CENTER_VERTICAL
                 setPadding(dp(if (c == null) 16 else 12), 0, dp(16), 0)
                 background = Ui.rounded(this@HomeActivity, if (selected) palette.onWall else palette.glass, Ui.RADIUS_PILL)
-                // On the filled (light) chip the ring takes the text's dark color so it still shows.
-                foreground = Ui.pressable(this@HomeActivity, Ui.RADIUS_PILL, focusColor = fg)
+                foreground = Ui.pressable(this@HomeActivity, Ui.RADIUS_PILL)
                 isFocusable = true
                 if (c != null) addView(ImageView(this@HomeActivity).apply {
                     setImageResource(if (selected) c.filledIconRes else c.iconRes)
@@ -1123,7 +1122,7 @@ class HomeActivity : Activity(), HomeScreen.Host {
                 isFocusable = true
                 tag = c.id
                 contentDescription = c.name
-                foreground = Ui.pressable(this@HomeActivity, Ui.RADIUS_L, focusColor = palette.onWall)
+                foreground = Ui.pressable(this@HomeActivity, Ui.RADIUS_L)
                 addView(ImageView(this@HomeActivity).apply {
                     setImageResource(if (selected) c.filledIconRes else c.iconRes)
                     imageTintList = android.content.res.ColorStateList.valueOf(if (selected) palette.onWall else palette.onWallSecondary)

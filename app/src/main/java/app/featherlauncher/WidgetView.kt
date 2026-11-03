@@ -57,7 +57,7 @@ class WidgetView(context: Context) : AppWidgetHostView(context) {
             val ring = ((corner + cornerInset) / resources.displayMetrics.density).roundToInt()
             if (ring != ringDp) {
                 ringDp = ring
-                post { foreground = Ui.focusRing(context, ring, 0xFFFFFFFF.toInt()) }
+                post { foreground = Ui.focusRing(context, ring) }
             }
         }
     }

@@ -319,7 +319,7 @@ class NotificationsWidget(context: Context, item: HomeItem) : CardWidget(context
                 setBounds(0, 0, dp(16), dp(16))
             }, null)
             compoundDrawablePadding = dp(2)
-            background = Ui.pressable(context, Ui.RADIUS_PILL, focusColor = WidgetStyle.onCard())
+            background = Ui.pressable(context, Ui.RADIUS_PILL)
             setPadding(dp(8), dp(3), dp(2), dp(3))
             setOnClickListener { onMore?.invoke() }
         }
@@ -370,7 +370,7 @@ class NotificationsWidget(context: Context, item: HomeItem) : CardWidget(context
             orientation = HORIZONTAL
             gravity = Gravity.CENTER_VERTICAL
             tag = note.key
-            background = Ui.pressable(context, Ui.RADIUS_S, focusColor = WidgetStyle.onCard())
+            background = Ui.pressable(context, Ui.RADIUS_S)
             // Two lines of words need less room around them to look as roomy.
             val v = dp(if (below != null) ROW_V - 2 else ROW_V)
             setPadding(dp(ROW_PAD), v, dp(ROW_PAD), v)
@@ -513,7 +513,7 @@ class NotificationsWidget(context: Context, item: HomeItem) : CardWidget(context
         addView(LinearLayout(context).apply {
             orientation = LinearLayout.HORIZONTAL
             tag = "${note.key}#open"
-            background = Ui.pressable(context, Ui.RADIUS_S, focusColor = WidgetStyle.onCard())
+            background = Ui.pressable(context, Ui.RADIUS_S)
             setPadding(dp(ROW_PAD), dp(4), dp(ROW_PAD), dp(4))
             setOnClickListener { note.open() }
             note.art()?.let { art ->
@@ -569,7 +569,7 @@ class NotificationsWidget(context: Context, item: HomeItem) : CardWidget(context
         val inset = dp(sizeDp / 4)
         setPadding(inset, inset, inset, inset)
         background = fill?.let { Ui.rounded(context, it, Ui.RADIUS_PILL) }
-        foreground = Ui.pressable(context, Ui.RADIUS_PILL, focusColor = WidgetStyle.onCard())
+        foreground = Ui.pressable(context, Ui.RADIUS_PILL)
         isFocusable = true
         setOnClickListener { onClick() }
     }
@@ -587,7 +587,7 @@ class NotificationsWidget(context: Context, item: HomeItem) : CardWidget(context
         gravity = Gravity.CENTER
         setPadding(dp(10), 0, dp(10), 0)
         background = Ui.rounded(context, WidgetStyle.accentFill(), Ui.RADIUS_PILL)
-        foreground = Ui.pressable(context, Ui.RADIUS_PILL, focusColor = WidgetStyle.onCard())
+        foreground = Ui.pressable(context, Ui.RADIUS_PILL)
         isFocusable = true
         setOnClickListener { onClick() }
     }

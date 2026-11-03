@@ -91,7 +91,7 @@ object WidgetStyle {
         val dp = { v: Int -> Ui.dp(ctx, v) }
         text = words
         gravity = Gravity.CENTER_VERTICAL
-        foreground = Ui.pressable(ctx, Ui.RADIUS_PILL, focusColor = WHITE)
+        foreground = Ui.pressable(ctx, Ui.RADIUS_PILL)
         setCompoundDrawablesRelative(icon?.mutate(), null, null, null)
         setPadding(dp(4), dp(4), dp(4), dp(4))
         sizePill(this, px)

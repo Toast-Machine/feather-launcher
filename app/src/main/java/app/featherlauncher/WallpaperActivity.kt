@@ -724,7 +724,7 @@ class WallpaperActivity : Activity() {
                     setImageResource(R.drawable.ic_arrow_back)
                     imageTintList = ColorStateList.valueOf(0xFFFFFFFF.toInt())
                     scaleType = ImageView.ScaleType.CENTER_INSIDE
-                    background = Ui.pressable(this@WallpaperActivity, Ui.RADIUS_PILL, focusColor = 0xFFFFFFFF.toInt())
+                    background = Ui.pressable(this@WallpaperActivity, Ui.RADIUS_PILL)
                     isFocusable = true
                     contentDescription = "Back"
                     setOnClickListener { closePreview() }

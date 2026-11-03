@@ -226,7 +226,7 @@ class ClockWidget(context: Context, val item: HomeItem) : FitColumn(context) {
             shown.setOnClickListener { performClick() }
             shown.setOnLongClickListener { performLongClick() }
             // Its highlight hugs the digits, inside the room left for the shadow, so it stays within the clock.
-            shown.foreground = android.graphics.drawable.InsetDrawable(Ui.focusRing(context, Ui.RADIUS_L, WidgetStyle.WHITE), dp(SHADOW_ROOM))
+            shown.foreground = android.graphics.drawable.InsetDrawable(Ui.focusRing(context, Ui.RADIUS_L), dp(SHADOW_ROOM))
         }
         // Pulled up into the room under the digits (they have no descenders), so the space below the
         // time looks the same as the space above it.

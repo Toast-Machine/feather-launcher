@@ -100,7 +100,7 @@ class DrawerAdapter(
                         style(TextStyle.Label, p.onWall)
                         setTextSize(TypedValue.COMPLEX_UNIT_SP, 13f)
                         setPadding(dp(Ui.SPACE_M), dp(6), dp(Ui.SPACE_M), dp(6))
-                        background = Ui.pressable(context, Ui.RADIUS_PILL, focusColor = p.onWall)
+                        background = Ui.pressable(context, Ui.RADIUS_PILL)
                         isFocusable = true
                         setOnClickListener { row.onAction?.invoke() }
                     })
@@ -159,7 +159,7 @@ class DrawerAdapter(
         // The notification badge hangs off the icon's corner.
         clipChildren = false
         clipToPadding = false
-        foreground = Ui.pressable(context, Ui.RADIUS_L, focusColor = p.onWall)
+        foreground = Ui.pressable(context, Ui.RADIUS_L)
         addView(ImageView(context), LinearLayout.LayoutParams(dp(54), dp(54)))
         addView(TextView(context).apply {
             setTextSize(TypedValue.COMPLEX_UNIT_SP, 12.5f)
@@ -204,7 +204,7 @@ class DrawerAdapter(
         clipChildren = false
         clipToPadding = false
         setPadding(dp(Ui.SPACE_M), 0, dp(Ui.SPACE_L), 0)
-        foreground = Ui.pressable(context, Ui.RADIUS_L, focusColor = p.onWall)
+        foreground = Ui.pressable(context, Ui.RADIUS_L)
         isFocusable = true
         addView(ImageView(context), LinearLayout.LayoutParams(dp(40), dp(40)))
         addView(TextView(context).apply {
@@ -261,7 +261,7 @@ class DrawerAdapter(
             gravity = Gravity.CENTER_VERTICAL
             minimumHeight = dp(60)
             setPadding(dp(Ui.SPACE_L), 0, dp(Ui.SPACE_L), 0)
-            foreground = Ui.pressable(context, Ui.RADIUS_L, focusColor = p.onWall)
+            foreground = Ui.pressable(context, Ui.RADIUS_L)
             isFocusable = true
             addView(icon, LinearLayout.LayoutParams(size, size))
             addView(LinearLayout(context).apply {
@@ -309,7 +309,7 @@ class DrawerAdapter(
             minimumHeight = dp(64)
             setPadding(dp(Ui.SPACE_L), 0, dp(Ui.SPACE_S), 0)
             minimumHeight = dp(60)
-            foreground = Ui.pressable(context, Ui.RADIUS_L, focusColor = p.onWall)
+            foreground = Ui.pressable(context, Ui.RADIUS_L)
             isFocusable = true
             // The Call key calls whoever is highlighted.
             tag = contact
@@ -372,7 +372,7 @@ class DrawerAdapter(
         setImageResource(icon)
         imageTintList = android.content.res.ColorStateList.valueOf(p.onWall)
         scaleType = ImageView.ScaleType.CENTER
-        background = Ui.pressable(context, Ui.RADIUS_PILL, focusColor = p.onWall)
+        background = Ui.pressable(context, Ui.RADIUS_PILL)
         isFocusable = true
         contentDescription = description
         layoutParams = LinearLayout.LayoutParams(dp(48), dp(48))

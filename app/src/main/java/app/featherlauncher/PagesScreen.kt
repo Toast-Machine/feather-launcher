@@ -272,7 +272,7 @@ class PagesScreen(
         }
         /** The keypad's ring, just outside the picture. */
         private val ring = View(activity).apply {
-            background = Ui.focusRing(activity, Ui.RADIUS_M + RING_GAP, p.onWall)
+            background = Ui.focusRing(activity, Ui.RADIUS_M + RING_GAP)
             isDuplicateParentStateEnabled = true
         }
         private val switch = FeatherSwitch(activity, p, !hidden).apply { onWall = true }
@@ -281,7 +281,7 @@ class PagesScreen(
             imageTintList = android.content.res.ColorStateList.valueOf(p.onWall)
             scaleType = ImageView.ScaleType.FIT_CENTER
             setPadding(dp(7), dp(7), dp(7), dp(7))
-            background = Ui.pressable(activity, Ui.RADIUS_PILL, Ui.rounded(activity, p.glass, Ui.RADIUS_PILL, p.hairline), p.onWall)
+            background = Ui.pressable(activity, Ui.RADIUS_PILL, Ui.rounded(activity, p.glass, Ui.RADIUS_PILL, p.hairline))
             contentDescription = "Delete page"
             setOnClickListener { confirmDelete(this@Tile) }
         }

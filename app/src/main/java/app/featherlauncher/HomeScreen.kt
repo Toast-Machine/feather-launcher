@@ -425,7 +425,7 @@ class HomeScreen(
         HomeItem.Type.WIDGET -> widgets.createView(item.ref.toInt())?.apply {
             // Reachable with the keypad like everything else, with the same ring when it is.
             isFocusable = true
-            foreground = Ui.focusRing(activity, Ui.RADIUS_L, 0xFFFFFFFF.toInt())
+            foreground = Ui.focusRing(activity, Ui.RADIUS_L)
             onLongPress = { onItemLongPress(item, this) }
             onBareChanged = { name(item, this) }
             // Holding OK on it with the keypad (a touch hold is caught above).
@@ -2446,7 +2446,7 @@ class HomeScreen(
         // Feather's own have their highlight (Ui.pressable, a layered drawable, or one of their
         // own); another app's widget's need one.
         if (view.foreground == null && view.background !is android.graphics.drawable.LayerDrawable) {
-            view.foreground = Ui.focusRing(activity, Ui.RADIUS_M, 0xFFFFFFFF.toInt())
+            view.foreground = Ui.focusRing(activity, Ui.RADIUS_M)
         }
         if (!view.isLongClickable) view.setOnLongClickListener { if (it.isInTouchMode) false else widget.performLongClick() }
     }

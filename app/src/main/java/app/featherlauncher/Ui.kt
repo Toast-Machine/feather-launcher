@@ -64,27 +64,27 @@ object Ui {
         }
 
     /**
-     * Where the keypad is: a crisp outline around the focused item, in [color] (white on the
-     * wallpaper, gray in sheets so it shows in light and dark). Nothing otherwise. No fill, so
-     * it never covers what's inside, and no fade, so it moves at once.
+     * Where the keypad is: a crisp outline around the focused item, in the accent color, or a
+     * clearly lighter or darker accent when the item or what's around it is the accent already
+     * (see [FocusStroke]). Nothing otherwise. No fill, so it never covers what's inside, and no
+     * fade, so it moves at once.
      */
-    fun focusRing(context: Context, radiusDp: Int, color: Int = FOCUS_NEUTRAL): Drawable =
+    fun focusRing(context: Context, radiusDp: Int): Drawable =
         android.graphics.drawable.StateListDrawable().apply {
-            addState(intArrayOf(android.R.attr.state_focused), GradientDrawable().apply {
-                setStroke(dp(context, 2), (color and 0xFFFFFF) or 0xD9000000.toInt())
+            addState(intArrayOf(android.R.attr.state_focused), FocusStroke(context).apply {
                 cornerRadius = dp(context, radiusDp).toFloat()
             })
             addState(intArrayOf(), android.graphics.drawable.ColorDrawable(0))
         }
 
     /** For app icons: no box when tapped (the icon shrinks instead, see [pressScale]), only the focus ring. */
-    fun focusHighlight(context: Context, radiusDp: Int): Drawable = focusRing(context, radiusDp, 0xFFFFFFFF.toInt())
+    fun focusHighlight(context: Context, radiusDp: Int): Drawable = focusRing(context, radiusDp)
 
     /** Touch ripple, plus the focus ring when the keypad is on the view. */
-    fun pressable(context: Context, radiusDp: Int, content: Drawable? = null, focusColor: Int = FOCUS_NEUTRAL): Drawable =
+    fun pressable(context: Context, radiusDp: Int, content: Drawable? = null): Drawable =
         android.graphics.drawable.LayerDrawable(arrayOf(
             TouchRipple(content, rounded(context, 0xFFFFFFFF.toInt(), radiusDp)),
-            focusRing(context, radiusDp, focusColor),
+            focusRing(context, radiusDp),
         ))
 
     /** A ripple for touches only. A plain ripple also fills the item while it's focused, on top of the focus ring. */
@@ -94,8 +94,75 @@ object Ui {
         )
     }
 
-    /** A gray that shows on both light and dark surfaces. */
-    const val FOCUS_NEUTRAL = 0xFF8C929B.toInt()
+    /**
+     * The focus ring's outline. Its color is worked out as it's drawn, so it follows the accent
+     * setting and whatever it's drawn on: the accent, unless the focused item's own fill or the
+     * fill behind it is the accent, and then that color 50% lighter or darker, whichever changes
+     * it more.
+     */
+    private class FocusStroke(private val context: Context) : GradientDrawable() {
+        private var color = 0
+
+        override fun draw(canvas: android.graphics.Canvas) {
+            val wanted = (ringColor() and 0xFFFFFF) or 0xD9000000.toInt()
+            // Only when it changes: setting the stroke redraws the view.
+            if (wanted != color) {
+                color = wanted
+                setStroke(dp(context, 2), wanted)
+            }
+            super.draw(canvas)
+        }
+
+        private fun ringColor(): Int {
+            val prefs = Prefs(context)
+            val accent = Palette.from(context, prefs.colorStyle, prefs.themeMode, prefs.accentColor).accent
+            val view = owner() ?: return accent
+            // A list's ring is drawn by the list, around its selected row.
+            val item = (view as? android.widget.AbsListView)?.selectedView ?: view
+            val accents = listOf(accent, WidgetStyle.accent())
+            val own = fillOf(item.background)
+            val around = generateSequence(item.parent as? View) { it.parent as? View }
+                .firstNotNullOfOrNull { fillOf(it.background) }
+            val clash = listOfNotNull(own, around).firstOrNull { c -> accents.any { near(it, c) } } ?: return accent
+            return shifted(clash)
+        }
+
+        /** The view this is drawn on, through any drawables it's inside. */
+        private fun owner(): View? {
+            var cb: Drawable.Callback? = callback
+            while (cb is Drawable) cb = cb.callback
+            return cb as? View
+        }
+    }
+
+    /** The solid color [d] fills with, if any: the topmost one, ignoring see-through ones and ripple masks. */
+    private fun fillOf(d: Drawable?): Int? {
+        val c = when (d) {
+            null -> null
+            is android.graphics.drawable.ColorDrawable -> d.color
+            is GradientDrawable -> d.color?.let { it.getColorForState(d.state, it.defaultColor) }
+            is android.graphics.drawable.DrawableContainer -> return fillOf(d.current)
+            is android.graphics.drawable.LayerDrawable -> return (d.numberOfLayers - 1 downTo 0)
+                .filter { d.getId(it) != android.R.id.mask }
+                .firstNotNullOfOrNull { fillOf(d.getDrawable(it)) }
+            is android.graphics.drawable.DrawableWrapper -> return fillOf(d.drawable)
+            else -> null
+        }
+        return c?.takeIf { android.graphics.Color.alpha(it) >= 0x80 }
+    }
+
+    private fun near(a: Int, b: Int): Boolean {
+        val d = 8
+        return kotlin.math.abs(android.graphics.Color.red(a) - android.graphics.Color.red(b)) <= d &&
+            kotlin.math.abs(android.graphics.Color.green(a) - android.graphics.Color.green(b)) <= d &&
+            kotlin.math.abs(android.graphics.Color.blue(a) - android.graphics.Color.blue(b)) <= d
+    }
+
+    /** [color] 50% lighter (halfway to white) or 50% darker (halfway to black), whichever is the bigger change. */
+    private fun shifted(color: Int): Int {
+        val (h, s, l) = Palette.rgbToHsl(color)
+        return Palette.hsl(h, s, if (l < 0.5f) l + (1 - l) / 2 else l / 2)
+    }
 
     /**
      * Makes [header] take [scrolled] while the page's content is scrolled under it, and [rest]
