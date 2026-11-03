@@ -17,13 +17,15 @@ import android.view.View
  *     adb pull /sdcard/Android/data/app.featherlauncher/files/widgets
  */
 object WidgetSheet {
-    private class Sample(val name: String, val kind: FeatherKind, val solid: Boolean)
+    /** [dates]: the analog clock with the dates and parsha under it. */
+    private class Sample(val name: String, val kind: FeatherKind, val solid: Boolean, val dates: Boolean = false)
 
     fun draw(context: Context, done: (String) -> Unit) {
         val grid = CellLayout.grid ?: return done("Open the home screen first")
         val samples = FeatherKind.entries.flatMap { kind ->
-            if (kind == FeatherKind.CLOCK || kind == FeatherKind.ANALOG || kind == FeatherKind.UP_NEXT)
-                listOf(Sample("${kind.name.lowercase()}-solid", kind, true), Sample("${kind.name.lowercase()}-transparent", kind, false))
+            if (kind == FeatherKind.CLOCK || kind == FeatherKind.ANALOG || kind == FeatherKind.UP_NEXT || kind == FeatherKind.DATE)
+                listOf(Sample("${kind.name.lowercase()}-solid", kind, true), Sample("${kind.name.lowercase()}-transparent", kind, false)) +
+                    if (kind == FeatherKind.ANALOG) listOf(Sample("analog-dates-solid", kind, true, true), Sample("analog-dates-transparent", kind, false, true)) else emptyList()
             else listOf(Sample(kind.name.lowercase(), kind, true))
         }
         var id = -90_000L
@@ -35,8 +37,12 @@ object WidgetSheet {
                     ?: if (s.kind == FeatherKind.ANALOG) AnalogClockWidget(context, item) else ClockWidget(context, item)
                 when (view) {
                     is ClockWidget -> view.setSolid(s.solid)
-                    is AnalogClockWidget -> view.setSolid(s.solid)
+                    is AnalogClockWidget -> {
+                        view.setSolid(s.solid)
+                        view.setDates(s.dates, s.dates)
+                    }
                     is UpNextWidget -> view.solid = s.solid
+                    is DateWidget -> view.solid = s.solid
                 }
                 val (pw, ph) = grid.widgetSize(w, h)
                 lay(view, pw, ph)

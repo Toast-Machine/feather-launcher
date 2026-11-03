@@ -17,7 +17,7 @@ Plain Kotlin and platform Views, no AndroidX and no third-party libraries, so it
 **Home screen and app list**
 - Pages, a dock, folders and widgets. Drag a widget over another and they swap places.
 - A clock with the date, the Hebrew date and parsha, and under it the weather and what's coming up next.
-- Widgets in Android's own style, colored from your wallpaper: Agenda, Weather, Now playing, Zmanim and Notifications.
+- Widgets in Android's own style, colored from your wallpaper: Agenda, Weather, Now playing, Zmanim, Notifications, Date (the date in both calendars and the parsha, down to 2×1) and an analog clock that can show them too.
 - A Jewish calendar (Yom Tov, fasts, Rosh Chodesh, the parsha, the Omer and Daf Yomi) and zmanim for your location.
 - An app list grouped into categories (with tabs) or all at once (with category chips). Drag apps to reorder them or move them between categories.
 - Hidden apps, kept on their own page behind an optional PIN.

@@ -14,11 +14,16 @@ import java.util.Calendar
 /**
  * The time on a clock face, and nothing else: a soft round face with twelve marks and no numbers,
  * slim hands and a fine second hand. Solid, on a card with the face in the accent's soft tone;
- * Transparent, a glass face on the wallpaper. The date and the rest are the digital clock's.
+ * Transparent, a glass face on the wallpaper. Under it, if they're turned on in its settings, the
+ * date in both calendars and the parsha ([DateLines]): the face gets smaller to make room for them.
  */
 @SuppressLint("ViewConstructor")
 class AnalogClockWidget(context: Context, val item: HomeItem) : FrameLayout(context) {
     private val face = Face(context)
+    private val dates = DateLines(context).apply {
+        showDates = false
+        showParsha = false
+    }
     var solid = false
         private set
 
@@ -31,8 +36,17 @@ class AnalogClockWidget(context: Context, val item: HomeItem) : FrameLayout(cont
 
     init {
         isFocusable = true
+        // The dates reach past the face's padding, closer to the card's edges.
+        clipToPadding = false
         addView(face)
+        addView(dates)
         setSolid(false)
+    }
+
+    /** What shows under the face: the dates in both calendars, the parsha, both or neither. */
+    fun setDates(dates: Boolean, parsha: Boolean) {
+        this.dates.showDates = dates
+        this.dates.showParsha = parsha
     }
 
     /** Solid: on a card with the cards' corners; transparent: straight on the wallpaper. */
@@ -41,25 +55,51 @@ class AnalogClockWidget(context: Context, val item: HomeItem) : FrameLayout(cont
         background = if (solid) android.graphics.drawable.InsetDrawable(WidgetStyle.cardBackground(context), dp(CardWidget.GAP)) else null
         val edge = dp(CardWidget.GAP + EDGE)
         setPadding(edge, edge, edge, edge)
+        dates.solid = solid
         face.invalidate()
     }
 
-    /** Draws the hands again (they also move on their own each second while on screen). */
-    fun refresh() = face.invalidate()
+    /** Draws the hands again (they also move on their own each second while on screen), and the dates. */
+    fun refresh() {
+        face.invalidate()
+        dates.update()
+    }
 
-    /** The face as large as the room allows, in the middle. */
+    private val showsDates get() = !dates.isEmpty
+
+    /**
+     * The face as large as the room allows, in the middle; with the dates, as large as the room
+     * above them allows, the two together in the middle. The dates reach closer to the card's
+     * edges than the face, so they're cut short as little as can be.
+     */
     override fun onMeasure(widthMeasureSpec: Int, heightMeasureSpec: Int) {
         val width = MeasureSpec.getSize(widthMeasureSpec)
         val height = if (MeasureSpec.getMode(heightMeasureSpec) == MeasureSpec.UNSPECIFIED) width else MeasureSpec.getSize(heightMeasureSpec)
         setMeasuredDimension(width, height)
-        val size = minOf(width - paddingLeft - paddingRight, height - paddingTop - paddingBottom).coerceAtLeast(0)
+        var room = height - paddingTop - paddingBottom
+        if (showsDates) {
+            val side = dp(CardWidget.GAP + TEXT_EDGE)
+            dates.measure(MeasureSpec.makeMeasureSpec((width - 2 * side).coerceAtLeast(0), MeasureSpec.EXACTLY), MeasureSpec.UNSPECIFIED)
+            room = height - paddingTop - side - dates.measuredHeight - dp(TEXT_GAP)
+        }
+        val size = minOf(width - paddingLeft - paddingRight, room).coerceAtLeast(0)
         face.measure(MeasureSpec.makeMeasureSpec(size, MeasureSpec.EXACTLY), MeasureSpec.makeMeasureSpec(size, MeasureSpec.EXACTLY))
     }
 
     override fun onLayout(changed: Boolean, l: Int, t: Int, r: Int, b: Int) {
         val left = (r - l - face.measuredWidth) / 2
-        val top = (b - t - face.measuredHeight) / 2
+        if (!showsDates) {
+            dates.layout(0, 0, 0, 0)
+            val top = (b - t - face.measuredHeight) / 2
+            face.layout(left, top, left + face.measuredWidth, top + face.measuredHeight)
+            return
+        }
+        val side = dp(CardWidget.GAP + TEXT_EDGE)
+        val both = face.measuredHeight + dp(TEXT_GAP) + dates.measuredHeight
+        val top = paddingTop + (b - t - paddingTop - side - both) / 2
         face.layout(left, top, left + face.measuredWidth, top + face.measuredHeight)
+        val under = top + face.measuredHeight + dp(TEXT_GAP)
+        dates.layout(side, under, side + dates.measuredWidth, under + dates.measuredHeight)
     }
 
     private fun dp(value: Int) = Ui.dp(context, value)
@@ -189,5 +229,9 @@ class AnalogClockWidget(context: Context, val item: HomeItem) : FrameLayout(cont
     private companion object {
         /** The room (dp) between the clock's card and its face. */
         const val EDGE = 16
+        /** The room (dp) between the card's edges and the dates under the face, at the sides and below. */
+        const val TEXT_EDGE = 8
+        /** The room (dp) between the face and the dates. */
+        const val TEXT_GAP = 6
     }
 }

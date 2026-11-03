@@ -19,14 +19,18 @@ enum class SecondCalendar(val label: String, private val icu: String?, private v
 
     /**
      * "25 Tishrei" or "14 Rabiʻ II" for [now]; null for [NONE]. [sunset] is today's, if known.
-     * [inHebrew] writes the Hebrew date in Hebrew: "כ״ה תשרי".
+     * [inHebrew] writes the Hebrew date in Hebrew: "כ״ה תשרי". [short] shortens the month's name
+     * ("25 Tish.", "14 Rab. II"); in Hebrew, the names are short already.
      */
-    fun format(now: Long, sunset: Long?, inHebrew: Boolean = false): String? {
+    fun format(now: Long, sunset: Long?, inHebrew: Boolean = false, short: Boolean = false): String? {
         val calendar = icu ?: return null
         val day = if (fromSunset && sunset != null && now >= sunset) now + DAY else now
         if (this == HEBREW && inHebrew) return HebrewText.date(JewishCalendar.day(day, java.util.TimeZone.getDefault()))
+        if (this == HEBREW && short) return JewishCalendar.hebrew(JewishCalendar.day(day, java.util.TimeZone.getDefault())).let {
+            "${it.day} ${JewishCalendar.shortMonthName(it.month, JewishCalendar.isLeap(it.year))}"
+        }
         if (this == HEBREW) return Zmanim.hebrewDate(day, null)
-        return SimpleDateFormat("d MMMM", ULocale("en@calendar=$calendar")).format(Date(day))
+        return SimpleDateFormat(if (short) "d MMM" else "d MMMM", ULocale("en@calendar=$calendar")).format(Date(day))
     }
 
     private companion object {

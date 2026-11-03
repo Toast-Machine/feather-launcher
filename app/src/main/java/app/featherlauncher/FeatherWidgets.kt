@@ -25,6 +25,7 @@ import java.util.Date
 enum class FeatherKind(val ref: String, val label: String, val w: Int, val h: Int, val about: String, val minW: Int = 2, val minH: Int = 1, val maxH: Int = Int.MAX_VALUE) {
     CLOCK("", "Clock", 4, 2, "The time, the date and what's coming up"),
     ANALOG("analog", "Analog clock", 2, 2, "The time on a clock face", minH = 2),
+    DATE("date", "Date", 4, 1, "Today's date in both calendars, and the parsha"),
     // One row only, as Google's At a Glance: taller, it's mostly empty card.
     UP_NEXT("upnext", "Up next", 4, 1, "Your next event, zman and alarm, with the weather now", maxH = 1),
     CALENDAR("agenda", "Calendar", 4, 2, "Your upcoming events", minH = 2),
@@ -247,6 +248,7 @@ abstract class CardWidget(context: Context, val item: HomeItem) : FrameLayout(co
         /** The view for a Feather widget that sits on a card, or null for the clock. */
         fun create(context: Context, item: HomeItem): CardWidget? = when (FeatherKind.of(item)) {
             FeatherKind.UP_NEXT -> UpNextWidget(context, item)
+            FeatherKind.DATE -> DateWidget(context, item)
             FeatherKind.CALENDAR -> CalendarWidget(context, item)
             FeatherKind.WEATHER -> WeatherWidget(context, item)
             FeatherKind.MEDIA -> MediaWidget(context, item)
@@ -254,6 +256,41 @@ abstract class CardWidget(context: Context, val item: HomeItem) : FrameLayout(co
             FeatherKind.NOTIFICATIONS -> NotificationsWidget(context, item)
             else -> null
         }
+    }
+}
+
+/**
+ * Today's date in both calendars, and this week's parsha under it or beside it ([DateLines]), as
+ * large as the card allows. Down to two cells by one, where the months are shortened to fit. On a
+ * card (Solid) or straight on the wallpaper (Transparent); the parsha can be turned off.
+ */
+@SuppressLint("ViewConstructor")
+class DateWidget(context: Context, item: HomeItem) : CardWidget(context, item) {
+    var onTap: (() -> Unit)? = null
+    var solid = true
+        set(value) {
+            field = value
+            refresh()
+        }
+    private val lines = DateLines(context).apply {
+        fill = true
+        largest = 22f
+    }
+
+    init {
+        pad(dp(GAP + 12), dp(GAP + 12), dp(GAP + 12), dp(GAP + 12))
+        content.addView(lines, LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, 0, 1f))
+        setOnClickListener { onTap?.invoke() }
+    }
+
+    fun setParsha(on: Boolean) {
+        lines.showParsha = on
+    }
+
+    override fun refresh() {
+        if (solid) setCard(WidgetStyle.cardBackground(context)) else clearCard()
+        lines.solid = solid
+        lines.update()
     }
 }
 

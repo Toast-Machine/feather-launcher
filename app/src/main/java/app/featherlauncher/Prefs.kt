@@ -119,6 +119,16 @@ class Prefs(context: Context) {
 
     fun setWidgetSolid(id: Long, solid: Boolean) = sp.edit().putBoolean("clock_solid_$id", solid).apply()
 
+    /** The dates under widget [id]'s clock face (the analog clock's), off until turned on. */
+    fun widgetDate(id: Long) = sp.getBoolean("widget_date_$id", false)
+
+    fun setWidgetDate(id: Long, on: Boolean) = sp.edit().putBoolean("widget_date_$id", on).apply()
+
+    /** The parsha on widget [id]: under the analog clock, off until turned on; on the Date widget, [default]. */
+    fun widgetParsha(id: Long, default: Boolean) = sp.getBoolean("widget_parsha_$id", default)
+
+    fun setWidgetParsha(id: Long, on: Boolean) = sp.edit().putBoolean("widget_parsha_$id", on).apply()
+
     /** The welcome has been shown (or the older first-run sheet was, for people updating). */
     var onboarded: Boolean
         get() = sp.getBoolean("onboarded", sp.getBoolean("setup_offered", false))

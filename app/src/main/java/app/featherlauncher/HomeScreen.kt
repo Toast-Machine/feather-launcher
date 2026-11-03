@@ -381,11 +381,12 @@ class HomeScreen(
             when (this) {
                 is CalendarWidget -> {
                     onEvent = { e -> host.startSafely(Intent(Intent.ACTION_VIEW, ContentUris.withAppendedId(CalendarContract.Events.CONTENT_URI, e.id))) }
-                    onCalendar = {
-                        val uri = CalendarContract.CONTENT_URI.buildUpon().appendPath("time")
-                        ContentUris.appendId(uri, System.currentTimeMillis())
-                        host.startSafely(Intent(Intent.ACTION_VIEW, uri.build()))
-                    }
+                    onCalendar = ::openCalendar
+                }
+                is DateWidget -> {
+                    solid = prefs.widgetSolid(item.id)
+                    setParsha(prefs.widgetParsha(item.id, true))
+                    onTap = ::openCalendar
                 }
                 is ZmanimWidget -> onOpen = { place -> ZmanimSheet.show(activity, palette(), overlays, place) }
                 is UpNextWidget -> {
@@ -405,6 +406,7 @@ class HomeScreen(
             setOnLongClickListener { onItemLongPress(item, it); true }
         } ?: if (FeatherKind.of(item) == FeatherKind.ANALOG) AnalogClockWidget(activity, item).apply {
             setSolid(prefs.widgetSolid(item.id))
+            setDates(prefs.widgetDate(item.id), prefs.widgetParsha(item.id, false))
             foreground = Ui.focusHighlight(activity, WidgetStyle.radius + CardWidget.GAP)
             setOnClickListener { host.startSafely(Intent(AlarmClock.ACTION_SHOW_ALARMS)) }
             setOnLongClickListener { onItemLongPress(item, it); true }
@@ -448,10 +450,17 @@ class HomeScreen(
      */
     private fun name(item: HomeItem, view: View) {
         val bare = (view as? ClockWidget)?.solid == false || (view as? AnalogClockWidget)?.solid == false ||
-            (view as? UpNextWidget)?.solid == false || (view as? WidgetView)?.bare == true
+            (view as? UpNextWidget)?.solid == false || (view as? DateWidget)?.solid == false || (view as? WidgetView)?.bare == true
         view.setTag(R.id.home_name, if (bare) null else widgetName(item))
         view.setTag(R.id.home_bare, bare)
         (view.parent as? View)?.apply { requestLayout(); invalidate() }
+    }
+
+    /** The calendar app, at today. */
+    private fun openCalendar() {
+        val uri = CalendarContract.CONTENT_URI.buildUpon().appendPath("time")
+        ContentUris.appendId(uri, System.currentTimeMillis())
+        host.startSafely(Intent(Intent.ACTION_VIEW, uri.build()))
     }
 
     /** Tapping something coming up, on the clock or Up next: the day's zmanim, the event, the alarms. */
@@ -947,7 +956,7 @@ class HomeScreen(
         val open: () -> Unit = when (item.type) {
             HomeItem.Type.WIDGET -> if (widgets.canReconfigure(item.ref.toInt())) ({ widgets.reconfigure(item.ref.toInt()) }) else return null
             HomeItem.Type.CLOCK -> when (FeatherKind.of(item)) {
-                FeatherKind.CLOCK, FeatherKind.ANALOG, FeatherKind.UP_NEXT -> ({ featherSettings(item) })
+                FeatherKind.CLOCK, FeatherKind.ANALOG, FeatherKind.UP_NEXT, FeatherKind.DATE -> ({ featherSettings(item) })
                 else -> return null
             }
             else -> return null
@@ -955,7 +964,11 @@ class HomeScreen(
         return MenuItem("Widget settings", R.drawable.ic_settings) { open() }
     }
 
-    /** A Feather widget's settings: for now its style, Solid on a card or Transparent on the wallpaper, as Android's own Clock offers. */
+    /**
+     * A Feather widget's settings: its style, Solid on a card or Transparent on the wallpaper, as
+     * Android's own Clock offers; under the analog clock, the dates and the parsha, and on the
+     * Date widget, the parsha.
+     */
     private fun featherSettings(item: HomeItem) {
         val p = palette()
         val column = LinearLayout(activity).apply {
@@ -971,9 +984,32 @@ class HomeScreen(
                 (views[item.id] as? ClockWidget)?.setSolid(it == 0)
                 (views[item.id] as? AnalogClockWidget)?.setSolid(it == 0)
                 (views[item.id] as? UpNextWidget)?.solid = it == 0
+                (views[item.id] as? DateWidget)?.solid = it == 0
                 views[item.id]?.let { view -> name(item, view) }
                 build()
             })
+            val kind = FeatherKind.of(item)
+            if (kind == FeatherKind.ANALOG || kind == FeatherKind.DATE) {
+                val analog = kind == FeatherKind.ANALOG
+                fun apply() {
+                    (views[item.id] as? AnalogClockWidget)?.setDates(prefs.widgetDate(item.id), prefs.widgetParsha(item.id, false))
+                    (views[item.id] as? DateWidget)?.setParsha(prefs.widgetParsha(item.id, true))
+                }
+                val rows = ArrayList<View>()
+                if (analog) rows += Components.toggleRow(activity, p, R.drawable.ic_calendar, "Date", prefs.widgetDate(item.id)) {
+                    prefs.setWidgetDate(item.id, it)
+                    apply()
+                }
+                rows += Components.toggleRow(activity, p, R.drawable.ic_cat_menu_book, "Parsha", prefs.widgetParsha(item.id, !analog)) {
+                    prefs.setWidgetParsha(item.id, it)
+                    apply()
+                }
+                column.addView(Components.sectionLabel(activity, p, "Show"))
+                // Its edges in line with the style buttons' above.
+                column.addView(Components.group(activity, p, rows), LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT).apply {
+                    marginStart = dp(Ui.SPACE_XL); marginEnd = dp(Ui.SPACE_XL)
+                })
+            }
         }
         build()
         overlays.showSheet("${clockName(item)} settings", column)

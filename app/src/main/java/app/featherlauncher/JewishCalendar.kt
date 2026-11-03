@@ -156,6 +156,19 @@ object JewishCalendar {
         else -> "Elul"
     }
 
+    /** [monthName] shortened, where there's little room: "Tish.", "Ches.", "Kisl."; the short ones stay whole. */
+    fun shortMonthName(month: Int, leap: Boolean) = when (month) {
+        HebrewCalendar.TISHRI -> "Tish."
+        HebrewCalendar.HESHVAN -> "Ches."
+        HebrewCalendar.KISLEV -> "Kisl."
+        HebrewCalendar.TEVET -> "Tev."
+        HebrewCalendar.SHEVAT -> "Shev."
+        HebrewCalendar.NISAN -> "Nis."
+        HebrewCalendar.SIVAN -> "Siv."
+        HebrewCalendar.TAMUZ -> "Tam."
+        else -> monthName(month, leap)
+    }
+
     // endregion
 
     // region Omer
