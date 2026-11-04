@@ -17,6 +17,8 @@ A change counts as tested only once it works on both. If either emulator isn't a
 
 Take screenshots in both emulators that show the fix or feature working, and show them to the dev.
 
+Other agents may be testing at the same time, so make your own emulator instances rather than using ones that already exist. Create a new AVD for each of the two (copy an existing one's `config.ini` for the same hardware, with fresh data), give each a name and `-port` no one else is using, and drive only those. Don't start, stop, wipe or change settings on emulators you didn't create. Shut yours down when you're done.
+
 ## What goes in the repo
 
 Only code and docs. Never commit screenshots, recordings, logs, build outputs or other files that aren't code or docs unless specifically told to. Keep them outside the repo, such as in a temp directory.
