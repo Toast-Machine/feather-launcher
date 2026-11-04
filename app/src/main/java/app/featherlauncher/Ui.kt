@@ -64,10 +64,9 @@ object Ui {
         }
 
     /**
-     * Where the keypad is: a crisp outline around the focused item, in the accent color, or a
-     * clearly lighter or darker accent when the item or what's around it is the accent already
-     * (see [FocusStroke]). Nothing otherwise. No fill, so it never covers what's inside, and no
-     * fade, so it moves at once.
+     * Where the keypad is: a crisp outline around the focused item, in the accent's hue turned
+     * 120 degrees lower (see [FocusStroke]). Nothing otherwise. No fill, so it never covers what's
+     * inside, and no fade, so it moves at once.
      */
     fun focusRing(context: Context, radiusDp: Int): Drawable =
         android.graphics.drawable.StateListDrawable().apply {
@@ -95,10 +94,9 @@ object Ui {
     }
 
     /**
-     * The focus ring's outline. Its color is worked out as it's drawn, so it follows the accent
-     * setting and whatever it's drawn on: the accent, unless the focused item's own fill or the
-     * fill behind it is the accent, and then that color 50% lighter or darker, whichever changes
-     * it more.
+     * The focus ring's outline: the accent with its hue 120 degrees lower, at the same
+     * saturation and lightness. Worked out as it's drawn, so it follows the accent setting
+     * and light or dark mode.
      */
     private class FocusStroke(private val context: Context) : GradientDrawable() {
         private var color = 0
@@ -116,52 +114,9 @@ object Ui {
         private fun ringColor(): Int {
             val prefs = Prefs(context)
             val accent = Palette.from(context, prefs.colorStyle, prefs.themeMode, prefs.accentColor).accent
-            val view = owner() ?: return accent
-            // A list's ring is drawn by the list, around its selected row.
-            val item = (view as? android.widget.AbsListView)?.selectedView ?: view
-            val accents = listOf(accent, WidgetStyle.accent())
-            val own = fillOf(item.background)
-            val around = generateSequence(item.parent as? View) { it.parent as? View }
-                .firstNotNullOfOrNull { fillOf(it.background) }
-            val clash = listOfNotNull(own, around).firstOrNull { c -> accents.any { near(it, c) } } ?: return accent
-            return shifted(clash)
+            val (h, s, l) = Palette.rgbToHsl(accent)
+            return Palette.hsl((h + 240f) % 360f, s, l)
         }
-
-        /** The view this is drawn on, through any drawables it's inside. */
-        private fun owner(): View? {
-            var cb: Drawable.Callback? = callback
-            while (cb is Drawable) cb = cb.callback
-            return cb as? View
-        }
-    }
-
-    /** The solid color [d] fills with, if any: the topmost one, ignoring see-through ones and ripple masks. */
-    private fun fillOf(d: Drawable?): Int? {
-        val c = when (d) {
-            null -> null
-            is android.graphics.drawable.ColorDrawable -> d.color
-            is GradientDrawable -> d.color?.let { it.getColorForState(d.state, it.defaultColor) }
-            is android.graphics.drawable.DrawableContainer -> return fillOf(d.current)
-            is android.graphics.drawable.LayerDrawable -> return (d.numberOfLayers - 1 downTo 0)
-                .filter { d.getId(it) != android.R.id.mask }
-                .firstNotNullOfOrNull { fillOf(d.getDrawable(it)) }
-            is android.graphics.drawable.DrawableWrapper -> return fillOf(d.drawable)
-            else -> null
-        }
-        return c?.takeIf { android.graphics.Color.alpha(it) >= 0x80 }
-    }
-
-    private fun near(a: Int, b: Int): Boolean {
-        val d = 8
-        return kotlin.math.abs(android.graphics.Color.red(a) - android.graphics.Color.red(b)) <= d &&
-            kotlin.math.abs(android.graphics.Color.green(a) - android.graphics.Color.green(b)) <= d &&
-            kotlin.math.abs(android.graphics.Color.blue(a) - android.graphics.Color.blue(b)) <= d
-    }
-
-    /** [color] 50% lighter (halfway to white) or 50% darker (halfway to black), whichever is the bigger change. */
-    private fun shifted(color: Int): Int {
-        val (h, s, l) = Palette.rgbToHsl(color)
-        return Palette.hsl(h, s, if (l < 0.5f) l + (1 - l) / 2 else l / 2)
     }
 
     /**
