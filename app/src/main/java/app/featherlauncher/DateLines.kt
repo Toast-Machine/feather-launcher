@@ -12,7 +12,11 @@ import java.util.TimeZone
  * The day's date in both calendars on one line ("Tue, November 3 · 13 Cheshvan") and this week's
  * parsha, under the analog clock ([AnalogClockWidget]) and on the Date widget ([DateWidget]).
  *
- * Short of room, the months are shortened ("Tue, Nov. 3 · 13 Ches."), then the weekday goes,
+ * With [part], just one piece of that: the weekday (with the parsha, when the second calendar is
+ * the Hebrew one), or the dates without it. The analog clock shows one above its face and the
+ * other under it.
+ *
+ * Short of room, the months are shortened ("Tue, Nov. 3 · 13 Che."), then the weekday goes,
  * then the words get smaller; the parsha follows the dates on their line when it fits there and
  * goes on a line of its own when it doesn't. Nothing is cut short unless even the smallest words
  * don't fit. The second date is the one chosen in Calendar and times, and the Jewish day turns
@@ -34,6 +38,11 @@ class DateLines(context: Context) : View(context) {
     /** The largest the date's words get, in sp. */
     var largest = 13f
         set(value) { field = value; requestLayout() }
+
+    /** Which of the lines to show; [showParsha] counts only for [Part.ALL]. */
+    enum class Part { ALL, WEEKDAY, DATES }
+    var part = Part.ALL
+        set(value) { field = value; update() }
 
     /** Nothing to show: both off, or the parsha alone in a week of Yom Tov. */
     val isEmpty get() = dates.isEmpty() && parsha == null
@@ -90,24 +99,32 @@ class DateLines(context: Context) : View(context) {
         val place = ClockInfo(context).place()
         val sunset = place?.let { Zmanim.sun(now, it, Zmanim.SUNRISE, false) }
         val hebrew = prefs.secondCalendar == SecondCalendar.HEBREW && prefs.hebrewInHebrew
-        val nextDates = if (!showDates) emptyList() else {
-            val second = prefs.secondCalendar
-            fun joined(civil: String, short: Boolean) = listOfNotNull(civil, second.format(now, sunset, hebrew, short)?.let { if (hebrew) HebrewText.isolate(it) else it }).joinToString(" · ")
-            val month = android.text.format.DateFormat.format("MMMM", now).toString()
-            val abbreviated = android.text.format.DateFormat.format("MMM", now).toString().let { if (it == month || it.endsWith(".")) it else "$it." }
-            val day = android.text.format.DateFormat.format("d", now)
-            val weekday = android.text.format.DateFormat.format("EEE", now)
-            listOf(joined("$weekday, $month $day", false), joined("$weekday, $abbreviated $day", true), joined("$abbreviated $day", true)).distinct()
-        }
-        val nextParsha = if (!showParsha) null else {
+        val second = prefs.secondCalendar
+        fun joined(civil: String, short: Boolean) = listOfNotNull(civil, second.format(now, sunset, hebrew, short)?.let { if (hebrew) HebrewText.isolate(it) else it }).joinToString(" · ")
+        val month = android.text.format.DateFormat.format("MMMM", now).toString()
+        val abbreviated = android.text.format.DateFormat.format("MMM", now).toString().let { if (it == month || it.endsWith(".")) it else "$it." }
+        val day = android.text.format.DateFormat.format("d", now)
+        val weekday = android.text.format.DateFormat.format("EEE", now)
+        /** This week's parsha: with "Parshas" before it, and on its own. */
+        fun parshaNow(): Pair<String, String>? {
             val zone = place?.zone ?: TimeZone.getDefault()
             val today = JewishCalendar.day(now, zone)
             val jewishDay = if (sunset != null && now >= sunset) today + 1 else today
-            JewishCalendar.parshaOfWeek(jewishDay, place?.inIsrael == true)?.let {
+            return JewishCalendar.parshaOfWeek(jewishDay, place?.inIsrael == true)?.let {
                 if (hebrew) HebrewText.parsha(it).let { he -> HebrewText.isolate("פרשת $he") to HebrewText.isolate(he) }
                 else "Parshas $it" to it
             }
         }
+        val nextDates = if (!showDates) emptyList() else when (part) {
+            Part.ALL -> listOf(joined("$weekday, $month $day", false), joined("$weekday, $abbreviated $day", true), joined("$abbreviated $day", true)).distinct()
+            Part.DATES -> listOf(joined("$month $day", false), joined("$abbreviated $day", true)).distinct()
+            Part.WEEKDAY -> {
+                val name = if (second == SecondCalendar.HEBREW) parshaNow()?.second else null
+                val full = android.text.format.DateFormat.format("EEEE", now)
+                listOf(full, weekday).map { w -> listOfNotNull(w, name).joinToString(" · ") }.distinct()
+            }
+        }
+        val nextParsha = if (!showParsha || part != Part.ALL) null else parshaNow()
         if (nextDates == dates && nextParsha == parsha) return
         dates = nextDates
         parsha = nextParsha

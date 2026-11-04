@@ -119,12 +119,12 @@ class Prefs(context: Context) {
 
     fun setWidgetSolid(id: Long, solid: Boolean) = sp.edit().putBoolean("clock_solid_$id", solid).apply()
 
-    /** The dates under widget [id]'s clock face (the analog clock's), off until turned on. */
+    /** The weekday and dates around widget [id]'s clock face (the analog clock's), off until turned on. */
     fun widgetDate(id: Long) = sp.getBoolean("widget_date_$id", false)
 
     fun setWidgetDate(id: Long, on: Boolean) = sp.edit().putBoolean("widget_date_$id", on).apply()
 
-    /** The parsha on widget [id]: under the analog clock, off until turned on; on the Date widget, [default]. */
+    /** The parsha on the Date widget [id], [default] until it's set. */
     fun widgetParsha(id: Long, default: Boolean) = sp.getBoolean("widget_parsha_$id", default)
 
     fun setWidgetParsha(id: Long, on: Boolean) = sp.edit().putBoolean("widget_parsha_$id", on).apply()

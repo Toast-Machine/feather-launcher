@@ -156,13 +156,13 @@ object JewishCalendar {
         else -> "Elul"
     }
 
-    /** [monthName] shortened, where there's little room: "Tish.", "Ches.", "Kisl."; the short ones stay whole. */
+    /** [monthName] shortened to three letters, where there's little room: "Tis.", "Che.", "Kis."; the short ones stay whole. */
     fun shortMonthName(month: Int, leap: Boolean) = when (month) {
-        HebrewCalendar.TISHRI -> "Tish."
-        HebrewCalendar.HESHVAN -> "Ches."
-        HebrewCalendar.KISLEV -> "Kisl."
+        HebrewCalendar.TISHRI -> "Tis."
+        HebrewCalendar.HESHVAN -> "Che."
+        HebrewCalendar.KISLEV -> "Kis."
         HebrewCalendar.TEVET -> "Tev."
-        HebrewCalendar.SHEVAT -> "Shev."
+        HebrewCalendar.SHEVAT -> "She."
         HebrewCalendar.NISAN -> "Nis."
         HebrewCalendar.SIVAN -> "Siv."
         HebrewCalendar.TAMUZ -> "Tam."

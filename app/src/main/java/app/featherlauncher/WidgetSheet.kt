@@ -17,7 +17,7 @@ import android.view.View
  *     adb pull /sdcard/Android/data/app.featherlauncher/files/widgets
  */
 object WidgetSheet {
-    /** [dates]: the analog clock with the dates and parsha under it. */
+    /** [dates]: the analog clock with the weekday above it and the dates under it. */
     private class Sample(val name: String, val kind: FeatherKind, val solid: Boolean, val dates: Boolean = false)
 
     fun draw(context: Context, done: (String) -> Unit) {
@@ -39,7 +39,7 @@ object WidgetSheet {
                     is ClockWidget -> view.setSolid(s.solid)
                     is AnalogClockWidget -> {
                         view.setSolid(s.solid)
-                        view.setDates(s.dates, s.dates)
+                        view.setDates(s.dates)
                     }
                     is UpNextWidget -> view.solid = s.solid
                     is DateWidget -> view.solid = s.solid

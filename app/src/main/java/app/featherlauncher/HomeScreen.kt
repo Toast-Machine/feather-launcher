@@ -406,7 +406,7 @@ class HomeScreen(
             setOnLongClickListener { onItemLongPress(item, it); true }
         } ?: if (FeatherKind.of(item) == FeatherKind.ANALOG) AnalogClockWidget(activity, item).apply {
             setSolid(prefs.widgetSolid(item.id))
-            setDates(prefs.widgetDate(item.id), prefs.widgetParsha(item.id, false))
+            setDates(prefs.widgetDate(item.id))
             foreground = Ui.focusHighlight(activity, WidgetStyle.radius + CardWidget.GAP)
             setOnClickListener { host.startSafely(Intent(AlarmClock.ACTION_SHOW_ALARMS)) }
             setOnLongClickListener { onItemLongPress(item, it); true }
@@ -992,7 +992,7 @@ class HomeScreen(
             if (kind == FeatherKind.ANALOG || kind == FeatherKind.DATE) {
                 val analog = kind == FeatherKind.ANALOG
                 fun apply() {
-                    (views[item.id] as? AnalogClockWidget)?.setDates(prefs.widgetDate(item.id), prefs.widgetParsha(item.id, false))
+                    (views[item.id] as? AnalogClockWidget)?.setDates(prefs.widgetDate(item.id))
                     (views[item.id] as? DateWidget)?.setParsha(prefs.widgetParsha(item.id, true))
                 }
                 val rows = ArrayList<View>()
@@ -1000,7 +1000,8 @@ class HomeScreen(
                     prefs.setWidgetDate(item.id, it)
                     apply()
                 }
-                rows += Components.toggleRow(activity, p, R.drawable.ic_cat_menu_book, "Parsha", prefs.widgetParsha(item.id, !analog)) {
+                // The analog clock's parsha comes with its weekday, when the second calendar is the Hebrew one.
+                if (!analog) rows += Components.toggleRow(activity, p, R.drawable.ic_cat_menu_book, "Parsha", prefs.widgetParsha(item.id, true)) {
                     prefs.setWidgetParsha(item.id, it)
                     apply()
                 }

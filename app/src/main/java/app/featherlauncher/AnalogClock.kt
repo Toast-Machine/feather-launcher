@@ -17,17 +17,25 @@ import kotlin.math.sqrt
 /**
  * The time on a clock face, and nothing else: the card itself is the face, with twelve marks
  * following its rounded edge and no numbers, slim hands and a fine second hand. Solid, the card in
- * the accent's soft tone; Transparent, a glass card on the wallpaper. Under the marks, if they're
- * turned on in its settings, the date in both calendars and the parsha ([DateLines]): the marks
- * draw in above them to make room.
+ * the accent's soft tone; Transparent, a glass card on the wallpaper. With the date turned on in
+ * its settings, the weekday above the marks (with the parsha, when the second calendar is the
+ * Hebrew one) and the date in both calendars under them ([DateLines]): the marks draw in between
+ * them to make room.
  */
 @SuppressLint("ViewConstructor")
 class AnalogClockWidget(context: Context, val item: HomeItem) : FrameLayout(context) {
     private val face = Face(context)
-    private val dates = DateLines(context).apply {
+    private val weekday = DateLines(context).apply {
+        part = DateLines.Part.WEEKDAY
         showDates = false
         showParsha = false
     }
+    private val dates = DateLines(context).apply {
+        part = DateLines.Part.DATES
+        showDates = false
+        showParsha = false
+    }
+    private val lines get() = listOf(weekday, dates)
     var solid = false
         private set
 
@@ -50,14 +58,14 @@ class AnalogClockWidget(context: Context, val item: HomeItem) : FrameLayout(cont
         // The dates reach past the card's padding, closer to its edges.
         clipToPadding = false
         addView(face)
+        addView(weekday)
         addView(dates)
         setSolid(false)
     }
 
-    /** What shows under the face: the dates in both calendars, the parsha, both or neither. */
-    fun setDates(dates: Boolean, parsha: Boolean) {
-        this.dates.showDates = dates
-        this.dates.showParsha = parsha
+    /** The weekday (and parsha) above the face and the dates under it, or neither. */
+    fun setDates(on: Boolean) {
+        for (l in lines) l.showDates = on
     }
 
     /** Solid: the card in the accent's soft tone, with the cards' corners; transparent: a glass card. */
@@ -65,7 +73,7 @@ class AnalogClockWidget(context: Context, val item: HomeItem) : FrameLayout(cont
         this.solid = solid
         val gap = dp(CardWidget.GAP)
         setPadding(gap, gap, gap, gap)
-        dates.solid = solid
+        for (l in lines) l.solid = solid
         invalidate()
         face.invalidate()
     }
@@ -74,38 +82,43 @@ class AnalogClockWidget(context: Context, val item: HomeItem) : FrameLayout(cont
     fun refresh() {
         invalidate()
         face.invalidate()
-        dates.update()
+        for (l in lines) l.update()
     }
-
-    private val showsDates get() = !dates.isEmpty
 
     /** The card's corners: the cards' (and so the icons'), never rounder than a circle. */
     private val corner get() = minOf(dp(WidgetStyle.radius).toFloat(), minOf(card.width(), card.height()) / 2f)
 
+    /** How much room [line] takes from the face: its height and the gaps on either side, or none. */
+    private fun taken(line: DateLines) = if (line.isEmpty) 0 else dp(TEXT_EDGE) + line.measuredHeight + dp(TEXT_GAP)
+
     /**
-     * The face fills the card; with the dates, the card above them. The dates reach closer to the
-     * card's edges than the marks, so they're cut short as little as can be.
+     * The face fills the card; with the date, the card between the weekday above it and the dates
+     * under it. Those reach closer to the card's edges than the marks, so they're cut short as
+     * little as can be.
      */
     override fun onMeasure(widthMeasureSpec: Int, heightMeasureSpec: Int) {
         val width = MeasureSpec.getSize(widthMeasureSpec)
         val height = if (MeasureSpec.getMode(heightMeasureSpec) == MeasureSpec.UNSPECIFIED) width else MeasureSpec.getSize(heightMeasureSpec)
         setMeasuredDimension(width, height)
-        var room = height - paddingTop - paddingBottom
-        if (showsDates) {
-            val side = dp(CardWidget.GAP + TEXT_EDGE)
-            dates.measure(MeasureSpec.makeMeasureSpec((width - 2 * side).coerceAtLeast(0), MeasureSpec.EXACTLY), MeasureSpec.UNSPECIFIED)
-            room = height - paddingTop - side - dates.measuredHeight - dp(TEXT_GAP)
-        }
+        val side = dp(CardWidget.GAP + TEXT_EDGE)
+        for (l in lines) l.measure(MeasureSpec.makeMeasureSpec((width - 2 * side).coerceAtLeast(0), MeasureSpec.EXACTLY), MeasureSpec.UNSPECIFIED)
+        val room = height - paddingTop - paddingBottom - taken(weekday) - taken(dates)
         val across = (width - paddingLeft - paddingRight).coerceAtLeast(0)
         face.measure(MeasureSpec.makeMeasureSpec(across, MeasureSpec.EXACTLY), MeasureSpec.makeMeasureSpec(room.coerceAtLeast(0), MeasureSpec.EXACTLY))
     }
 
     override fun onLayout(changed: Boolean, l: Int, t: Int, r: Int, b: Int) {
-        face.layout(paddingLeft, paddingTop, paddingLeft + face.measuredWidth, paddingTop + face.measuredHeight)
-        if (!showsDates) return dates.layout(0, 0, 0, 0)
         val side = dp(CardWidget.GAP + TEXT_EDGE)
-        val under = face.bottom + dp(TEXT_GAP)
-        dates.layout(side, under, side + dates.measuredWidth, under + dates.measuredHeight)
+        val top = paddingTop + taken(weekday)
+        face.layout(paddingLeft, top, paddingLeft + face.measuredWidth, top + face.measuredHeight)
+        if (weekday.isEmpty) weekday.layout(0, 0, 0, 0) else {
+            val y = paddingTop + dp(TEXT_EDGE)
+            weekday.layout(side, y, side + weekday.measuredWidth, y + weekday.measuredHeight)
+        }
+        if (dates.isEmpty) dates.layout(0, 0, 0, 0) else {
+            val y = face.bottom + dp(TEXT_GAP)
+            dates.layout(side, y, side + dates.measuredWidth, y + dates.measuredHeight)
+        }
     }
 
     /** The card: the accent's soft tone, a touch lighter toward the middle; on the wallpaper, glass. */
@@ -293,9 +306,9 @@ class AnalogClockWidget(context: Context, val item: HomeItem) : FrameLayout(cont
         const val MARK = 0.14f
         /** The shortest of the marks between the quarters, as a share of the shortest quarter. */
         const val MINOR = 0.6f
-        /** The room (dp) between the card's edges and the dates under the face, at the sides and below. */
+        /** The room (dp) between the card's edges and the lines above and under the face. */
         const val TEXT_EDGE = 8
-        /** The room (dp) between the face's marks and the dates. */
+        /** The room (dp) between the face's marks and the lines above and under it. */
         const val TEXT_GAP = 6
     }
 }

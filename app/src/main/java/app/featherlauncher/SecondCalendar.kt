@@ -20,7 +20,7 @@ enum class SecondCalendar(val label: String, private val icu: String?, private v
     /**
      * "25 Tishrei" or "14 Rabiʻ II" for [now]; null for [NONE]. [sunset] is today's, if known.
      * [inHebrew] writes the Hebrew date in Hebrew: "כ״ה תשרי". [short] shortens the month's name
-     * ("25 Tish.", "14 Rab. II"); in Hebrew, the names are short already.
+     * ("25 Tis.", "14 Rab. II"); in Hebrew, the names are short already.
      */
     fun format(now: Long, sunset: Long?, inHebrew: Boolean = false, short: Boolean = false): String? {
         val calendar = icu ?: return null
