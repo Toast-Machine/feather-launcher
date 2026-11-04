@@ -79,6 +79,46 @@ object Ui {
     /** For app icons: no box when tapped (the icon shrinks instead, see [pressScale]), only the focus ring. */
     fun focusHighlight(context: Context, radiusDp: Int): Drawable = focusRing(context, radiusDp)
 
+    /**
+     * The focus ring around an app icon, following the icon's own [shape] (a squircle's ring is a
+     * squircle, not a rounded square). It fills the view it's on, so that view's padding is the gap.
+     */
+    fun iconFocusRing(context: Context, shape: IconShape): Drawable =
+        android.graphics.drawable.StateListDrawable().apply {
+            addState(intArrayOf(android.R.attr.state_focused), ShapeStroke(context, shape))
+            addState(intArrayOf(), android.graphics.drawable.ColorDrawable(0))
+        }
+
+    /** [shape]'s outline at the drawable's size, stroked in the focus ring's color. */
+    private class ShapeStroke(private val context: Context, private val shape: IconShape) : Drawable() {
+        private val paint = android.graphics.Paint(android.graphics.Paint.ANTI_ALIAS_FLAG).apply {
+            style = android.graphics.Paint.Style.STROKE
+        }
+        private val path = android.graphics.Path()
+
+        override fun onBoundsChange(bounds: android.graphics.Rect) {
+            val stroke = dp(context, 2).toFloat()
+            paint.strokeWidth = stroke
+            // Inset by half the stroke so all of it is inside the bounds.
+            val size = minOf(bounds.width(), bounds.height()) - stroke
+            path.reset()
+            if (size > 0) {
+                path.set(shape.path(size))
+                path.offset(bounds.exactCenterX() - size / 2, bounds.exactCenterY() - size / 2)
+            }
+        }
+
+        override fun draw(canvas: android.graphics.Canvas) {
+            paint.color = (ringColor(context) and 0xFFFFFF) or 0xD9000000.toInt()
+            canvas.drawPath(path, paint)
+        }
+
+        override fun setAlpha(alpha: Int) {}
+        override fun setColorFilter(colorFilter: android.graphics.ColorFilter?) {}
+        @Deprecated("Deprecated in Java")
+        override fun getOpacity() = android.graphics.PixelFormat.TRANSLUCENT
+    }
+
     /** Touch ripple, plus the focus ring when the keypad is on the view. */
     fun pressable(context: Context, radiusDp: Int, content: Drawable? = null): Drawable =
         android.graphics.drawable.LayerDrawable(arrayOf(
@@ -102,7 +142,7 @@ object Ui {
         private var color = 0
 
         override fun draw(canvas: android.graphics.Canvas) {
-            val wanted = (ringColor() and 0xFFFFFF) or 0xD9000000.toInt()
+            val wanted = (ringColor(context) and 0xFFFFFF) or 0xD9000000.toInt()
             // Only when it changes: setting the stroke redraws the view.
             if (wanted != color) {
                 color = wanted
@@ -110,13 +150,14 @@ object Ui {
             }
             super.draw(canvas)
         }
+    }
 
-        private fun ringColor(): Int {
-            val prefs = Prefs(context)
-            val accent = Palette.from(context, prefs.colorStyle, prefs.themeMode, prefs.accentColor).accent
-            val (h, s, l) = Palette.rgbToHsl(accent)
-            return Palette.hsl((h + 240f) % 360f, s, l)
-        }
+    /** The focus ring's color: the accent with its hue 120 degrees lower. */
+    private fun ringColor(context: Context): Int {
+        val prefs = Prefs(context)
+        val accent = Palette.from(context, prefs.colorStyle, prefs.themeMode, prefs.accentColor).accent
+        val (h, s, l) = Palette.rgbToHsl(accent)
+        return Palette.hsl((h + 240f) % 360f, s, l)
     }
 
     /**

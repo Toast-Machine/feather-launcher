@@ -25,7 +25,7 @@ class AppIconView(context: Context, val item: HomeItem) : LinearLayout(context) 
         // The keypad highlight is drawn on the icon only, an even square around it.
         icon.setPadding(dp(INSET), dp(INSET), dp(INSET), dp(INSET))
         icon.isDuplicateParentStateEnabled = true
-        icon.background = Ui.focusHighlight(context, corner(ICON) + INSET)
+        icon.background = Ui.iconFocusRing(context, shape)
         addView(icon, LayoutParams(dp(ICON + 2 * INSET), dp(ICON + 2 * INSET)))
         label.apply {
             setTextSize(TypedValue.COMPLEX_UNIT_SP, NAME_SP)
@@ -44,6 +44,8 @@ class AppIconView(context: Context, val item: HomeItem) : LinearLayout(context) 
     private var size = ICON
     /** Its corners' radius in dp, for the keypad highlight around it. */
     private var corner = 0
+    /** The shape its keypad highlight was drawn for. */
+    private var ringShape = shape
 
     fun bind(bitmap: Bitmap?, name: String, showLabel: Boolean, locked: Boolean = false, isNew: Boolean = false,
              badge: Int = 0, iconDp: Int = ICON) {
@@ -51,7 +53,10 @@ class AppIconView(context: Context, val item: HomeItem) : LinearLayout(context) 
             size = iconDp
             corner = corner(iconDp)
             icon.layoutParams = LayoutParams(dp(size + 2 * INSET), dp(size + 2 * INSET))
-            icon.background = Ui.focusHighlight(context, corner + INSET)
+        }
+        if (ringShape != shape || icon.background == null) {
+            ringShape = shape
+            icon.background = Ui.iconFocusRing(context, shape)
         }
         // Coming home binds every icon again; most have nothing new, and each change redraws it.
         if (bitmap !== shownBitmap) {
