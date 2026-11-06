@@ -517,12 +517,13 @@ class NotificationsWidget(context: Context, item: HomeItem) : CardWidget(context
             setPadding(dp(ROW_PAD), dp(4), dp(ROW_PAD), dp(4))
             setOnClickListener { note.open() }
             note.art()?.let { art ->
-                addView(ImageView(context).apply {
+                // As tall as the room for it, up to its own size: on a short card a contact's photo shrinks rather than being cut off.
+                addView(FitSquare(context, dp(ART)).apply {
                     setImageDrawable(art)
                     scaleType = ImageView.ScaleType.CENTER_CROP
                     clipToOutline = true
                     background = Ui.rounded(context, WidgetStyle.accentFill(), 12)
-                }, LinearLayout.LayoutParams(dp(44), dp(44)).apply { marginEnd = dp(12) })
+                }, LinearLayout.LayoutParams(LinearLayout.LayoutParams.WRAP_CONTENT, LinearLayout.LayoutParams.MATCH_PARENT).apply { marginEnd = dp(12) })
             }
             if (note.longText.isNotEmpty()) addView(ScrollView(context).apply {
                 isVerticalScrollBarEnabled = false
@@ -541,24 +542,110 @@ class NotificationsWidget(context: Context, item: HomeItem) : CardWidget(context
         }, LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, 0, 1f).apply {
             topMargin = dp(4); marginStart = -dp(ROW_PAD); marginEnd = -dp(ROW_PAD)
         })
-        if (note.actions.isNotEmpty()) addView(LinearLayout(context).apply {
-            orientation = LinearLayout.HORIZONTAL
-            gravity = Gravity.CENTER
+        if (note.actions.isNotEmpty()) addView(ButtonRow(context, dp(6), dp(2)).apply {
             note.actions.forEachIndexed { i, a ->
                 val icon = if (note.media) note.actionIcon(a) else null
                 val words = a.title?.toString().orEmpty()
                 val button = if (icon != null || words.isBlank()) {
                     val main = note.isPlayPause(a)
-                    iconButton(0, if (main) WidgetStyle.onAccent() else WidgetStyle.onCard(), if (main) WidgetStyle.accent() else null, 44) { note.press(a) }.apply {
+                    iconButton(0, if (main) WidgetStyle.onAccent() else WidgetStyle.onCard(), if (main) WidgetStyle.accent() else null, BUTTON) { note.press(a) }.apply {
                         setImageDrawable((icon ?: note.actionIcon(a))?.mutate())
                         contentDescription = words
-                    }.also { b -> b.layoutParams = LinearLayout.LayoutParams(dp(44), dp(44)).apply { marginStart = dp(4); marginEnd = dp(4) } }
+                    }.also { b -> b.layoutParams = ViewGroup.LayoutParams(dp(BUTTON), dp(BUTTON)) }
                 } else {
-                    pill(words) { note.press(a) }.also { b -> b.layoutParams = LinearLayout.LayoutParams(0, dp(36), 1f).apply { marginStart = dp(3); marginEnd = dp(3) } }
+                    pill(words) { note.press(a) }.also { b -> b.layoutParams = ViewGroup.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, dp(36)) }
                 }
                 addView(button.apply { tag = "${note.key}#$i" })
             }
         }, LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT).apply { topMargin = dp(6) })
+    }
+
+    /** A square picture as tall as its room, up to [max]: it shrinks to fit rather than being cut off. */
+    private class FitSquare(context: Context, private val max: Int) : ImageView(context) {
+        override fun onMeasure(widthMeasureSpec: Int, heightMeasureSpec: Int) {
+            val room = if (MeasureSpec.getMode(heightMeasureSpec) == MeasureSpec.UNSPECIFIED) max else MeasureSpec.getSize(heightMeasureSpec)
+            val size = minOf(max, room).coerceAtLeast(0)
+            setMeasuredDimension(size, size)
+        }
+    }
+
+    /**
+     * A notification's buttons in a row, in the middle: round ones their own size, ones with words
+     * sharing the rest (alike, when that gives each enough room). When they're too wide for the card
+     * (a video app with many buttons), the room between them shrinks first, down to [minGap], and
+     * then the buttons themselves, all by the same amount.
+     */
+    private class ButtonRow(context: Context, private val gap: Int, private val minGap: Int) : ViewGroup(context) {
+        /** The room between buttons, as last measured. */
+        private var spacing = gap
+
+        override fun onMeasure(widthMeasureSpec: Int, heightMeasureSpec: Int) {
+            val shown = (0 until childCount).map(::getChildAt).filter { it.visibility != View.GONE }
+            val width = MeasureSpec.getSize(widthMeasureSpec)
+            val loose = MeasureSpec.makeMeasureSpec(0, MeasureSpec.UNSPECIFIED)
+            fun exactly(size: Int) = MeasureSpec.makeMeasureSpec(size.coerceAtLeast(0), MeasureSpec.EXACTLY)
+            // Each button's own width: a round one's size, or its words' with their padding.
+            val round = shown.map { it.layoutParams.width >= 0 }
+            val natural = shown.mapIndexed { i, v -> if (round[i]) v.layoutParams.width else { v.measure(loose, loose); v.measuredWidth } }
+            val gaps = (shown.size - 1).coerceAtLeast(0)
+            val wanted = natural.sum()
+            val widths: List<Int> = when {
+                wanted + gaps * gap <= width -> {
+                    spacing = gap
+                    // Ones with words fill the rest of the row: alike if each fits so, else each its own width and a share of what's left.
+                    val words = shown.indices.filter { !round[it] }
+                    val rest = width - gaps * gap - shown.indices.filter { round[it] }.sumOf { natural[it] }
+                    val even = if (words.isEmpty()) 0 else rest / words.size
+                    val alike = words.all { natural[it] <= even }
+                    val share = if (words.isEmpty()) 0 else (rest - words.sumOf { natural[it] }) / words.size
+                    shown.indices.map { i -> if (round[i]) natural[i] else if (alike) even else natural[i] + share }
+                }
+                wanted + gaps * minGap <= width -> {
+                    // Too wide: the room between them shrinks first...
+                    spacing = (width - wanted) / gaps
+                    natural
+                }
+                else -> {
+                    // ...then the buttons themselves, the widest first, so a short one ("Reply") keeps its words
+                    // and round ones of a size shrink alike: none wider than the most that lets them all fit.
+                    spacing = if (gaps == 0) 0 else minGap
+                    var left = (width - gaps * minGap).coerceAtLeast(0)
+                    val sorted = natural.sorted()
+                    var i = 0
+                    while (sorted[i] * (sorted.size - i) <= left) left -= sorted[i++]
+                    val most = left / (sorted.size - i)
+                    natural.map { minOf(it, most) }
+                }
+            }
+            var height = 0
+            shown.forEachIndexed { i, v ->
+                val w = widths[i]
+                val tall = v.layoutParams.height
+                if (round[i]) {
+                    // A round button stays round, its picture shrinking with it.
+                    val size = minOf(w, tall)
+                    val inset = size / 4
+                    if (v.paddingLeft != inset) v.setPadding(inset, inset, inset, inset)
+                    v.measure(exactly(size), exactly(size))
+                } else {
+                    v.measure(exactly(w), exactly(tall))
+                }
+                height = maxOf(height, v.measuredHeight)
+            }
+            setMeasuredDimension(width, resolveSize(height, heightMeasureSpec))
+        }
+
+        override fun onLayout(changed: Boolean, l: Int, t: Int, r: Int, b: Int) {
+            val shown = (0 until childCount).map(::getChildAt).filter { it.visibility != View.GONE }
+                .let { if (layoutDirection == View.LAYOUT_DIRECTION_RTL) it.reversed() else it }
+            val total = shown.sumOf { it.measuredWidth } + spacing * (shown.size - 1).coerceAtLeast(0)
+            var x = ((r - l) - total).coerceAtLeast(0) / 2
+            for (v in shown) {
+                val y = ((b - t) - v.measuredHeight) / 2
+                v.layout(x, y, x + v.measuredWidth, y + v.measuredHeight)
+                x += v.measuredWidth + spacing
+            }
+        }
     }
 
     /** A round button, as on the Now playing card; [fill] makes it solid. */
@@ -657,6 +744,10 @@ class NotificationsWidget(context: Context, item: HomeItem) : CardWidget(context
         const val ROW_V = 7
         /** A row's app icon. */
         const val ICON = 20
+        /** The picture on one opened up (a contact's photo), at its largest. */
+        const val ART = 44
+        /** A round button on one opened up, at its largest. */
+        const val BUTTON = 44
         /** How fast a swipe (dp a second) clears a row however short it is. */
         const val FLING = 1000
     }
