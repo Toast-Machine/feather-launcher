@@ -38,6 +38,12 @@ class DateLines(context: Context) : View(context) {
     /** The largest the date's words get, in sp. */
     var largest = 13f
         set(value) { field = value; requestLayout() }
+    /**
+     * A thin outline round the words in the card's color (on the wallpaper, a dark one), so they
+     * stay clear over whatever's drawn under them, such as the analog clock's marks.
+     */
+    var outline = false
+        set(value) { field = value; invalidate() }
 
     /** Which of the lines to show; [showParsha] counts only for [Part.ALL]. */
     enum class Part { ALL, WEEKDAY, DATES }
@@ -57,6 +63,11 @@ class DateLines(context: Context) : View(context) {
 
     private val mainPaint = TextPaint(TextPaint.ANTI_ALIAS_FLAG).apply { typeface = WidgetStyle.label }
     private val quietPaint = TextPaint(TextPaint.ANTI_ALIAS_FLAG).apply { typeface = WidgetStyle.body }
+    private val outlinePaint = TextPaint(TextPaint.ANTI_ALIAS_FLAG).apply {
+        style = android.graphics.Paint.Style.STROKE
+        strokeJoin = android.graphics.Paint.Join.ROUND
+        strokeWidth = Ui.dp(context, OUTLINE).toFloat()
+    }
 
     private val tick = object : android.content.BroadcastReceiver() {
         override fun onReceive(c: Context, intent: android.content.Intent) = update()
@@ -194,25 +205,65 @@ class DateLines(context: Context) : View(context) {
 
     private fun height(lines: List<Line>) = lines.sumOf { (it.px * LINE).toDouble() }.toFloat() + if (lines.size > 1) sp(GAP) else 0f
 
+    /** Each line's baseline, from the view's top, for a view [tall] pixels high. */
+    private fun baselines(tall: Int): FloatArray {
+        var y = paddingTop + ((tall - paddingTop - paddingBottom - height(lines)) / 2f).coerceAtLeast(0f)
+        return FloatArray(lines.size) { i ->
+            val line = lines[i]
+            val paint = if (line.main) mainPaint else quietPaint
+            paint.textSize = line.px
+            val fm = paint.fontMetrics
+            // Each line in the middle of its own height.
+            val baseline = y + (line.px * LINE - (fm.descent - fm.ascent)) / 2f - fm.ascent
+            y += line.px * LINE + if (i == 0) sp(GAP) else 0f
+            baseline
+        }
+    }
+
+    /**
+     * Where the words are, from the view's top, as measured: the top of the first line's capital
+     * letters and the last line's baseline. For lining the words up with what's around them by
+     * the letters themselves rather than the room above and below them; null with nothing to show.
+     */
+    fun letters(): Pair<Float, Float>? {
+        if (lines.isEmpty()) return null
+        val baselines = baselines(measuredHeight)
+        val first = lines.first()
+        val paint = if (first.main) mainPaint else quietPaint
+        paint.textSize = first.px
+        paint.getTextBounds("H", 0, 1, capBounds)
+        return baselines.first() + capBounds.top to baselines.last()
+    }
+
+    private val capBounds = android.graphics.Rect()
+
     override fun onDraw(canvas: Canvas) {
         val room = (width - paddingLeft - paddingRight).toFloat()
-        val tall = height - paddingTop - paddingBottom
-        var y = paddingTop + ((tall - height(lines)) / 2f).coerceAtLeast(0f)
+        val baselines = baselines(height)
         lines.forEachIndexed { i, line ->
             val paint = if (line.main) mainPaint else quietPaint
             paint.textSize = line.px
             val text = TextUtils.ellipsize(line.text, paint, room, TextUtils.TruncateAt.END).toString()
-            val fm = paint.fontMetrics
-            // Each line in the middle of its own height.
-            val baseline = y + (line.px * LINE - (fm.descent - fm.ascent)) / 2f - fm.ascent
-            canvas.drawText(text, paddingLeft + (room - paint.measureText(text)) / 2f, baseline, paint)
-            y += line.px * LINE + if (i == 0) sp(GAP) else 0f
+            val baseline = baselines[i]
+            val x = paddingLeft + (room - paint.measureText(text)) / 2f
+            if (outline) {
+                // The card's color as it is now, so it follows a change of theme.
+                outlinePaint.color = if (solid) WidgetStyle.card() else OUTLINE_DARK
+                outlinePaint.typeface = paint.typeface
+                outlinePaint.textSize = line.px
+                canvas.drawText(text, x, baseline, outlinePaint)
+            }
+            canvas.drawText(text, x, baseline, paint)
         }
     }
 
     private fun sp(v: Float) = android.util.TypedValue.applyDimension(android.util.TypedValue.COMPLEX_UNIT_SP, v, resources.displayMetrics)
 
     private companion object {
+        /** The [outline]'s width (dp), half of it outside the letters. */
+        const val OUTLINE = 4
+        /** The [outline] on the wallpaper. */
+        const val OUTLINE_DARK = 0x80000000.toInt()
         /** No words smaller than this (sp): past it, the line is cut short instead. */
         const val SMALLEST = 9f
         /** Words this size (sp) or larger are worth keeping the longer way of writing the date for. */

@@ -3,11 +3,8 @@ package app.featherlauncher
 import android.annotation.SuppressLint
 import android.content.Context
 import android.graphics.Canvas
-import android.graphics.Color
 import android.graphics.Paint
 import android.graphics.RectF
-import android.graphics.RadialGradient
-import android.graphics.Shader
 import android.view.View
 import android.widget.FrameLayout
 import java.util.Calendar
@@ -16,22 +13,24 @@ import kotlin.math.sqrt
 
 /**
  * The time on a clock face, and nothing else: the card itself is the face, with twelve marks
- * following its rounded edge and no numbers, slim hands and a fine second hand. Solid, the card in
- * the accent's soft tone; Transparent, a glass card on the wallpaper. With the date turned on in
- * its settings, the weekday above the marks (with the parsha, when the second calendar is the
- * Hebrew one) and the date in both calendars under them ([DateLines]): the marks draw in between
- * them to make room.
+ * following its rounded edge and no numbers, slim hands and a fine second hand. Solid, a card like
+ * the other widgets'; Transparent, a glass card on the wallpaper. With the date turned on in its
+ * settings, the weekday at the top (with the parsha, when the second calendar is the Hebrew one)
+ * and the date in both calendars at the bottom ([DateLines]), over the ends of the marks, each
+ * outlined so it stays clear of them.
  */
 @SuppressLint("ViewConstructor")
 class AnalogClockWidget(context: Context, val item: HomeItem) : FrameLayout(context) {
     private val face = Face(context)
     private val weekday = DateLines(context).apply {
         part = DateLines.Part.WEEKDAY
+        outline = true
         showDates = false
         showParsha = false
     }
     private val dates = DateLines(context).apply {
         part = DateLines.Part.DATES
+        outline = true
         showDates = false
         showParsha = false
     }
@@ -48,9 +47,6 @@ class AnalogClockWidget(context: Context, val item: HomeItem) : FrameLayout(cont
 
     private val cardPaint = Paint(Paint.ANTI_ALIAS_FLAG)
     private val card = RectF()
-    /** The card's shading, made again only when its size or color changes, not every second. */
-    private var shading: RadialGradient? = null
-    private var shadingFor = 0L
 
     init {
         isFocusable = true
@@ -68,7 +64,7 @@ class AnalogClockWidget(context: Context, val item: HomeItem) : FrameLayout(cont
         for (l in lines) l.showDates = on
     }
 
-    /** Solid: the card in the accent's soft tone, with the cards' corners; transparent: a glass card. */
+    /** Solid: a card like the other widgets', with the cards' corners; transparent: a glass card. */
     fun setSolid(solid: Boolean) {
         this.solid = solid
         val gap = dp(CardWidget.GAP)
@@ -88,13 +84,10 @@ class AnalogClockWidget(context: Context, val item: HomeItem) : FrameLayout(cont
     /** The card's corners: the cards' (and so the icons'), never rounder than a circle. */
     private val corner get() = minOf(dp(WidgetStyle.radius).toFloat(), minOf(card.width(), card.height()) / 2f)
 
-    /** How much room [line] takes from the face: its height and the gaps on either side, or none. */
-    private fun taken(line: DateLines) = if (line.isEmpty) 0 else dp(TEXT_EDGE) + line.measuredHeight + dp(TEXT_GAP)
-
     /**
-     * The face fills the card; with the date, the card between the weekday above it and the dates
-     * under it. Those reach closer to the card's edges than the marks, so they're cut short as
-     * little as can be.
+     * The face fills the card, the date or not: the weekday and the dates go over the ends of its
+     * marks. They reach closer to the card's sides than the marks, so they're cut short as little
+     * as can be.
      */
     override fun onMeasure(widthMeasureSpec: Int, heightMeasureSpec: Int) {
         val width = MeasureSpec.getSize(widthMeasureSpec)
@@ -102,44 +95,53 @@ class AnalogClockWidget(context: Context, val item: HomeItem) : FrameLayout(cont
         setMeasuredDimension(width, height)
         val side = dp(CardWidget.GAP + TEXT_EDGE)
         for (l in lines) l.measure(MeasureSpec.makeMeasureSpec((width - 2 * side).coerceAtLeast(0), MeasureSpec.EXACTLY), MeasureSpec.UNSPECIFIED)
-        val room = height - paddingTop - paddingBottom - taken(weekday) - taken(dates)
+        val room = height - paddingTop - paddingBottom
         val across = (width - paddingLeft - paddingRight).coerceAtLeast(0)
         face.measure(MeasureSpec.makeMeasureSpec(across, MeasureSpec.EXACTLY), MeasureSpec.makeMeasureSpec(room.coerceAtLeast(0), MeasureSpec.EXACTLY))
     }
 
+    /**
+     * How far in from the face's top and bottom the marks start: the card's padding, or, under the
+     * weekday or over the dates, the middle of their letters, so the marks end halfway into them.
+     */
+    private var marksTop = 0f
+    private var marksBottom = 0f
+
+    /**
+     * The weekday's letters the card's padding below its top, and the dates' the same above its
+     * bottom: the same room as the marks have at the sides, as on the other widgets' cards.
+     */
     override fun onLayout(changed: Boolean, l: Int, t: Int, r: Int, b: Int) {
         val side = dp(CardWidget.GAP + TEXT_EDGE)
-        val top = paddingTop + taken(weekday)
-        face.layout(paddingLeft, top, paddingLeft + face.measuredWidth, top + face.measuredHeight)
-        if (weekday.isEmpty) weekday.layout(0, 0, 0, 0) else {
-            val y = paddingTop + dp(TEXT_EDGE)
+        val pad = dp(PAD).toFloat()
+        face.layout(paddingLeft, paddingTop, paddingLeft + face.measuredWidth, paddingTop + face.measuredHeight)
+        marksTop = pad
+        marksBottom = pad
+        val top = weekday.letters()
+        if (weekday.isEmpty || top == null) weekday.layout(0, 0, 0, 0) else {
+            val y = (face.top + pad - top.first).toInt()
             weekday.layout(side, y, side + weekday.measuredWidth, y + weekday.measuredHeight)
+            marksTop = pad + (top.second - top.first) / 2f
         }
-        if (dates.isEmpty) dates.layout(0, 0, 0, 0) else {
-            val y = face.bottom + dp(TEXT_GAP)
+        val bottom = dates.letters()
+        if (dates.isEmpty || bottom == null) dates.layout(0, 0, 0, 0) else {
+            val y = (face.bottom - pad - bottom.second).toInt()
             dates.layout(side, y, side + dates.measuredWidth, y + dates.measuredHeight)
+            marksBottom = pad + (bottom.second - bottom.first) / 2f
         }
+        face.invalidate()
     }
 
-    /** The card: the accent's soft tone, a touch lighter toward the middle; on the wallpaper, glass. */
+    /** The card: the cards' color, as on the other widgets; on the wallpaper, glass. */
     override fun onDraw(canvas: Canvas) {
         card.set(paddingLeft.toFloat(), paddingTop.toFloat(), (width - paddingRight).toFloat(), (height - paddingBottom).toFloat())
         if (card.isEmpty) return
         val corner = corner
         cardPaint.style = Paint.Style.FILL
         if (solid) {
-            val tone = WidgetStyle.accentFill()
-            val key = (((width * 31 + height) * 31 + face.height).toLong() shl 32) or (tone.toLong() and 0xFFFFFFFFL)
-            if (key != shadingFor || shading == null) {
-                val r = maxOf(face.width, face.height) / 2f
-                val cx = face.left + face.width / 2f
-                val cy = face.top + face.height / 2f * 0.85f
-                shading = RadialGradient(cx, cy, (r * 1.1f).coerceAtLeast(1f), blend(tone, Color.WHITE, 0.06f), tone, Shader.TileMode.CLAMP)
-                shadingFor = key
-            }
-            cardPaint.shader = shading
+            // Its whole color set each time, opacity too: the glass leaves the paint see-through.
+            cardPaint.color = WidgetStyle.card()
             canvas.drawRoundRect(card, corner, corner, cardPaint)
-            cardPaint.shader = null
         } else {
             cardPaint.color = 0x24FFFFFF
             canvas.drawRoundRect(card, corner, corner, cardPaint)
@@ -151,18 +153,7 @@ class AnalogClockWidget(context: Context, val item: HomeItem) : FrameLayout(cont
         }
     }
 
-    override fun onSizeChanged(w: Int, h: Int, oldw: Int, oldh: Int) {
-        super.onSizeChanged(w, h, oldw, oldh)
-        shading = null
-    }
-
     private fun dp(value: Int) = Ui.dp(context, value)
-
-    private fun blend(a: Int, b: Int, t: Float) = Color.rgb(
-        (Color.red(a) + (Color.red(b) - Color.red(a)) * t).toInt(),
-        (Color.green(a) + (Color.green(b) - Color.green(a)) * t).toInt(),
-        (Color.blue(a) + (Color.blue(b) - Color.blue(a)) * t).toInt(),
-    )
 
     /** The marks and hands, drawn to the face's size; the second hand moves only while it's on screen. */
     private inner class Face(context: Context) : View(context) {
@@ -192,24 +183,29 @@ class AnalogClockWidget(context: Context, val item: HomeItem) : FrameLayout(cont
         }
 
         override fun onDraw(canvas: Canvas) {
-            val r = minOf(width, height) / 2f
-            if (r <= 0f) return
+            // The marks' outline: the card's padding in from its sides, and from its top and
+            // bottom, or the middle of the words there. The hands turn round its middle.
+            val pad = dp(PAD).toFloat()
+            val halfX = width / 2f - pad
+            val halfY = (height - marksTop - marksBottom) / 2f
+            if (halfX <= 0f || halfY <= 0f) return
+            // Everything else is sized to that outline: the hands and marks as long and thick, for
+            // the room inside it, whatever the card's padding.
+            val r = minOf(halfX, halfY) / OUTLINE
             val cx = width / 2f
-            val cy = height / 2f
-            val hands = if (solid) WidgetStyle.onAccentFill() else WidgetStyle.WHITE
+            val cy = marksTop + halfY
+            // The cards' text colors: the main one for the hands and the quarters, the quieter one for the other marks.
+            val hands = if (solid) WidgetStyle.onCard() else WidgetStyle.WHITE
+            val quiet = if (solid) WidgetStyle.onCardQuiet() else WidgetStyle.SOFT_WHITE
             val sweep = WidgetStyle.tertiary()
             paint.clearShadowLayer()
 
-            // Twelve marks, the quarters bolder; no numbers. Each points at the middle, from the
-            // card's outline drawn in a little, so their outer ends run along the straight sides
-            // and around the corners as the card does, in to a circle round the middle, so their
-            // inner ends make a round dial whatever the card's shape.
+            // Twelve marks, the quarters bolder and in the main color; no numbers. Each points at
+            // the middle, from that outline, so their outer ends run along the straight sides and
+            // around the corners as the card does, in to a circle round the middle, so their inner
+            // ends make a round dial whatever the card's shape.
             paint.style = Paint.Style.STROKE
-            paint.color = withAlpha(hands, if (solid) 0.55f else 0.75f)
-            val margin = r * MARGIN
-            val halfX = width / 2f - margin
-            val halfY = height / 2f - margin
-            val inner = (corner - margin).coerceIn(0f, minOf(halfX, halfY))
+            val inner = (corner - pad).coerceIn(0f, minOf(halfX, halfY))
             for (i in 0 until 12) {
                 val angle = Math.toRadians(i * 30.0)
                 outs[i] = reach(Math.sin(angle).toFloat(), -Math.cos(angle).toFloat(), halfX, halfY, inner)
@@ -223,6 +219,7 @@ class AnalogClockWidget(context: Context, val item: HomeItem) : FrameLayout(cont
             for (i in 0 until 12) {
                 val quarter = i % 3 == 0
                 paint.strokeWidth = r * (if (quarter) 0.045f else 0.028f)
+                paint.color = if (quarter) hands else quiet
                 val angle = Math.toRadians(i * 30.0)
                 val dx = Math.sin(angle).toFloat()
                 val dy = -Math.cos(angle).toFloat()
@@ -248,7 +245,7 @@ class AnalogClockWidget(context: Context, val item: HomeItem) : FrameLayout(cont
             paint.style = Paint.Style.FILL
             paint.color = sweep
             canvas.drawCircle(cx, cy, r * 0.05f, paint)
-            paint.color = if (solid) WidgetStyle.accentFill() else hands
+            paint.color = if (solid) WidgetStyle.card() else hands
             canvas.drawCircle(cx, cy, r * 0.018f, paint)
 
             // Said once a minute, not worked out every second.
@@ -295,20 +292,18 @@ class AnalogClockWidget(context: Context, val item: HomeItem) : FrameLayout(cont
             canvas.drawLine(cx, cy + tail, cx, cy - length, paint)
             canvas.restore()
         }
-
-        private fun withAlpha(color: Int, alpha: Float) = (color and 0xFFFFFF) or ((alpha * 255).toInt() shl 24)
     }
 
     private companion object {
-        /** How far in from the card's edge the marks start, as a share of the way from the face's middle to its nearest side. */
-        const val MARGIN = 0.12f
-        /** The shortest marks' length (the ones at the middle of the card's nearest sides), in the same share. */
+        /** The room (dp) inside the card, round the marks and above and below the words, as on the other widgets' cards. */
+        const val PAD = 16
+        /** The marks' outline, from the middle, as a share of the size the hands and marks are drawn to. */
+        const val OUTLINE = 0.88f
+        /** The shortest marks' length (the ones at the middle of the card's nearest sides), as a share of the way from the face's middle to its nearest side. */
         const val MARK = 0.14f
         /** The shortest of the marks between the quarters, as a share of the shortest quarter. */
         const val MINOR = 0.6f
-        /** The room (dp) between the card's edges and the lines above and under the face. */
+        /** The room (dp) between the card's sides and the weekday and dates. */
         const val TEXT_EDGE = 8
-        /** The room (dp) between the face's marks and the lines above and under it. */
-        const val TEXT_GAP = 6
     }
 }
