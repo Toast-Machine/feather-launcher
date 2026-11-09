@@ -176,6 +176,8 @@ class NotificationsWidget(context: Context, item: HomeItem) : CardWidget(context
 
     /** The one open to show its buttons, if any. */
     private var expanded: String? = null
+    /** The only one there is, closed with its × : it stays a line until another comes or it goes. */
+    private var dismissed: String? = null
     /** Where the keypad goes once the line it was on is cleared. */
     private var refocus: String? = null
     private val changed = { refresh() }
@@ -250,6 +252,13 @@ class NotificationsWidget(context: Context, item: HomeItem) : CardWidget(context
         }
         val active = ActiveNotifications.list
         if (active.none { it.key == expanded }) expanded = null
+        // The only one there is starts off open, unless it was closed. A second one coming closes
+        // it again, so the list shows both.
+        val lone = active.singleOrNull()?.key
+        if (dismissed != lone) dismissed = null
+        if (lone == null && wasLone) expanded = null
+        if (lone != null && dismissed == null) expanded = lone
+        wasLone = lone != null
         // Opened up, a tap between its buttons does nothing, rather than opening the sheet over it.
         setOnClickListener { if (expanded == null) onMore?.invoke() }
         // Only what's on the card: an app updating a notification often changes none of it. The
@@ -280,17 +289,33 @@ class NotificationsWidget(context: Context, item: HomeItem) : CardWidget(context
             })
         }
         // One cleared with the keypad hands the highlight to the line that took its place.
-        (focused?.let { findViewWithTag<View>(it) } ?: refocus?.let { findViewWithTag<View>(it) })?.requestFocusFromTouch()
+        // A line that has opened up, being the only one left, hands it to its buttons.
+        fun find(tag: String): View? = findViewWithTag<View>(tag)
+            ?: if (tag == open?.key) findViewWithTag<View>("$tag#0") ?: findViewWithTag("$tag#open") else null
+        (focused?.let(::find) ?: refocus?.let(::find))?.requestFocusFromTouch()
         refocus = null
         onRebuilt?.invoke()
     }
 
-    /** Whether one is open to show its buttons, rather than the list. */
-    val isExpanded get() = expanded != null
+    /** Whether there was only one last time, open on its own. */
+    private var wasLone = false
 
-    /** Back, or the close button: the open one closes again. Returns false when none is open. */
-    fun collapse(): Boolean {
+    /** The only one there is, open on its own: the card's usual look, not something to close. */
+    private val resting get() = expanded != null && ActiveNotifications.list.singleOrNull()?.key == expanded
+
+    /** Whether one is open to show its buttons, rather than the list. */
+    val isExpanded get() = expanded != null && !resting
+
+    /**
+     * Back, or something else taking the user's attention: the open one closes again. Returns
+     * false when none is open. The only one there is stays open; its close button closes it.
+     */
+    fun collapse(): Boolean = if (resting) false else close()
+
+    /** The close button: the open one closes, even the only one there is. */
+    private fun close(): Boolean {
         val key = expanded ?: return false
+        if (resting) dismissed = key
         val keypad = findFocus()?.isInTouchMode == false
         expanded = null
         refresh()
@@ -300,6 +325,7 @@ class NotificationsWidget(context: Context, item: HomeItem) : CardWidget(context
 
     private fun expand(note: Note, keypad: Boolean) {
         expanded = note.key
+        dismissed = null
         refresh()
         // The keypad goes straight to its buttons.
         if (keypad) (findViewWithTag<View>("${note.key}#0") ?: findViewWithTag("${note.key}#open"))?.requestFocusFromTouch()
@@ -503,7 +529,7 @@ class NotificationsWidget(context: Context, item: HomeItem) : CardWidget(context
                 text = note.title.ifEmpty { note.app }
             }, LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f).apply { marginEnd = dp(8) })
             if (!timeless) addView(WidgetStyle.cardText(context, 13f, WidgetStyle.body, WidgetStyle.onCardQuiet()).apply { text = note.whenText() })
-            addView(iconButton(R.drawable.ic_close, WidgetStyle.onCard(), null, 32) { collapse() }.apply {
+            addView(iconButton(R.drawable.ic_close, WidgetStyle.onCard(), null, 32) { close() }.apply {
                 tag = "${note.key}#close"
             }, LinearLayout.LayoutParams(dp(32), dp(32)).apply { marginStart = dp(6) })
         })
