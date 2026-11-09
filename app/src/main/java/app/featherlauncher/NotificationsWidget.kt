@@ -490,19 +490,17 @@ class NotificationsWidget(context: Context, item: HomeItem) : CardWidget(context
         if (!text.isNullOrEmpty()) append("  ").append(text)
     }
 
-    /** One notification filling the card: its app and title on one line, then its text (which opens it), and its buttons. */
+    /** One notification filling the card: its app's icon and its title on one line, then its text (which opens it), and its buttons. */
     private fun expandedView(note: Note) = LinearLayout(context).apply {
         orientation = LinearLayout.VERTICAL
         addView(LinearLayout(context).apply {
             orientation = LinearLayout.HORIZONTAL
             gravity = Gravity.CENTER_VERTICAL
             addView(ImageView(context).apply { setImageDrawable(note.icon()) }, LinearLayout.LayoutParams(dp(18), dp(18)).apply { marginEnd = dp(8) })
-            // The app, then the title beside it, leaving the rest of the card for the text. Narrow,
-            // the icon says which app, and the time is left out, as on the lines.
-            if (!narrow) addView(WidgetStyle.cardText(context, 14f, WidgetStyle.label, WidgetStyle.accent()).apply { text = note.app },
-                LinearLayout.LayoutParams(LinearLayout.LayoutParams.WRAP_CONTENT, LinearLayout.LayoutParams.WRAP_CONTENT).apply { marginEnd = dp(8) })
+            // The icon says which app; the title beside it (the app's name only when it has none),
+            // leaving the rest of the card for the text.
             addView(WidgetStyle.cardText(context, 15f, WidgetStyle.title).apply {
-                text = if (narrow) note.title.ifEmpty { note.app } else note.title.takeIf { it != note.app }.orEmpty()
+                text = note.title.ifEmpty { note.app }
             }, LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f).apply { marginEnd = dp(8) })
             if (!timeless) addView(WidgetStyle.cardText(context, 13f, WidgetStyle.body, WidgetStyle.onCardQuiet()).apply { text = note.whenText() })
             addView(iconButton(R.drawable.ic_close, WidgetStyle.onCard(), null, 32) { collapse() }.apply {
