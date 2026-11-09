@@ -397,6 +397,7 @@ class HomeScreen(
                             .putExtra(SettingsActivity.EXTRA_PAGE, SettingsActivity.Page.CALENDAR.name))
                     }
                 }
+                is QuickSettingsWidget -> setHidden(prefs.quickHidden(item.id))
                 is NotificationsWidget -> {
                     onMore = { NotificationsSheet.show(activity, palette(), overlays) }
                     // Opening one up brings new buttons; the keypad reaches them as it did the rows.
@@ -956,7 +957,7 @@ class HomeScreen(
         val open: () -> Unit = when (item.type) {
             HomeItem.Type.WIDGET -> if (widgets.canReconfigure(item.ref.toInt())) ({ widgets.reconfigure(item.ref.toInt()) }) else return null
             HomeItem.Type.CLOCK -> when (FeatherKind.of(item)) {
-                FeatherKind.CLOCK, FeatherKind.ANALOG, FeatherKind.UP_NEXT, FeatherKind.DATE -> ({ featherSettings(item) })
+                FeatherKind.CLOCK, FeatherKind.ANALOG, FeatherKind.UP_NEXT, FeatherKind.DATE, FeatherKind.QUICK -> ({ featherSettings(item) })
                 else -> return null
             }
             else -> return null
@@ -977,6 +978,7 @@ class HomeScreen(
         }
         fun build() {
             column.removeAllViews()
+            if (FeatherKind.of(item) == FeatherKind.QUICK) return quickSettings(item, column, p)
             val solid = prefs.widgetSolid(item.id)
             column.addView(Components.sectionLabel(activity, p, "Style"))
             column.addView(Components.segmented(activity, p, listOf("Solid", "Transparent"), if (solid) 0 else 1) {
@@ -1013,7 +1015,23 @@ class HomeScreen(
             }
         }
         build()
-        overlays.showSheet("${clockName(item)} settings", column)
+        // Not "Quick settings settings".
+        overlays.showSheet(if (FeatherKind.of(item) == FeatherKind.QUICK) "Quick settings tiles" else "${clockName(item)} settings", column)
+    }
+
+    /** The Quick settings widget's settings: which tiles it shows. As many as fit show, in this order. */
+    private fun quickSettings(item: HomeItem, column: LinearLayout, p: Palette) {
+        val rows = QuickTile.entries.filter { it.available(activity) }.map { tile ->
+            Components.toggleRow(activity, p, tile.icon, tile.label, tile.name !in prefs.quickHidden(item.id)) { on ->
+                val hidden = prefs.quickHidden(item.id).let { if (on) it - tile.name else it + tile.name }
+                prefs.setQuickHidden(item.id, hidden)
+                (views[item.id] as? QuickSettingsWidget)?.setHidden(hidden)
+            }
+        }
+        column.addView(Components.sectionLabel(activity, p, "Show"))
+        column.addView(Components.group(activity, p, rows), LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT).apply {
+            marginStart = dp(Ui.SPACE_XL); marginEnd = dp(Ui.SPACE_XL)
+        })
     }
 
     // endregion

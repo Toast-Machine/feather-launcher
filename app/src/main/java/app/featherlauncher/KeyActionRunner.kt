@@ -8,8 +8,6 @@ import android.content.ComponentName
 import android.content.Context
 import android.content.Intent
 import android.content.pm.PackageManager
-import android.hardware.camera2.CameraCharacteristics
-import android.hardware.camera2.CameraManager
 import android.media.AudioManager
 import android.net.Uri
 import android.os.SystemClock
@@ -19,9 +17,6 @@ import android.widget.Toast
 
 /** Does what a key shortcut asks. Global actions (recent apps, lock) need the running [service]. */
 object KeyActionRunner {
-    private var torchOn = false
-    private var torchWatched = false
-
     fun run(context: Context, action: KeyAction, service: AccessibilityService?) {
         if (action.type.needsUnlock && context.getSystemService(KeyguardManager::class.java).isKeyguardLocked) {
             return start(context, Intent(context, UnlockActivity::class.java).putExtra(UnlockActivity.EXTRA_ACTION, action.toJson().toString()))
@@ -42,7 +37,7 @@ object KeyActionRunner {
                 val canCall = context.checkSelfPermission(Manifest.permission.CALL_PHONE) == PackageManager.PERMISSION_GRANTED
                 start(context, Intent(if (canCall) Intent.ACTION_CALL else Intent.ACTION_DIAL, Uri.fromParts("tel", number, null)))
             }
-            ActionType.FLASHLIGHT -> toggleTorch(context)
+            ActionType.FLASHLIGHT -> Torch.toggle(context)
             // Straight to the home screen when it's in front; otherwise it's brought up first.
             ActionType.SEARCH -> HomeActivity.running?.openFromKey(HomeActivity.OPEN_SEARCH)
                 ?: start(context, Intent(context, HomeActivity::class.java).putExtra(HomeActivity.EXTRA_OPEN, HomeActivity.OPEN_SEARCH))
@@ -112,23 +107,6 @@ object KeyActionRunner {
         val now = SystemClock.uptimeMillis()
         audio.dispatchMediaKeyEvent(KeyEvent(now, now, KeyEvent.ACTION_DOWN, keyCode, 0))
         audio.dispatchMediaKeyEvent(KeyEvent(now, now, KeyEvent.ACTION_UP, keyCode, 0))
-    }
-
-    private fun toggleTorch(context: Context) {
-        val camera = context.getSystemService(CameraManager::class.java)
-        if (!torchWatched) {
-            torchWatched = true
-            // Keeps track if the flashlight is also switched from quick settings.
-            camera.registerTorchCallback(object : CameraManager.TorchCallback() {
-                override fun onTorchModeChanged(cameraId: String, enabled: Boolean) {
-                    torchOn = enabled
-                }
-            }, null)
-        }
-        val id = camera.cameraIdList.firstOrNull {
-            camera.getCameraCharacteristics(it).get(CameraCharacteristics.FLASH_INFO_AVAILABLE) == true
-        } ?: return Toast.makeText(context, "This phone has no flashlight", Toast.LENGTH_SHORT).show()
-        runCatching { camera.setTorchMode(id, !torchOn) }
     }
 
     private fun start(context: Context, intent: Intent) {

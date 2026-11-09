@@ -119,6 +119,11 @@ class Prefs(context: Context) {
 
     fun setWidgetSolid(id: Long, solid: Boolean) = sp.edit().putBoolean("clock_solid_$id", solid).apply()
 
+    /** The tiles ([QuickTile] names) left off Quick settings widget [id]; none at first. */
+    fun quickHidden(id: Long): Set<String> = sp.getString("quick_hidden_$id", "")!!.split(',').filter { it.isNotEmpty() }.toSet()
+
+    fun setQuickHidden(id: Long, hidden: Set<String>) = sp.edit().putString("quick_hidden_$id", hidden.joinToString(",")).apply()
+
     /** The weekday and dates around widget [id]'s clock face (the analog clock's), off until turned on. */
     fun widgetDate(id: Long) = sp.getBoolean("widget_date_$id", false)
 

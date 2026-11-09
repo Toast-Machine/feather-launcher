@@ -22,6 +22,9 @@
         android:name="android.permission.READ_EXTERNAL_STORAGE"
         android:maxSdkVersion="32" />
     <uses-permission android:name="android.permission.EXPAND_STATUS_BAR" />
+    <!-- Only for whether Wi-Fi and mobile data are on, for the Quick settings widget. Granted without asking. -->
+    <uses-permission android:name="android.permission.ACCESS_WIFI_STATE" />
+    <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
     <uses-permission android:name="android.permission.REQUEST_DELETE_PACKAGES" />
 
     <application

@@ -126,6 +126,10 @@ class NotificationService : NotificationListenerService() {
             runCatching { service.activeNotifications }.getOrNull()?.forEach(service::filter)
         }
 
+        /** Asks for Do not disturb's [filter] (a listener may, without Do not disturb access). False without notification access. */
+        fun requestInterruptionFilter(filter: Int): Boolean =
+            running?.let { runCatching { it.requestInterruptionFilter(filter) }.isSuccess } == true
+
         /** Clears the notification with [key], as swiping it away in the shade does. False when it can't. */
         fun cancel(key: String): Boolean = running?.let { runCatching { it.cancelNotification(key) }.isSuccess } == true
 

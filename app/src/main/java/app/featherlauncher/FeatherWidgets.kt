@@ -33,6 +33,7 @@ enum class FeatherKind(val ref: String, val label: String, val w: Int, val h: In
     MEDIA("media", "Now playing", 4, 1, "Play, pause and skip whatever's playing"),
     ZMANIM("zmanim", "Zmanim", 4, 2, "Upcoming zmanim", minH = 2),
     NOTIFICATIONS("notifications", "Notifications", 4, 2, "Your notifications, a line each", minH = 2),
+    QUICK("quick", "Quick settings", 4, 1, "Wi-Fi, Bluetooth, the flashlight, Do not disturb and more"),
     ;
 
     /**
@@ -254,6 +255,7 @@ abstract class CardWidget(context: Context, val item: HomeItem) : FrameLayout(co
             FeatherKind.MEDIA -> MediaWidget(context, item)
             FeatherKind.ZMANIM -> ZmanimWidget(context, item)
             FeatherKind.NOTIFICATIONS -> NotificationsWidget(context, item)
+            FeatherKind.QUICK -> QuickSettingsWidget(context, item)
             else -> null
         }
     }
