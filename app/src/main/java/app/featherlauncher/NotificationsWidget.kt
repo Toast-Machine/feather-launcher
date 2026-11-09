@@ -577,7 +577,7 @@ class NotificationsWidget(context: Context, item: HomeItem) : CardWidget(context
                         contentDescription = words
                     }.also { b -> b.layoutParams = ViewGroup.LayoutParams(dp(BUTTON), dp(BUTTON)) }
                 } else {
-                    pill(words) { note.press(a) }.also { b -> b.layoutParams = ViewGroup.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, dp(36)) }
+                    pill(words) { note.press(a) }.also { b -> b.layoutParams = ViewGroup.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT) }
                 }
                 addView(button.apply { tag = "${note.key}#$i" })
             }
@@ -590,85 +590,6 @@ class NotificationsWidget(context: Context, item: HomeItem) : CardWidget(context
             val room = if (MeasureSpec.getMode(heightMeasureSpec) == MeasureSpec.UNSPECIFIED) max else MeasureSpec.getSize(heightMeasureSpec)
             val size = minOf(max, room).coerceAtLeast(0)
             setMeasuredDimension(size, size)
-        }
-    }
-
-    /**
-     * A notification's buttons in a row, in the middle: round ones their own size, ones with words
-     * sharing the rest (alike, when that gives each enough room). When they're too wide for the card
-     * (a video app with many buttons), the room between them shrinks first, down to [minGap], and
-     * then the buttons themselves, all by the same amount.
-     */
-    private class ButtonRow(context: Context, private val gap: Int, private val minGap: Int) : ViewGroup(context) {
-        /** The room between buttons, as last measured. */
-        private var spacing = gap
-
-        override fun onMeasure(widthMeasureSpec: Int, heightMeasureSpec: Int) {
-            val shown = (0 until childCount).map(::getChildAt).filter { it.visibility != View.GONE }
-            val width = MeasureSpec.getSize(widthMeasureSpec)
-            val loose = MeasureSpec.makeMeasureSpec(0, MeasureSpec.UNSPECIFIED)
-            fun exactly(size: Int) = MeasureSpec.makeMeasureSpec(size.coerceAtLeast(0), MeasureSpec.EXACTLY)
-            // Each button's own width: a round one's size, or its words' with their padding.
-            val round = shown.map { it.layoutParams.width >= 0 }
-            val natural = shown.mapIndexed { i, v -> if (round[i]) v.layoutParams.width else { v.measure(loose, loose); v.measuredWidth } }
-            val gaps = (shown.size - 1).coerceAtLeast(0)
-            val wanted = natural.sum()
-            val widths: List<Int> = when {
-                wanted + gaps * gap <= width -> {
-                    spacing = gap
-                    // Ones with words fill the rest of the row: alike if each fits so, else each its own width and a share of what's left.
-                    val words = shown.indices.filter { !round[it] }
-                    val rest = width - gaps * gap - shown.indices.filter { round[it] }.sumOf { natural[it] }
-                    val even = if (words.isEmpty()) 0 else rest / words.size
-                    val alike = words.all { natural[it] <= even }
-                    val share = if (words.isEmpty()) 0 else (rest - words.sumOf { natural[it] }) / words.size
-                    shown.indices.map { i -> if (round[i]) natural[i] else if (alike) even else natural[i] + share }
-                }
-                wanted + gaps * minGap <= width -> {
-                    // Too wide: the room between them shrinks first...
-                    spacing = (width - wanted) / gaps
-                    natural
-                }
-                else -> {
-                    // ...then the buttons themselves, the widest first, so a short one ("Reply") keeps its words
-                    // and round ones of a size shrink alike: none wider than the most that lets them all fit.
-                    spacing = if (gaps == 0) 0 else minGap
-                    var left = (width - gaps * minGap).coerceAtLeast(0)
-                    val sorted = natural.sorted()
-                    var i = 0
-                    while (sorted[i] * (sorted.size - i) <= left) left -= sorted[i++]
-                    val most = left / (sorted.size - i)
-                    natural.map { minOf(it, most) }
-                }
-            }
-            var height = 0
-            shown.forEachIndexed { i, v ->
-                val w = widths[i]
-                val tall = v.layoutParams.height
-                if (round[i]) {
-                    // A round button stays round, its picture shrinking with it.
-                    val size = minOf(w, tall)
-                    val inset = size / 4
-                    if (v.paddingLeft != inset) v.setPadding(inset, inset, inset, inset)
-                    v.measure(exactly(size), exactly(size))
-                } else {
-                    v.measure(exactly(w), exactly(tall))
-                }
-                height = maxOf(height, v.measuredHeight)
-            }
-            setMeasuredDimension(width, resolveSize(height, heightMeasureSpec))
-        }
-
-        override fun onLayout(changed: Boolean, l: Int, t: Int, r: Int, b: Int) {
-            val shown = (0 until childCount).map(::getChildAt).filter { it.visibility != View.GONE }
-                .let { if (layoutDirection == View.LAYOUT_DIRECTION_RTL) it.reversed() else it }
-            val total = shown.sumOf { it.measuredWidth } + spacing * (shown.size - 1).coerceAtLeast(0)
-            var x = ((r - l) - total).coerceAtLeast(0) / 2
-            for (v in shown) {
-                val y = ((b - t) - v.measuredHeight) / 2
-                v.layout(x, y, x + v.measuredWidth, y + v.measuredHeight)
-                x += v.measuredWidth + spacing
-            }
         }
     }
 
@@ -686,17 +607,16 @@ class NotificationsWidget(context: Context, item: HomeItem) : CardWidget(context
     }
 
     /**
-     * A button with words on it, in the accent's soft fill. Words that don't fit are drawn a little
-     * closer, else cut short with …, as an app's name is on the home screen.
+     * A button with words on it, in the accent's soft fill, at least 36dp tall. Words that don't fit
+     * get smaller, then go onto more lines ([ButtonText]).
      */
-    private fun pill(words: String, onClick: () -> Unit) = AppIconView.NameView(context).apply {
+    private fun pill(words: String, onClick: () -> Unit) = ButtonText(context, 13f).apply {
         setTextColor(WidgetStyle.onAccentFill())
         typeface = WidgetStyle.label
         includeFontPadding = false
-        setTextSize(android.util.TypedValue.COMPLEX_UNIT_SP, 13f)
         text = words
-        gravity = Gravity.CENTER
-        setPadding(dp(10), 0, dp(10), 0)
+        setPadding(dp(10), dp(4), dp(10), dp(4))
+        minHeight = dp(36)
         background = Ui.rounded(context, WidgetStyle.accentFill(), Ui.RADIUS_PILL)
         foreground = Ui.pressable(context, Ui.RADIUS_PILL)
         isFocusable = true
@@ -840,8 +760,7 @@ object NotificationsSheet {
         overlays.showSheet("Notifications", scroll, scrollable = scroll)
     }
 
-    private fun actions(ctx: Context, p: Palette, overlays: Overlays, note: Note) = LinearLayout(ctx).apply {
-        orientation = LinearLayout.HORIZONTAL
+    private fun actions(ctx: Context, p: Palette, overlays: Overlays, note: Note) = ButtonRow(ctx, Ui.dp(ctx, Ui.SPACE_S), Ui.dp(ctx, 2), fill = false).apply {
         val dp = { v: Int -> Ui.dp(ctx, v) }
         note.actions.forEach { a ->
             val icon = if (note.media) note.actionIcon(a) else null
@@ -862,20 +781,165 @@ object NotificationsSheet {
                     foreground = Ui.pressable(ctx, Ui.RADIUS_PILL)
                     isFocusable = true
                     setOnClickListener { press() }
-                }, LinearLayout.LayoutParams(dp(42), dp(42)).apply { marginEnd = dp(Ui.SPACE_S) })
+                }, ViewGroup.LayoutParams(dp(42), dp(42)))
             } else {
-                addView(AppIconView.NameView(ctx).apply {
+                addView(ButtonText(ctx, 14f).apply {
                     text = words
                     style(TextStyle.Label, p.text)
                     setTextSize(android.util.TypedValue.COMPLEX_UNIT_SP, 14f)
-                    gravity = Gravity.CENTER
-                    setPadding(dp(Ui.SPACE_M), 0, dp(Ui.SPACE_M), 0)
+                    setPadding(dp(Ui.SPACE_M), dp(4), dp(Ui.SPACE_M), dp(4))
+                    minHeight = dp(38)
                     background = Ui.rounded(ctx, p.surfaceHigh, Ui.RADIUS_PILL)
                     foreground = Ui.pressable(ctx, Ui.RADIUS_PILL)
                     isFocusable = true
                     setOnClickListener { press() }
-                }, LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, dp(38)).apply { marginEnd = dp(Ui.SPACE_S) })
+                }, ViewGroup.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT))
             }
         }
+    }
+}
+
+/**
+ * A notification's buttons in a row, in the middle: round ones their own size, ones with words
+ * sharing the rest (alike, when that gives each enough room). When they're too wide for the card
+ * (a video app with many buttons), the room between them shrinks first, down to [minGap], and
+ * then the buttons themselves, all by the same amount, their words shrinking to fit ([ButtonText]).
+ * With [fill] false (the sheet), they keep their own widths and sit at the start instead.
+ */
+private class ButtonRow(context: Context, private val gap: Int, private val minGap: Int, private val fill: Boolean = true) : ViewGroup(context) {
+    /** The room between buttons, as last measured. */
+    private var spacing = gap
+
+    override fun onMeasure(widthMeasureSpec: Int, heightMeasureSpec: Int) {
+        val shown = (0 until childCount).map(::getChildAt).filter { it.visibility != View.GONE }
+        val width = MeasureSpec.getSize(widthMeasureSpec)
+        val loose = MeasureSpec.makeMeasureSpec(0, MeasureSpec.UNSPECIFIED)
+        fun exactly(size: Int) = MeasureSpec.makeMeasureSpec(size.coerceAtLeast(0), MeasureSpec.EXACTLY)
+        // Each button's own width: a round one's size, or its words' with their padding.
+        val round = shown.map { it.layoutParams.width >= 0 }
+        val natural = shown.mapIndexed { i, v -> if (round[i]) v.layoutParams.width else { v.measure(loose, loose); v.measuredWidth } }
+        val gaps = (shown.size - 1).coerceAtLeast(0)
+        val wanted = natural.sum()
+        val widths: List<Int> = when {
+            wanted + gaps * gap <= width -> {
+                spacing = gap
+                // Ones with words fill the rest of the row: alike if each fits so, else each its own width and a share of what's left.
+                val words = shown.indices.filter { !round[it] }
+                val rest = width - gaps * gap - shown.indices.filter { round[it] }.sumOf { natural[it] }
+                val even = if (words.isEmpty()) 0 else rest / words.size
+                val alike = words.all { natural[it] <= even }
+                val share = if (words.isEmpty()) 0 else (rest - words.sumOf { natural[it] }) / words.size
+                if (!fill) natural else shown.indices.map { i -> if (round[i]) natural[i] else if (alike) even else natural[i] + share }
+            }
+            wanted + gaps * minGap <= width -> {
+                // Too wide: the room between them shrinks first...
+                spacing = (width - wanted) / gaps
+                natural
+            }
+            else -> {
+                // ...then the buttons themselves, the widest first, so a short one ("Reply") keeps its words
+                // and round ones of a size shrink alike: none wider than the most that lets them all fit.
+                spacing = if (gaps == 0) 0 else minGap
+                var left = (width - gaps * minGap).coerceAtLeast(0)
+                val sorted = natural.sorted()
+                var i = 0
+                while (sorted[i] * (sorted.size - i) <= left) left -= sorted[i++]
+                val most = left / (sorted.size - i)
+                natural.map { minOf(it, most) }
+            }
+        }
+        var height = 0
+        shown.forEachIndexed { i, v ->
+            val w = widths[i]
+            val tall = v.layoutParams.height
+            if (round[i]) {
+                // A round button stays round, its picture shrinking with it.
+                val size = minOf(w, tall)
+                val inset = size / 4
+                if (v.paddingLeft != inset) v.setPadding(inset, inset, inset, inset)
+                v.measure(exactly(size), exactly(size))
+            } else {
+                // One with words grows taller if they need more lines.
+                v.measure(exactly(w), if (tall >= 0) exactly(tall) else loose)
+            }
+            height = maxOf(height, v.measuredHeight)
+        }
+        setMeasuredDimension(width, resolveSize(height, heightMeasureSpec))
+    }
+
+    override fun onLayout(changed: Boolean, l: Int, t: Int, r: Int, b: Int) {
+        val shown = (0 until childCount).map(::getChildAt).filter { it.visibility != View.GONE }
+            .let { if (layoutDirection == View.LAYOUT_DIRECTION_RTL) it.reversed() else it }
+        val total = shown.sumOf { it.measuredWidth } + spacing * (shown.size - 1).coerceAtLeast(0)
+        val free = ((r - l) - total).coerceAtLeast(0)
+        var x = if (fill) free / 2 else if (layoutDirection == View.LAYOUT_DIRECTION_RTL) free else 0
+        for (v in shown) {
+            val y = ((b - t) - v.measuredHeight) / 2
+            v.layout(x, y, x + v.measuredWidth, y + v.measuredHeight)
+            x += v.measuredWidth + spacing
+        }
+    }
+}
+
+/**
+ * A notification button's words, at [sp] on one line when they fit. When they don't, they get
+ * smaller, down to [MIN_SP]; when even that is too wide, they go onto more lines (up to [LINES]),
+ * as large as lets them, never breaking a word; the button grows taller to hold them. Only past
+ * that are they cut short with ….
+ */
+private class ButtonText(context: Context, private val sp: Float) : TextView(context) {
+    init {
+        gravity = Gravity.CENTER
+        breakStrategy = android.text.Layout.BREAK_STRATEGY_BALANCED
+        hyphenationFrequency = android.text.Layout.HYPHENATION_FREQUENCY_NONE
+        ellipsize = android.text.TextUtils.TruncateAt.END
+        maxLines = 1
+        setTextSize(android.util.TypedValue.COMPLEX_UNIT_SP, sp)
+    }
+
+    private val measuring = android.text.TextPaint()
+
+    override fun onMeasure(widthMeasureSpec: Int, heightMeasureSpec: Int) {
+        val (size, lines) = if (MeasureSpec.getMode(widthMeasureSpec) == MeasureSpec.UNSPECIFIED) sp to 1
+            else fit(MeasureSpec.getSize(widthMeasureSpec) - paddingLeft - paddingRight)
+        // Only when they change, since setting them asks for another layout.
+        val px = px(size)
+        if (textSize != px) setTextSize(android.util.TypedValue.COMPLEX_UNIT_PX, px)
+        if (maxLines != lines) maxLines = lines
+        super.onMeasure(widthMeasureSpec, heightMeasureSpec)
+    }
+
+    private fun px(sp: Float) = android.util.TypedValue.applyDimension(android.util.TypedValue.COMPLEX_UNIT_SP, sp, resources.displayMetrics)
+
+    /** The size (sp) and lines the words take in [room] px. */
+    private fun fit(room: Int): Pair<Float, Int> {
+        val words = text?.toString().orEmpty()
+        if (room <= 0 || words.isEmpty()) return sp to 1
+        measuring.set(paint)
+        val sizes = generateSequence(sp) { it - STEP }.takeWhile { it >= MIN_SP - 0.01f }.toList()
+        // On one line, smaller...
+        for (s in sizes) {
+            measuring.textSize = px(s)
+            if (measuring.measureText(words) <= room) return s to 1
+        }
+        // ...then on more lines, as large as lets each word fit whole.
+        val parts = words.split(Regex("\\s+")).filter { it.isNotEmpty() }
+        for (s in sizes) {
+            measuring.textSize = px(s)
+            if (parts.any { measuring.measureText(it) > room }) continue
+            val lines = android.text.StaticLayout.Builder.obtain(words, 0, words.length, measuring, room)
+                .setBreakStrategy(breakStrategy).setHyphenationFrequency(hyphenationFrequency)
+                .setIncludePad(includeFontPadding).build().lineCount
+            if (lines <= LINES) return s to lines
+        }
+        return MIN_SP to LINES
+    }
+
+    private companion object {
+        /** The smallest the words get, in sp. */
+        const val MIN_SP = 10f
+        const val STEP = 0.5f
+        /** The most lines the words go onto. */
+        const val LINES = 3
     }
 }
