@@ -38,13 +38,6 @@ class DateLines(context: Context) : View(context) {
     /** The largest the date's words get, in sp. */
     var largest = 13f
         set(value) { field = value; requestLayout() }
-    /**
-     * A thin outline round the words in the card's color (on the wallpaper, a dark one), so they
-     * stay clear over whatever's drawn under them, such as the analog clock's marks.
-     */
-    var outline = false
-        set(value) { field = value; invalidate() }
-
     /** Which of the lines to show; [showParsha] counts only for [Part.ALL]. */
     enum class Part { ALL, WEEKDAY, DATES }
     var part = Part.ALL
@@ -63,11 +56,6 @@ class DateLines(context: Context) : View(context) {
 
     private val mainPaint = TextPaint(TextPaint.ANTI_ALIAS_FLAG).apply { typeface = WidgetStyle.label }
     private val quietPaint = TextPaint(TextPaint.ANTI_ALIAS_FLAG).apply { typeface = WidgetStyle.body }
-    private val outlinePaint = TextPaint(TextPaint.ANTI_ALIAS_FLAG).apply {
-        style = android.graphics.Paint.Style.STROKE
-        strokeJoin = android.graphics.Paint.Join.ROUND
-        strokeWidth = Ui.dp(context, OUTLINE).toFloat()
-    }
 
     private val tick = object : android.content.BroadcastReceiver() {
         override fun onReceive(c: Context, intent: android.content.Intent) = update()
@@ -238,32 +226,37 @@ class DateLines(context: Context) : View(context) {
     private val capBounds = android.graphics.Rect()
 
     override fun onDraw(canvas: Canvas) {
+        each { text, x, baseline, paint -> canvas.drawText(text, x, baseline, paint) }
+    }
+
+    /**
+     * Draws the words with [cut] (its style, width and blending as the caller sets them) where
+     * they're drawn, in this view's coordinates: for clearing room round them out of what's drawn
+     * under them, such as the analog clock's marks.
+     */
+    fun cutOut(canvas: Canvas, cut: TextPaint) {
+        each { text, x, baseline, paint ->
+            cut.typeface = paint.typeface
+            cut.textSize = paint.textSize
+            canvas.drawText(text, x, baseline, cut)
+        }
+    }
+
+    /** Each line as it's drawn: its text (cut short to fit), where it starts and its baseline, and its paint. */
+    private inline fun each(draw: (String, Float, Float, TextPaint) -> Unit) {
         val room = (width - paddingLeft - paddingRight).toFloat()
         val baselines = baselines(height)
         lines.forEachIndexed { i, line ->
             val paint = if (line.main) mainPaint else quietPaint
             paint.textSize = line.px
             val text = TextUtils.ellipsize(line.text, paint, room, TextUtils.TruncateAt.END).toString()
-            val baseline = baselines[i]
-            val x = paddingLeft + (room - paint.measureText(text)) / 2f
-            if (outline) {
-                // The card's color as it is now, so it follows a change of theme.
-                outlinePaint.color = if (solid) WidgetStyle.card() else OUTLINE_DARK
-                outlinePaint.typeface = paint.typeface
-                outlinePaint.textSize = line.px
-                canvas.drawText(text, x, baseline, outlinePaint)
-            }
-            canvas.drawText(text, x, baseline, paint)
+            draw(text, paddingLeft + (room - paint.measureText(text)) / 2f, baselines[i], paint)
         }
     }
 
     private fun sp(v: Float) = android.util.TypedValue.applyDimension(android.util.TypedValue.COMPLEX_UNIT_SP, v, resources.displayMetrics)
 
     private companion object {
-        /** The [outline]'s width (dp), half of it outside the letters. */
-        const val OUTLINE = 4
-        /** The [outline] on the wallpaper. */
-        const val OUTLINE_DARK = 0x80000000.toInt()
         /** No words smaller than this (sp): past it, the line is cut short instead. */
         const val SMALLEST = 9f
         /** Words this size (sp) or larger are worth keeping the longer way of writing the date for. */
