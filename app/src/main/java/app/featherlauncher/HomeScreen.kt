@@ -1015,20 +1015,39 @@ class HomeScreen(
             }
         }
         build()
+        // Taller than the screen (Quick settings' tiles on a small phone), it scrolls, and the keypad reaches every row.
+        val scroll = android.widget.ScrollView(activity).apply { addView(column) }
         // Not "Quick settings settings".
-        overlays.showSheet(if (FeatherKind.of(item) == FeatherKind.QUICK) "Quick settings tiles" else "${clockName(item)} settings", column)
+        overlays.showSheet(if (FeatherKind.of(item) == FeatherKind.QUICK) "Quick settings tiles" else "${clockName(item)} settings", scroll, scrollable = scroll)
     }
 
-    /** The Quick settings widget's settings: which tiles it shows. As many as fit show, in this order. */
+    /**
+     * The Quick settings widget's settings: which tiles it shows. As many as fit show, in this
+     * order. A line above them says how many fit, so turning on one that doesn't fit isn't a mystery
+     * (above, where it's seen at once: on a small phone the rows scroll and the bottom is out of sight).
+     */
     private fun quickSettings(item: HomeItem, column: LinearLayout, p: Palette) {
-        val rows = QuickTile.entries.filter { it.available(activity) }.map { tile ->
+        val tiles = QuickTile.entries.filter { it.available(activity) }
+        val note = Components.footnote(activity, p, "")
+        fun say() {
+            val on = tiles.count { it.name !in prefs.quickHidden(item.id) }
+            val room = (views[item.id] as? QuickSettingsWidget)?.room ?: 0
+            note.text = when {
+                room in 1 until on -> "$room fit at this size, so the first $room turned on show. Resize the widget to fit more."
+                else -> "They show in this order."
+            }
+        }
+        val rows = tiles.map { tile ->
             Components.toggleRow(activity, p, tile.icon, tile.label, tile.name !in prefs.quickHidden(item.id)) { on ->
                 val hidden = prefs.quickHidden(item.id).let { if (on) it - tile.name else it + tile.name }
                 prefs.setQuickHidden(item.id, hidden)
                 (views[item.id] as? QuickSettingsWidget)?.setHidden(hidden)
+                say()
             }
         }
+        say()
         column.addView(Components.sectionLabel(activity, p, "Show"))
+        column.addView(note.apply { setPadding(paddingLeft, 0, paddingRight, dp(Ui.SPACE_M)) })
         column.addView(Components.group(activity, p, rows), LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT).apply {
             marginStart = dp(Ui.SPACE_XL); marginEnd = dp(Ui.SPACE_XL)
         })

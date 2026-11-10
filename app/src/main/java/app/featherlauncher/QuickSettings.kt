@@ -312,6 +312,9 @@ class QuickSettingsWidget(context: Context, item: HomeItem) : CardWidget(context
     override val everyMinute = false
 
     private val grid = Grid()
+
+    /** How many tiles fit at the widget's size, for its settings to say (0 before it's first laid out). */
+    val room get() = grid.room
     private val main = Handler(Looper.getMainLooper())
     private val update = Runnable { refresh() }
     private val late = Runnable { refresh() }
@@ -383,16 +386,16 @@ class QuickSettingsWidget(context: Context, item: HomeItem) : CardWidget(context
     /** One switch: a circle with its icon, and its name under it when there's room. */
     private inner class Tile(val tile: QuickTile) : View(context) {
         var look = QuickTile.Look(false, tile.label, tile.icon)
-        /** The circle's size, and whether the name shows, as [Grid] works them out. */
+        /** The size of the button with its keypad highlight, and whether the name shows, as [Grid] works them out. */
         var circle = 0
         var named = false
-            set(value) {
-                if (field == value && foreground != null) return
-                field = value
-                // The keypad highlight hugs the circle, or the circle and its name.
-                foreground = Ui.pressable(context, if (value) Ui.RADIUS_M else Ui.RADIUS_PILL)
-            }
         private val fill = Paint(Paint.ANTI_ALIAS_FLAG)
+        /** The button's outline: the icon shape from Settings, as the app icons have. */
+        private var shape: IconShape? = null
+        private var shapeSize = 0
+        private val outline = android.graphics.Path()
+        /** The keypad highlight, around the button in the same shape (it's drawn here, not as the view's foreground, so it leaves out the name). */
+        private var ring: android.graphics.drawable.Drawable? = null
         private val text = TextPaint(Paint.ANTI_ALIAS_FLAG).apply {
             typeface = WidgetStyle.label
             textAlign = Paint.Align.CENTER
@@ -400,7 +403,10 @@ class QuickSettingsWidget(context: Context, item: HomeItem) : CardWidget(context
 
         init {
             isFocusable = true
-            named = false
+            // Something there, so the home screen doesn't add a rounded highlight of its own,
+            // and no grey wash from Android over the focused tile: its ring is enough.
+            foreground = android.graphics.drawable.ColorDrawable(0)
+            defaultFocusHighlightEnabled = false
             setOnClickListener {
                 tile.press(context)
                 soon()
@@ -419,13 +425,38 @@ class QuickSettingsWidget(context: Context, item: HomeItem) : CardWidget(context
             invalidate()
         }
 
+        override fun drawableStateChanged() {
+            super.drawableStateChanged()
+            invalidate()
+        }
+
         override fun onDraw(canvas: Canvas) {
             val cx = width / 2f
             val r = circle / 2f
+            // Room between the button and its highlight, as around an app icon.
+            val gap = maxOf(dp(3), (circle * 0.07f).toInt())
+            val size = circle - 2 * gap
+            val now = AppIconView.shape
+            if (now != shape || size != shapeSize) {
+                shape = now
+                shapeSize = size
+                outline.set(now.path(size.toFloat()))
+                outline.offset(cx - size / 2f, r - size / 2f)
+                ring = Ui.iconFocusRing(context, now)
+            }
             fill.color = if (look.on) WidgetStyle.accent() else (WidgetStyle.onCard() and 0xFFFFFF) or 0x24000000
-            canvas.drawCircle(cx, r, r, fill)
+            canvas.drawPath(outline, fill)
+            if (isPressed) {
+                fill.color = if (look.on) 0x33000000 else (WidgetStyle.onCard() and 0xFFFFFF) or 0x1F000000
+                canvas.drawPath(outline, fill)
+            }
+            ring?.let {
+                it.state = drawableState
+                it.setBounds((cx - r).toInt(), 0, (cx + r).toInt(), circle)
+                it.draw(canvas)
+            }
             icon?.let { icon ->
-                val half = (circle * 0.23f).toInt()
+                val half = (size * 0.27f).toInt()
                 icon.setBounds((cx - half).toInt(), (r - half).toInt(), (cx + half).toInt(), (r + half).toInt())
                 icon.setTint(if (look.on) WidgetStyle.onAccent() else WidgetStyle.onCard())
                 icon.draw(canvas)
@@ -433,11 +464,11 @@ class QuickSettingsWidget(context: Context, item: HomeItem) : CardWidget(context
             if (!named) return
             text.color = WidgetStyle.onCard()
             // As large as fits, down to a size still easy to read, then cut short.
-            var size = 12f
+            var textSp = 12f
             do {
-                text.textSize = sp(size)
-                size -= 0.5f
-            } while (text.measureText(look.label) > width && size >= 10f)
+                text.textSize = sp(textSp)
+                textSp -= 0.5f
+            } while (text.measureText(look.label) > width && textSp >= 10f)
             val words = TextUtils.ellipsize(look.label, text, width.toFloat(), TextUtils.TruncateAt.END)
             canvas.drawText(words, 0, words.length, cx, circle + dp(LABEL_GAP) - text.ascent(), text)
         }
@@ -449,6 +480,7 @@ class QuickSettingsWidget(context: Context, item: HomeItem) : CardWidget(context
      */
     private inner class Grid : ViewGroup(context) {
         val tiles get() = (0 until childCount).map { getChildAt(it) as Tile }
+        var room = 0
         private var columns = 1
         private var rows = 1
 
@@ -472,7 +504,8 @@ class QuickSettingsWidget(context: Context, item: HomeItem) : CardWidget(context
             val (plainCols, plainRows) = fit(false)
             val named = namedRows > 0 && minOf(all.size, namedCols * namedRows) >= minOf(all.size, plainCols * plainRows)
             columns = if (named) namedCols else plainCols
-            val shown = minOf(all.size, columns * if (named) namedRows else plainRows)
+            room = columns * if (named) namedRows else plainRows
+            val shown = minOf(all.size, room)
             // Fewer than a row's worth: spread across the card all the same.
             columns = minOf(columns, shown)
             rows = (shown + columns - 1) / columns
@@ -513,13 +546,13 @@ class QuickSettingsWidget(context: Context, item: HomeItem) : CardWidget(context
     private fun sp(v: Float) = android.util.TypedValue.applyDimension(android.util.TypedValue.COMPLEX_UNIT_SP, v, resources.displayMetrics)
 
     private companion object {
-        /** Circle sizes, dp. */
-        const val SMALLEST = 40
-        const val LARGEST = 56
+        /** Button sizes with the room for their keypad highlight, dp. */
+        const val SMALLEST = 44
+        const val LARGEST = 62
         /** The least room across for a circle with its name under it, dp. */
         const val NAMED_SLOT = 68
-        const val GAP_X = 8
+        const val GAP_X = 2
         const val GAP_Y = 6
-        const val LABEL_GAP = 4
+        const val LABEL_GAP = 1
     }
 }
