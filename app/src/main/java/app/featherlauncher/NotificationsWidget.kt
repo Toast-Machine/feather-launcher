@@ -534,7 +534,9 @@ class NotificationsWidget(context: Context, item: HomeItem) : CardWidget(context
             }, LinearLayout.LayoutParams(dp(32), dp(32)).apply { marginStart = dp(6) })
         })
         // All of its text (and its picture, if it has one), which open it; text that doesn't fit scrolls, by touch or keypad.
-        addView(LinearLayout(context).apply {
+        var body: TextView? = null
+        val open = LinearLayout(context)
+        addView(open.apply {
             orientation = LinearLayout.HORIZONTAL
             tag = "${note.key}#open"
             background = Ui.pressable(context, Ui.RADIUS_S)
@@ -554,7 +556,7 @@ class NotificationsWidget(context: Context, item: HomeItem) : CardWidget(context
                 overScrollMode = View.OVER_SCROLL_NEVER
                 isVerticalFadingEdgeEnabled = true
                 setFadingEdgeLength(dp(8))
-                addView(WidgetStyle.cardText(context, 15f, WidgetStyle.body, WidgetStyle.onCardQuiet()).apply {
+                addView(WidgetStyle.cardText(context, 15f, WidgetStyle.body, WidgetStyle.onCardQuiet()).also { body = it }.apply {
                     text = note.longText
                     maxLines = Int.MAX_VALUE
                     ellipsize = null
@@ -566,7 +568,14 @@ class NotificationsWidget(context: Context, item: HomeItem) : CardWidget(context
         }, LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, 0, 1f).apply {
             topMargin = dp(4); marginStart = -dp(ROW_PAD); marginEnd = -dp(ROW_PAD)
         })
-        if (note.actions.isNotEmpty()) addView(ButtonRow(context, dp(6), dp(2)).apply {
+        // Its buttons go onto two rows only if its text still has room for all of itself, or three lines.
+        val textRoom = { width: Int ->
+            val pad = open.paddingTop + open.paddingBottom
+            open.measure(MeasureSpec.makeMeasureSpec(width + 2 * dp(ROW_PAD), MeasureSpec.EXACTLY), MeasureSpec.makeMeasureSpec(0, MeasureSpec.UNSPECIFIED))
+            val lines = body?.let { 3 * it.lineHeight + pad } ?: open.measuredHeight
+            minOf(open.measuredHeight, lines) + dp(4)
+        }
+        if (note.actions.isNotEmpty()) addView(ButtonRow(context, dp(6), dp(2), keep = textRoom).apply {
             note.actions.forEachIndexed { i, a ->
                 val icon = if (note.media) note.actionIcon(a) else null
                 val words = a.title?.toString().orEmpty()
@@ -804,32 +813,64 @@ object NotificationsSheet {
  * sharing the rest (alike, when that gives each enough room). When they're too wide for the card
  * (a video app with many buttons), the room between them shrinks first, down to [minGap], and
  * then the buttons themselves, all by the same amount, their words shrinking to fit ([ButtonText]).
+ * Ones with words that would have to shrink go onto two rows instead, when there's room: [keep]
+ * says how much of the height it's offered must be left for the rest (the text above), given its
+ * width. A player's round buttons stay together on one row.
  * With [fill] false (the sheet), they keep their own widths and sit at the start instead.
  */
-private class ButtonRow(context: Context, private val gap: Int, private val minGap: Int, private val fill: Boolean = true) : ViewGroup(context) {
-    /** The room between buttons, as last measured. */
-    private var spacing = gap
+private class ButtonRow(context: Context, private val gap: Int, private val minGap: Int, private val fill: Boolean = true,
+                        private val keep: (Int) -> Int = { 0 }) : ViewGroup(context) {
+    /** Each row's buttons and the room between them, as last measured. */
+    private var rows: List<Pair<List<View>, Int>> = emptyList()
 
     override fun onMeasure(widthMeasureSpec: Int, heightMeasureSpec: Int) {
         val shown = (0 until childCount).map(::getChildAt).filter { it.visibility != View.GONE }
         val width = MeasureSpec.getSize(widthMeasureSpec)
         val loose = MeasureSpec.makeMeasureSpec(0, MeasureSpec.UNSPECIFIED)
-        fun exactly(size: Int) = MeasureSpec.makeMeasureSpec(size.coerceAtLeast(0), MeasureSpec.EXACTLY)
         // Each button's own width: a round one's size, or its words' with their padding.
         val round = shown.map { it.layoutParams.width >= 0 }
         val natural = shown.mapIndexed { i, v -> if (round[i]) v.layoutParams.width else { v.measure(loose, loose); v.measuredWidth } }
-        val gaps = (shown.size - 1).coerceAtLeast(0)
+        val all = shown.indices.toList()
+        fun wanted(row: List<Int>) = row.sumOf { natural[it] } + (row.size - 1).coerceAtLeast(0) * minGap
+        var height = 0
+        if (shown.size >= 2 && !round.all { it } && wanted(all) > width) {
+            // Too wide even close together: two rows, split where they're most even, if there's room.
+            val split = (1 until shown.size).minBy { maxOf(wanted(all.take(it)), wanted(all.drop(it))) }
+            val two = listOf(all.take(split), all.drop(split)).map { row -> row.map(shown::get) to measureRow(row.map(shown::get), row.map(natural::get), width) }
+            val tall = two.sumOf { it.second.second } + gap
+            val room = if (MeasureSpec.getMode(heightMeasureSpec) == MeasureSpec.UNSPECIFIED) Int.MAX_VALUE
+                else MeasureSpec.getSize(heightMeasureSpec) - keep(width)
+            if (tall <= room) {
+                rows = two.map { (row, m) -> row to m.first }
+                height = tall
+            }
+        }
+        if (height == 0) {
+            val (spacing, tall) = measureRow(shown, natural, width)
+            rows = listOf(shown to spacing)
+            height = tall
+        }
+        setMeasuredDimension(width, resolveSize(height, heightMeasureSpec))
+    }
+
+    /** Measures [row] to fit [width], given each one's own width; returns the room between them and the row's height. */
+    private fun measureRow(row: List<View>, natural: List<Int>, width: Int): Pair<Int, Int> {
+        fun exactly(size: Int) = MeasureSpec.makeMeasureSpec(size.coerceAtLeast(0), MeasureSpec.EXACTLY)
+        val loose = MeasureSpec.makeMeasureSpec(0, MeasureSpec.UNSPECIFIED)
+        val round = row.map { it.layoutParams.width >= 0 }
+        val gaps = (row.size - 1).coerceAtLeast(0)
         val wanted = natural.sum()
+        val spacing: Int
         val widths: List<Int> = when {
             wanted + gaps * gap <= width -> {
                 spacing = gap
                 // Ones with words fill the rest of the row: alike if each fits so, else each its own width and a share of what's left.
-                val words = shown.indices.filter { !round[it] }
-                val rest = width - gaps * gap - shown.indices.filter { round[it] }.sumOf { natural[it] }
+                val words = row.indices.filter { !round[it] }
+                val rest = width - gaps * gap - row.indices.filter { round[it] }.sumOf { natural[it] }
                 val even = if (words.isEmpty()) 0 else rest / words.size
                 val alike = words.all { natural[it] <= even }
                 val share = if (words.isEmpty()) 0 else (rest - words.sumOf { natural[it] }) / words.size
-                if (!fill) natural else shown.indices.map { i -> if (round[i]) natural[i] else if (alike) even else natural[i] + share }
+                if (!fill) natural else row.indices.map { i -> if (round[i]) natural[i] else if (alike) even else natural[i] + share }
             }
             wanted + gaps * minGap <= width -> {
                 // Too wide: the room between them shrinks first...
@@ -849,7 +890,7 @@ private class ButtonRow(context: Context, private val gap: Int, private val minG
             }
         }
         var height = 0
-        shown.forEachIndexed { i, v ->
+        row.forEachIndexed { i, v ->
             val w = widths[i]
             val tall = v.layoutParams.height
             if (round[i]) {
@@ -864,19 +905,25 @@ private class ButtonRow(context: Context, private val gap: Int, private val minG
             }
             height = maxOf(height, v.measuredHeight)
         }
-        setMeasuredDimension(width, resolveSize(height, heightMeasureSpec))
+        return spacing to height
     }
 
     override fun onLayout(changed: Boolean, l: Int, t: Int, r: Int, b: Int) {
-        val shown = (0 until childCount).map(::getChildAt).filter { it.visibility != View.GONE }
-            .let { if (layoutDirection == View.LAYOUT_DIRECTION_RTL) it.reversed() else it }
-        val total = shown.sumOf { it.measuredWidth } + spacing * (shown.size - 1).coerceAtLeast(0)
-        val free = ((r - l) - total).coerceAtLeast(0)
-        var x = if (fill) free / 2 else if (layoutDirection == View.LAYOUT_DIRECTION_RTL) free else 0
-        for (v in shown) {
-            val y = ((b - t) - v.measuredHeight) / 2
-            v.layout(x, y, x + v.measuredWidth, y + v.measuredHeight)
-            x += v.measuredWidth + spacing
+        val rtl = layoutDirection == View.LAYOUT_DIRECTION_RTL
+        val heights = rows.map { (row, _) -> row.maxOfOrNull { it.measuredHeight } ?: 0 }
+        // The rows in the middle of the room, one under the other.
+        var y = ((b - t) - heights.sum() - gap * (rows.size - 1).coerceAtLeast(0)).coerceAtLeast(0) / 2
+        rows.forEachIndexed { n, (row, spacing) ->
+            val inOrder = if (rtl) row.reversed() else row
+            val total = inOrder.sumOf { it.measuredWidth } + spacing * (inOrder.size - 1).coerceAtLeast(0)
+            val free = ((r - l) - total).coerceAtLeast(0)
+            var x = if (fill) free / 2 else if (rtl) free else 0
+            for (v in inOrder) {
+                val top = y + (heights[n] - v.measuredHeight) / 2
+                v.layout(x, top, x + v.measuredWidth, top + v.measuredHeight)
+                x += v.measuredWidth + spacing
+            }
+            y += heights[n] + gap
         }
     }
 }
