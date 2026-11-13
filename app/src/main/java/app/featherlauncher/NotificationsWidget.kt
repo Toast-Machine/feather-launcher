@@ -303,6 +303,9 @@ class NotificationsWidget(context: Context, item: HomeItem) : CardWidget(context
     /** The only one there is, open on its own: the card's usual look, not something to close. */
     private val resting get() = expanded != null && ActiveNotifications.list.singleOrNull()?.key == expanded
 
+    /** Where the keypad starts on coming into the card: an open one's text, not the close button above it. */
+    val entry: View? get() = expanded?.let { findViewWithTag("$it#open") }
+
     /** Whether one is open to show its buttons, rather than the list. */
     val isExpanded get() = expanded != null && !resting
 

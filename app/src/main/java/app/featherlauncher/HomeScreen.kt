@@ -2426,7 +2426,9 @@ class HomeScreen(
         parts.forEach { keyTarget(it, view) }
         view.isPressed = false
         inside = view
-        parts.minByOrNull { rectInRoot(it).let { r -> r.top * 10_000 + r.left } }?.requestFocusFromTouch()
+        // An opened notification starts on its text, rather than the close button above it.
+        ((view as? NotificationsWidget)?.entry?.takeIf { it in parts }
+            ?: parts.minByOrNull { rectInRoot(it).let { r -> r.top * 10_000 + r.left } })?.requestFocusFromTouch()
         return true
     }
 
