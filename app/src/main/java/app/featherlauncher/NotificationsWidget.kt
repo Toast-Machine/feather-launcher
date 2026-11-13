@@ -810,16 +810,17 @@ object NotificationsSheet {
 
 /**
  * A notification's buttons in a row, in the middle: round ones their own size, ones with words
- * sharing the rest (alike, when that gives each enough room). When they're too wide for the card
- * (a video app with many buttons), the room between them shrinks first, down to [minGap], and
- * then the buttons themselves, all by the same amount, their words shrinking to fit ([ButtonText]).
- * Ones with words that would have to shrink go onto two rows instead, when there's room: [keep]
- * says how much of the height it's offered must be left for the rest (the text above), given its
- * width. A player's round buttons stay together on one row.
+ * sharing the rest (alike, when that gives each enough room). Ones with words too wide for one row
+ * go onto two first, when there's room: [keep] says how much of the height it's offered must be
+ * left for the rest (the text above), given its width; without it (the sheet, which scrolls) there
+ * always is. Only when there isn't (or a row is still too
+ * wide, or they're a player's round buttons, which stay together on one row) does the room between
+ * them shrink, down to [minGap], and then the buttons themselves, all by the same amount, their
+ * words shrinking to fit ([ButtonText]).
  * With [fill] false (the sheet), they keep their own widths and sit at the start instead.
  */
 private class ButtonRow(context: Context, private val gap: Int, private val minGap: Int, private val fill: Boolean = true,
-                        private val keep: (Int) -> Int = { 0 }) : ViewGroup(context) {
+                        private val keep: ((Int) -> Int)? = null) : ViewGroup(context) {
     /** Each row's buttons and the room between them, as last measured. */
     private var rows: List<Pair<List<View>, Int>> = emptyList()
 
@@ -831,15 +832,22 @@ private class ButtonRow(context: Context, private val gap: Int, private val minG
         val round = shown.map { it.layoutParams.width >= 0 }
         val natural = shown.mapIndexed { i, v -> if (round[i]) v.layoutParams.width else { v.measure(loose, loose); v.measuredWidth } }
         val all = shown.indices.toList()
-        fun wanted(row: List<Int>) = row.sumOf { natural[it] } + (row.size - 1).coerceAtLeast(0) * minGap
+        fun wanted(row: List<Int>) = row.sumOf { natural[it] } + (row.size - 1).coerceAtLeast(0) * gap
         var height = 0
         if (shown.size >= 2 && !round.all { it } && wanted(all) > width) {
-            // Too wide even close together: two rows, split where they're most even, if there's room.
+            // Too wide for one row: two rows before anything shrinks, split where they're most even, if there's room.
             val split = (1 until shown.size).minBy { maxOf(wanted(all.take(it)), wanted(all.drop(it))) }
             val two = listOf(all.take(split), all.drop(split)).map { row -> row.map(shown::get) to measureRow(row.map(shown::get), row.map(natural::get), width) }
             val tall = two.sumOf { it.second.second } + gap
-            val room = if (MeasureSpec.getMode(heightMeasureSpec) == MeasureSpec.UNSPECIFIED) Int.MAX_VALUE
-                else MeasureSpec.getSize(heightMeasureSpec) - keep(width)
+            val size = MeasureSpec.getSize(heightMeasureSpec)
+            val room = when {
+                keep == null -> Int.MAX_VALUE
+                // Asked how tall it'd like to be, it doesn't know there's room, so it keeps to one row.
+                MeasureSpec.getMode(heightMeasureSpec) == MeasureSpec.UNSPECIFIED -> 0
+                // Given its height, it fills it; the room for the rest was already left when it was offered it.
+                MeasureSpec.getMode(heightMeasureSpec) == MeasureSpec.EXACTLY -> size
+                else -> size - keep(width)
+            }
             if (tall <= room) {
                 rows = two.map { (row, m) -> row to m.first }
                 height = tall
