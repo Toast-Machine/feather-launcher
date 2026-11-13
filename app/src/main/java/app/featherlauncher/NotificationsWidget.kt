@@ -609,8 +609,8 @@ class NotificationsWidget(context: Context, item: HomeItem) : CardWidget(context
         scaleType = ImageView.ScaleType.FIT_CENTER
         val inset = dp(sizeDp / 4)
         setPadding(inset, inset, inset, inset)
-        background = fill?.let { Ui.iconShaped(context, it) }
-        foreground = Ui.iconPressable(context)
+        background = fill?.let { Ui.rounded(context, it, Ui.RADIUS_PILL) }
+        foreground = Ui.pressable(context, Ui.RADIUS_PILL)
         isFocusable = true
         setOnClickListener { onClick() }
     }
@@ -626,8 +626,8 @@ class NotificationsWidget(context: Context, item: HomeItem) : CardWidget(context
         text = words
         setPadding(dp(10), dp(4), dp(10), dp(4))
         minHeight = dp(36)
-        background = Ui.iconShaped(context, WidgetStyle.accentFill())
-        foreground = Ui.iconPressable(context)
+        background = Ui.rounded(context, WidgetStyle.accentFill(), Ui.RADIUS_PILL)
+        foreground = Ui.pressable(context, Ui.RADIUS_PILL)
         isFocusable = true
         setOnClickListener { onClick() }
     }
@@ -786,8 +786,8 @@ object NotificationsSheet {
                     contentDescription = words
                     val inset = dp(10)
                     setPadding(inset, inset, inset, inset)
-                    background = Ui.iconShaped(ctx, if (main) p.accent else p.surfaceHigh)
-                    foreground = Ui.iconPressable(ctx)
+                    background = Ui.rounded(ctx, if (main) p.accent else p.surfaceHigh, Ui.RADIUS_PILL)
+                    foreground = Ui.pressable(ctx, Ui.RADIUS_PILL)
                     isFocusable = true
                     setOnClickListener { press() }
                 }, ViewGroup.LayoutParams(dp(42), dp(42)))
@@ -798,8 +798,8 @@ object NotificationsSheet {
                     setTextSize(android.util.TypedValue.COMPLEX_UNIT_SP, 14f)
                     setPadding(dp(Ui.SPACE_M), dp(4), dp(Ui.SPACE_M), dp(4))
                     minHeight = dp(38)
-                    background = Ui.iconShaped(ctx, p.surfaceHigh)
-                    foreground = Ui.iconPressable(ctx)
+                    background = Ui.rounded(ctx, p.surfaceHigh, Ui.RADIUS_PILL)
+                    foreground = Ui.pressable(ctx, Ui.RADIUS_PILL)
                     isFocusable = true
                     setOnClickListener { press() }
                 }, ViewGroup.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT))

@@ -119,68 +119,6 @@ object Ui {
         override fun getOpacity() = android.graphics.PixelFormat.TRANSLUCENT
     }
 
-    /**
-     * A button in the icon shape from Settings, filled with [color]: the shape itself when it's
-     * square, else a rectangle with corners as round as an icon's of its height (a pill, for Circle).
-     */
-    fun iconShaped(context: Context, color: Int): Drawable = IconShaped(context, color)
-
-    /** [pressable] for a button in the icon shape ([iconShaped]): its ripple and keypad ring take that shape too. */
-    fun iconPressable(context: Context): Drawable =
-        android.graphics.drawable.LayerDrawable(arrayOf(
-            TouchRipple(null, IconShaped(context, 0xFFFFFFFF.toInt())),
-            android.graphics.drawable.StateListDrawable().apply {
-                addState(intArrayOf(android.R.attr.state_focused), IconShaped(context, null))
-                addState(intArrayOf(), android.graphics.drawable.ColorDrawable(0))
-            },
-        ))
-
-    /** The icon shape at the drawable's size ([iconShaped]), filled with [color], or with none, stroked as the focus ring. */
-    private class IconShaped(private val context: Context, private val color: Int?) : Drawable() {
-        private val paint = android.graphics.Paint(android.graphics.Paint.ANTI_ALIAS_FLAG)
-        private val path = android.graphics.Path()
-        /** The shape [path] was made in; Settings can change it. */
-        private var shape: IconShape? = null
-
-        private fun update() {
-            val now = AppIconView.shape
-            shape = now
-            // A ring is inset by half its stroke, so all of it is inside the bounds.
-            val inset = if (color == null) dp(context, 2) / 2f else 0f
-            paint.style = if (color == null) android.graphics.Paint.Style.STROKE else android.graphics.Paint.Style.FILL
-            paint.strokeWidth = 2 * inset
-            val w = bounds.width() - 2 * inset
-            val h = bounds.height() - 2 * inset
-            path.reset()
-            if (w <= 0 || h <= 0) return
-            if (kotlin.math.abs(w - h) < 1f) {
-                path.set(now.path(w))
-                path.offset(bounds.left + inset, bounds.top + inset)
-            } else {
-                val r = now.corner * minOf(w, h)
-                path.addRoundRect(bounds.left + inset, bounds.top + inset, bounds.right - inset, bounds.bottom - inset, r, r, android.graphics.Path.Direction.CW)
-            }
-        }
-
-        override fun onBoundsChange(bounds: android.graphics.Rect) = update()
-
-        override fun draw(canvas: android.graphics.Canvas) {
-            if (shape != AppIconView.shape) update()
-            paint.color = color ?: ((ringColor(context) and 0xFFFFFF) or 0xD9000000.toInt())
-            canvas.drawPath(path, paint)
-        }
-
-        override fun getOutline(outline: android.graphics.Outline) {
-            if (shape != AppIconView.shape) update()
-            if (!path.isEmpty) outline.setPath(path)
-        }
-
-        override fun setAlpha(alpha: Int) {}
-        override fun setColorFilter(colorFilter: android.graphics.ColorFilter?) {}
-        @Deprecated("Deprecated in Java")
-        override fun getOpacity() = android.graphics.PixelFormat.TRANSLUCENT
-    }
-
     /** Touch ripple, plus the focus ring when the keypad is on the view. */
     fun pressable(context: Context, radiusDp: Int, content: Drawable? = null): Drawable =
         android.graphics.drawable.LayerDrawable(arrayOf(
