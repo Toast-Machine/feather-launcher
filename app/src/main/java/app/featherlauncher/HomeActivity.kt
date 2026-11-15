@@ -2407,7 +2407,7 @@ class HomeActivity : Activity(), HomeScreen.Host {
 
     companion object {
         /** Room between the tab bar's edge and a tab's highlight (dp). */
-        private const val TAB_INSET = 4
+        private const val TAB_INSET = FocusRing.ROOM
         /** The home screen while it's in front, for the accessibility service to hand keys to. */
         var running: HomeActivity? = null
             private set

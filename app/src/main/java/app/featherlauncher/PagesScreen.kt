@@ -500,7 +500,7 @@ class PagesScreen(
 
     companion object {
         /** Room between a page's picture and the keypad's ring around it (dp). */
-        private const val RING_GAP = 4
+        private const val RING_GAP = FocusRing.ROOM
         private const val DELETE = 32
         /** As long as the app list takes to open. */
         private const val TRANSITION = 380L

@@ -22,7 +22,7 @@ import android.widget.HorizontalScrollView
 import android.widget.ScrollView
 
 /**
- * The keypad's highlight, the same everywhere: a 2dp outline, 1dp outside the edge of what's
+ * The keypad's highlight, the same everywhere: a [LINE]dp outline, [GAP]dp outside the edge of what's
  * highlighted, in that thing's own shape. It's drawn once per window, over everything, so no
  * layout clips it, and every screen gets the same ring without drawing its own.
  *
@@ -33,6 +33,13 @@ import android.widget.ScrollView
  * - else the view's own outline, from its background.
  */
 object FocusRing {
+    /** Room between what's highlighted and the ring (dp). */
+    const val GAP = 2
+    /** The ring's thickness (dp). */
+    const val LINE = 4
+    /** How far the ring reaches out from what's highlighted (dp): room to leave for it. */
+    const val ROOM = GAP + LINE
+
     /** A view that says where its highlight goes: fills [out] (in its own coordinates), or returns false for none. */
     interface Target {
         fun focusOutline(out: Shape): Boolean
@@ -94,9 +101,9 @@ object FocusRing {
 
     private class Ring(private val root: View) : Drawable(), ViewTreeObserver.OnPreDrawListener {
         private val density = root.resources.displayMetrics.density
-        private val stroke = 2 * density
-        /** From the thing's edge to the middle of the line: the 1dp gap and half the line. */
-        private val out = 1 * density + stroke / 2
+        private val stroke = LINE * density
+        /** From the thing's edge to the middle of the line: the gap and half the line. */
+        private val out = GAP * density + stroke / 2
         private val paint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
             style = Paint.Style.STROKE
             strokeWidth = stroke

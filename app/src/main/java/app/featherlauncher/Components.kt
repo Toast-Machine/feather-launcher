@@ -515,7 +515,7 @@ object Components {
 
     const val GROUP_RADIUS = 18
     /** Gap between a group's edge and a row's highlight. */
-    private const val ROW_INSET = 4
+    private const val ROW_INSET = FocusRing.ROOM
     const val ROW_HEIGHT = 54
     /** How many rows of a long checklist are made before it opens, and how many at a time after. */
     private const val ROWS_FIRST = 20
