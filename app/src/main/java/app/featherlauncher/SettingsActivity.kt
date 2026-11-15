@@ -176,6 +176,8 @@ class SettingsActivity : Activity() {
         palette = Palette.from(this, prefs.colorStyle, prefs.themeMode, prefs.accentColor)
         val p = palette
         val scrollY = scrollTo ?: if (::scroll.isInitialized) scroll.scrollY else 0
+        // The same page drawn again after a change: the keypad stays on what it was on.
+        val keep = if (scrollTo == null) focusPath() else null
         root.removeAllViews()
         root.setBackgroundColor(p.surface)
         window.insetsController?.setSystemBarsAppearance(
@@ -219,10 +221,31 @@ class SettingsActivity : Activity() {
             override fun onPreDraw(): Boolean {
                 scroll.viewTreeObserver.removeOnPreDrawListener(this)
                 if (scrollY > 0) header.setBackgroundColor(p.surfaceScrolled)
+                keep?.let(::refocus)
                 scroll.scrollTo(0, scrollY)
                 return true
             }
         })
+    }
+
+    /** Where the keypad is, as the child at each level down from [root]; null if it's not on the page. */
+    private fun focusPath(): List<Int>? {
+        if (root.isInTouchMode) return null
+        var v: View = root.findFocus() ?: return null
+        val path = ArrayList<Int>()
+        while (v !== root) {
+            val parent = v.parent as? ViewGroup ?: return null
+            path.add(0, parent.indexOfChild(v))
+            v = parent
+        }
+        return path
+    }
+
+    /** Puts the keypad back at [path] ([focusPath]) in the page as rebuilt, if that's still something it can go to. */
+    private fun refocus(path: List<Int>) {
+        var v: View = root
+        for (i in path) v = (v as? ViewGroup)?.getChildAt(i) ?: return
+        if (v.isFocusable && v.isShown) v.requestFocus()
     }
 
     /** The back arrow and the page's title. It reaches up behind the status bar, so its tint does too. */
