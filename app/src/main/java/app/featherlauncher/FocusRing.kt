@@ -36,9 +36,9 @@ object FocusRing {
     /** Room between what's highlighted and the ring (dp). */
     const val GAP = 2
     /** The ring's thickness (dp). */
-    const val LINE = 2
-    /** How far the ring reaches out from what's highlighted (dp): room to leave for it. */
-    const val ROOM = GAP + LINE
+    const val LINE = 2.5f
+    /** How far the ring reaches out from what's highlighted (dp), rounded up to a whole dp: room to leave for it. */
+    const val ROOM = GAP + 3
 
     /** A view that says where its highlight goes: fills [out] (in its own coordinates), or returns false for none. */
     interface Target {
