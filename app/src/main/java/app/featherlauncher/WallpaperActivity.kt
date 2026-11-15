@@ -86,6 +86,7 @@ class WallpaperActivity : Activity() {
         root = FrameLayout(this).apply { setBackgroundColor(palette.surface) }
         overlays = Overlays(root) { palette }
         setContentView(root)
+        FocusRing.install(this)
         window.insetsController?.setSystemBarsAppearance(
             if (palette.dark) 0 else WindowInsetsController.APPEARANCE_LIGHT_STATUS_BARS,
             WindowInsetsController.APPEARANCE_LIGHT_STATUS_BARS,

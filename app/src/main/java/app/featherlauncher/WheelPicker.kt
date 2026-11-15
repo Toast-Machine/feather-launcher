@@ -26,8 +26,15 @@ class WheelPicker(
     private val cyclic: Boolean,
     private val color: Int,
     private val focusColor: Int,
-) : View(context), OwnsDrag {
+) : View(context), OwnsDrag, FocusRing.Target {
     private val rowHeight = Ui.dp(context, ROW_HEIGHT).toFloat()
+
+    /** The keypad highlight goes around the value in the middle, the one that's picked. */
+    override fun focusOutline(out: FocusRing.Shape): Boolean {
+        val c = height / 2f
+        out.set(android.graphics.RectF(0f, c - rowHeight / 2, width.toFloat(), c + rowHeight / 2), Ui.dp(context, Ui.RADIUS_S).toFloat())
+        return true
+    }
     /** Scroll position in pixels; row i is in the middle when this is i * rowHeight. */
     private var offset = initial * rowHeight
     private val scroller = Scroller(context)

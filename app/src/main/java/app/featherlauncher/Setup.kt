@@ -94,7 +94,7 @@ object Setup {
         orientation = LinearLayout.HORIZONTAL
         gravity = Gravity.CENTER_VERTICAL
         setPadding(Ui.dp(a, Ui.SPACE_L), Ui.dp(a, Ui.SPACE_M), Ui.dp(a, Ui.SPACE_M), Ui.dp(a, Ui.SPACE_M))
-        background = Ui.pressable(a, 0)
+        background = Ui.rowHighlight(a)
         isFocusable = true
         addView(ImageView(a).apply {
             setImageResource(item.icon)

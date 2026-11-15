@@ -408,13 +408,13 @@ class HomeScreen(
         } ?: if (FeatherKind.of(item) == FeatherKind.ANALOG) AnalogClockWidget(activity, item).apply {
             setSolid(prefs.widgetSolid(item.id))
             setDates(prefs.widgetDate(item.id))
-            foreground = Ui.focusHighlight(activity, WidgetStyle.radius + CardWidget.GAP)
+            foreground = CardWidget.cardHighlight(activity)
             setOnClickListener { host.startSafely(Intent(AlarmClock.ACTION_SHOW_ALARMS)) }
             setOnLongClickListener { onItemLongPress(item, it); true }
         } else ClockWidget(activity, item).apply {
             setSolid(prefs.widgetSolid(item.id))
             // The keypad highlight follows the card's corner, as it does around the other widgets.
-            foreground = Ui.focusHighlight(activity, WidgetStyle.radius + CardWidget.GAP)
+            foreground = CardWidget.cardHighlight(activity)
             setOnClickListener { host.startSafely(Intent(AlarmClock.ACTION_SHOW_ALARMS)) }
             dateView.setOnClickListener {
                 val uri = CalendarContract.CONTENT_URI.buildUpon().appendPath("time")
@@ -488,7 +488,7 @@ class HomeScreen(
         val radius = AppIconView.corner(homeIcon())
         val changed = radius != WidgetStyle.radius
         WidgetStyle.radius = radius
-        pageTarget.background = Ui.focusHighlight(activity, pageRadius())
+        pageTarget.background = CardWidget.cardHighlight(activity)
         return changed
     }
 
@@ -2529,7 +2529,8 @@ class HomeScreen(
         view.isFocusable = true
         // Feather's own have their highlight (Ui.pressable, a layered drawable, or one of their
         // own); another app's widget's need one.
-        if (view.foreground == null && view.background !is android.graphics.drawable.LayerDrawable) {
+        if (view.foreground == null && view.background !is android.graphics.drawable.LayerDrawable &&
+            view.background !is android.graphics.drawable.InsetDrawable) {
             view.foreground = Ui.focusRing(activity, Ui.RADIUS_M)
         }
         if (!view.isLongClickable) view.setOnLongClickListener { if (it.isInTouchMode) false else widget.performLongClick() }

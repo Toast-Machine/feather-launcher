@@ -160,6 +160,7 @@ class LimitActivity : Activity() {
         }, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(48)).apply { topMargin = dp(Ui.SPACE_XS) })
 
         setContentView(root)
+        FocusRing.install(this)
         if (limit.strictness == Strictness.WAIT) button.requestFocus()
         update()
     }

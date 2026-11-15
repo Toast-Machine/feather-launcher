@@ -91,8 +91,8 @@ abstract class CardWidget(context: Context, val item: HomeItem) : FrameLayout(co
         inside = intArrayOf(left, top, right, bottom)
         val end = if (trimsEnd) right - minOf(trim, right - dp(GAP)) else right
         setPadding(left, top - minOf(trim, top - dp(GAP)), end, bottom - minOf(trim, bottom - dp(GAP)))
-        // The keypad highlight is white around the card, as it is around app icons.
-        foreground = Ui.focusHighlight(context, WidgetStyle.radius + GAP)
+        // The keypad highlight goes around the card, which sits GAP inside the view.
+        foreground = cardHighlight(context)
     }
 
     /** The card behind everything, inset so cards next to each other have a gap between them. */
@@ -243,6 +243,10 @@ abstract class CardWidget(context: Context, val item: HomeItem) : FrameLayout(co
          * from the icon ([AppIconView.INSET]), and the page's outline from what's on it.
          */
         const val GAP = AppIconView.INSET
+
+        /** Where the keypad highlight goes on a view with a card [GAP] inside its edges: around the card. */
+        fun cardHighlight(context: Context): android.graphics.drawable.Drawable =
+            InsetDrawable(Ui.focusRing { WidgetStyle.radius }, Ui.dp(context, GAP))
         /** The room above and below what's on a short card, as a share of its height. */
         private const val SHORT_ROOM = 0.1f
 

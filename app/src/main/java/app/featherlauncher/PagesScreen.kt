@@ -65,7 +65,14 @@ class PagesScreen(
             includeFontPadding = false
             setTextColor(p.onWall)
         }
-        val done = Components.pillButton(activity, "Done", p.glass, p.onWall) { overlays.dismissScreen() }
+        val done = Components.pillButton(activity, "Done", p.glass, p.onWall) { overlays.dismissScreen() }.apply {
+            // Nothing is above or beside it here: the keypad stays on it rather than going to the
+            // home screen underneath, where its highlight can't be seen.
+            id = View.generateViewId()
+            nextFocusUpId = id
+            nextFocusLeftId = id
+            nextFocusRightId = id
+        }
         val header = LinearLayout(activity).apply {
             gravity = Gravity.CENTER_VERTICAL
             minimumHeight = dp(72)
@@ -248,7 +255,14 @@ class PagesScreen(
      * screen. A hidden page is faded, with a button on its corner to delete it.
      */
     @SuppressLint("ViewConstructor")
-    private inner class Tile(hidden: Boolean) : ViewGroup(activity) {
+    private inner class Tile(hidden: Boolean) : ViewGroup(activity), FocusRing.Target {
+        /** The keypad highlight goes around the page's picture, not its switch. */
+        override fun focusOutline(out: FocusRing.Shape): Boolean {
+            out.set(android.graphics.RectF(picture.left.toFloat(), picture.top.toFloat(), picture.right.toFloat(), picture.bottom.toFloat()),
+                dp(Ui.RADIUS_M).toFloat())
+            return true
+        }
+
         var hidden = hidden
             private set
         lateinit var cells: CellLayout
@@ -266,15 +280,14 @@ class PagesScreen(
             picture.addView(Mirror(cells), FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT))
         }
         val picture = FrameLayout(activity).apply {
+            // A picture of the page: the keypad moves between pages, never onto what's on one.
+            descendantFocusability = ViewGroup.FOCUS_BLOCK_DESCENDANTS
             background = Ui.rounded(activity, (p.onWall and 0xFFFFFF) or 0x14000000, Ui.RADIUS_M)
             clipToOutline = true
             addOnLayoutChangeListener(scalePage)
         }
-        /** The keypad's ring, just outside the picture. */
-        private val ring = View(activity).apply {
-            background = Ui.focusRing(activity, Ui.RADIUS_M + RING_GAP)
-            isDuplicateParentStateEnabled = true
-        }
+        /** Room around the picture, where the keypad's ring goes ([FocusRing]). */
+        private val ring = View(activity)
         private val switch = FeatherSwitch(activity, p, !hidden).apply { onWall = true }
         private val delete = ImageView(activity).apply {
             setImageResource(R.drawable.ic_delete)

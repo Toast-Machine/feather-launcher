@@ -160,7 +160,11 @@ class DrawerAdapter(
         clipChildren = false
         clipToPadding = false
         foreground = Ui.pressable(context, Ui.RADIUS_L)
-        addView(ImageView(context), LinearLayout.LayoutParams(dp(54), dp(54)))
+        addView(ImageView(context).apply {
+            // The keypad highlight goes around the icon, in its shape, and leaves out the name.
+            background = FocusRing.Spot({ 0 }, AppIconView.shape)
+        }, LinearLayout.LayoutParams(dp(54), dp(54)))
+        FocusRing.outlineOf(this, getChildAt(0))
         addView(TextView(context).apply {
             setTextSize(TypedValue.COMPLEX_UNIT_SP, 12.5f)
             setTextColor(p.onWall)

@@ -44,6 +44,7 @@ class OnboardingActivity : Activity() {
         palette = Palette.from(this, prefs.colorStyle, prefs.themeMode, prefs.accentColor)
         root = FrameLayout(this).apply { setBackgroundColor(palette.surface) }
         setContentView(root)
+        FocusRing.install(this)
         window.insetsController?.setSystemBarsAppearance(
             if (palette.dark) 0 else WindowInsetsController.APPEARANCE_LIGHT_STATUS_BARS or WindowInsetsController.APPEARANCE_LIGHT_NAVIGATION_BARS,
             WindowInsetsController.APPEARANCE_LIGHT_STATUS_BARS or WindowInsetsController.APPEARANCE_LIGHT_NAVIGATION_BARS,

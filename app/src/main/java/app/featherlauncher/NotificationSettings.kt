@@ -242,7 +242,7 @@ class NotificationSettings(private val s: SettingsActivity) {
     private fun historyRow(p: Palette, h: HiddenNotification) = LinearLayout(s).apply {
         orientation = LinearLayout.HORIZONTAL
         setPadding(s.dp(Ui.SPACE_L), s.dp(Ui.SPACE_M), s.dp(Ui.SPACE_L), s.dp(Ui.SPACE_M))
-        background = Ui.pressable(s, 0)
+        background = Ui.rowHighlight(s)
         isFocusable = true
         val entry = s.repo.apps.firstOrNull { it.packageName == h.app }
         addView(ImageView(s).apply {

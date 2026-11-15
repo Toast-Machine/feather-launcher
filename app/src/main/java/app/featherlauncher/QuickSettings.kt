@@ -384,7 +384,16 @@ class QuickSettingsWidget(context: Context, item: HomeItem) : CardWidget(context
     }
 
     /** One switch: a circle with its icon, and its name under it when there's room. */
-    private inner class Tile(val tile: QuickTile) : View(context) {
+    private inner class Tile(val tile: QuickTile) : View(context), FocusRing.Target {
+        /** The keypad highlight goes around the button in its shape, leaving out the name. */
+        override fun focusOutline(out: FocusRing.Shape): Boolean {
+            val s = shape ?: return false
+            val cx = width / 2f
+            val half = shapeSize / 2f
+            out.set(android.graphics.RectF(cx - half, circle / 2f - half, cx + half, circle / 2f + half), 0f, s)
+            return true
+        }
+
         var look = QuickTile.Look(false, tile.label, tile.icon)
         /** The size of the button with its keypad highlight, and whether the name shows, as [Grid] works them out. */
         var circle = 0
@@ -394,8 +403,6 @@ class QuickSettingsWidget(context: Context, item: HomeItem) : CardWidget(context
         private var shape: IconShape? = null
         private var shapeSize = 0
         private val outline = android.graphics.Path()
-        /** The keypad highlight, around the button in the same shape (it's drawn here, not as the view's foreground, so it leaves out the name). */
-        private var ring: android.graphics.drawable.Drawable? = null
         private val text = TextPaint(Paint.ANTI_ALIAS_FLAG).apply {
             typeface = WidgetStyle.label
             textAlign = Paint.Align.CENTER
@@ -442,18 +449,12 @@ class QuickSettingsWidget(context: Context, item: HomeItem) : CardWidget(context
                 shapeSize = size
                 outline.set(now.path(size.toFloat()))
                 outline.offset(cx - size / 2f, r - size / 2f)
-                ring = Ui.iconFocusRing(context, now)
             }
             fill.color = if (look.on) WidgetStyle.accent() else (WidgetStyle.onCard() and 0xFFFFFF) or 0x24000000
             canvas.drawPath(outline, fill)
             if (isPressed) {
                 fill.color = if (look.on) 0x33000000 else (WidgetStyle.onCard() and 0xFFFFFF) or 0x1F000000
                 canvas.drawPath(outline, fill)
-            }
-            ring?.let {
-                it.state = drawableState
-                it.setBounds((cx - r).toInt(), 0, (cx + r).toInt(), circle)
-                it.draw(canvas)
             }
             icon?.let { icon ->
                 val half = (size * 0.27f).toInt()

@@ -129,6 +129,7 @@ class SettingsActivity : Activity() {
         root = FrameLayout(this)
         overlays = Overlays(root) { palette }
         setContentView(root)
+        FocusRing.install(this)
 
         // Newer Android sends Back here instead of as a key press.
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) onBackInvokedDispatcher.registerOnBackInvokedCallback(android.window.OnBackInvokedDispatcher.PRIORITY_DEFAULT) { onBack() }

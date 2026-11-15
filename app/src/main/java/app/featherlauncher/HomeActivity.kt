@@ -90,6 +90,7 @@ class HomeActivity : Activity(), HomeScreen.Host {
         @Suppress("DEPRECATION")
         window.setDecorFitsSystemWindows(false)
         setContentView(R.layout.activity_home)
+        FocusRing.install(this)
         // Newer Android sends Back here instead of as a key press.
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) onBackInvokedDispatcher.registerOnBackInvokedCallback(android.window.OnBackInvokedDispatcher.PRIORITY_DEFAULT) { onBack() }
 
@@ -224,6 +225,7 @@ class HomeActivity : Activity(), HomeScreen.Host {
         findViewById<View>(R.id.search_bar).apply {
             isFocusable = true
             foreground = Ui.focusRing(this@HomeActivity, Ui.RADIUS_PILL)
+            FocusRing.outlineOf(search, this)
         }
         findViewById<TextView>(R.id.drawer_title).setTextColor(palette.onWall)
         listOf(R.id.drawer_search, R.id.drawer_more).forEach {
@@ -259,6 +261,7 @@ class HomeActivity : Activity(), HomeScreen.Host {
         View(this).apply {
             isFocusable = true
             isFocusedByDefault = true
+            FocusRing.none(this)
             importantForAccessibility = View.IMPORTANT_FOR_ACCESSIBILITY_NO
             this@HomeActivity.findViewById<FrameLayout>(R.id.root).addView(this, 0, FrameLayout.LayoutParams(1, 1))
         }
@@ -1138,7 +1141,9 @@ class HomeActivity : Activity(), HomeScreen.Host {
                 isFocusable = true
                 tag = c.id
                 contentDescription = c.name
-                foreground = Ui.pressable(this@HomeActivity, Ui.RADIUS_L)
+                // Inset in the bar, as a grouped row is in its group, so the keypad's ring stays on the bar.
+                foreground = android.graphics.drawable.InsetDrawable(
+                    Ui.pressable(this@HomeActivity, Ui.RADIUS_BAR - TAB_INSET), dp(TAB_INSET))
                 addView(ImageView(this@HomeActivity).apply {
                     setImageResource(if (selected) c.filledIconRes else c.iconRes)
                     imageTintList = android.content.res.ColorStateList.valueOf(if (selected) palette.onWall else palette.onWallSecondary)
@@ -2338,16 +2343,10 @@ class HomeActivity : Activity(), HomeScreen.Host {
                             val row = list.getChildAt(i) as? ViewGroup ?: continue
                             (0 until row.childCount).map(row::getChildAt).plus(row)
                                 .firstOrNull { (it.tag as? AppEntry)?.key == entry.key }?.let {
-                                    // Straight on: no highlight fading out of one tile and into another.
-                                    val rings = tileViewsIn(list).mapNotNull { t ->
-                                        (t.foreground as? android.graphics.drawable.LayerDrawable)?.getDrawable(1) as? android.graphics.drawable.StateListDrawable
-                                    }
-                                    rings.forEach { r -> r.setEnterFadeDuration(0); r.setExitFadeDuration(0) }
                                     it.requestFocus()
                                     list.jumpDrawablesToCurrentState()
                                     // The touch ripple's own focus tint starts its fade on the first draw; end it there too.
                                     it.postOnAnimation { it.jumpDrawablesToCurrentState() }
-                                    list.post { rings.forEach { r -> r.setEnterFadeDuration(90); r.setExitFadeDuration(90) } }
                                     return true
                                 }
                         }
@@ -2358,12 +2357,6 @@ class HomeActivity : Activity(), HomeScreen.Host {
             undo = { settle() },
         )
         toast("Use arrows to move. OK to place, Back to cancel.")
-    }
-
-    /** Every app tile showing in [list]. */
-    private fun tileViewsIn(list: ListView): List<View> = (0 until list.childCount).flatMap { i ->
-        val row = list.getChildAt(i) as? ViewGroup ?: return@flatMap emptyList()
-        (0 until row.childCount).map(row::getChildAt).filter { it.tag is AppEntry } + listOfNotNull(row.takeIf { it.tag is AppEntry })
     }
 
     private fun sheetRow(icon: Int, label: String, color: Int = palette.text, onClick: () -> Unit): View =
@@ -2413,6 +2406,8 @@ class HomeActivity : Activity(), HomeScreen.Host {
     // endregion
 
     companion object {
+        /** Room between the tab bar's edge and a tab's highlight (dp). */
+        private const val TAB_INSET = 4
         /** The home screen while it's in front, for the accessibility service to hand keys to. */
         var running: HomeActivity? = null
             private set

@@ -12,7 +12,14 @@ import android.widget.TextView
 
 /** An app on the home screen or in the dock: icon, with its name underneath outside the dock. */
 @SuppressLint("ViewConstructor")
-class AppIconView(context: Context, val item: HomeItem) : LinearLayout(context) {
+class AppIconView(context: Context, val item: HomeItem) : LinearLayout(context), FocusRing.Target {
+    /** The keypad highlight goes around the icon, in its shape, and leaves out the name. */
+    override fun focusOutline(out: FocusRing.Shape): Boolean {
+        val i = dp(INSET).toFloat()
+        out.set(android.graphics.RectF(icon.left + i, icon.top + i, icon.right - i, icon.bottom - i), 0f, shape)
+        return true
+    }
+
     private val icon = ImageView(context)
     private val label = NameView(context)
 
@@ -22,10 +29,8 @@ class AppIconView(context: Context, val item: HomeItem) : LinearLayout(context) 
         isFocusable = true
         clipChildren = false
         clipToPadding = false
-        // The keypad highlight is drawn on the icon only, an even square around it.
         icon.setPadding(dp(INSET), dp(INSET), dp(INSET), dp(INSET))
         icon.isDuplicateParentStateEnabled = true
-        icon.background = Ui.iconFocusRing(context, shape)
         addView(icon, LayoutParams(dp(ICON + 2 * INSET), dp(ICON + 2 * INSET)))
         label.apply {
             setTextSize(TypedValue.COMPLEX_UNIT_SP, NAME_SP)
@@ -44,8 +49,6 @@ class AppIconView(context: Context, val item: HomeItem) : LinearLayout(context) 
     private var size = ICON
     /** Its corners' radius in dp, for the keypad highlight around it. */
     private var corner = 0
-    /** The shape its keypad highlight was drawn for. */
-    private var ringShape = shape
 
     fun bind(bitmap: Bitmap?, name: String, showLabel: Boolean, locked: Boolean = false, isNew: Boolean = false,
              badge: Int = 0, iconDp: Int = ICON) {
@@ -53,10 +56,6 @@ class AppIconView(context: Context, val item: HomeItem) : LinearLayout(context) 
             size = iconDp
             corner = corner(iconDp)
             icon.layoutParams = LayoutParams(dp(size + 2 * INSET), dp(size + 2 * INSET))
-        }
-        if (ringShape != shape || icon.background == null) {
-            ringShape = shape
-            icon.background = Ui.iconFocusRing(context, shape)
         }
         // Coming home binds every icon again; most have nothing new, and each change redraws it.
         if (bitmap !== shownBitmap) {

@@ -103,7 +103,7 @@ class KeySettings(private val s: SettingsActivity) {
         gravity = Gravity.CENTER_VERTICAL
         minimumHeight = s.dp(Components.ROW_HEIGHT)
         setPadding(s.dp(Ui.SPACE_L), 0, s.dp(Ui.SPACE_L - 4), 0)
-        background = Ui.pressable(s, 0)
+        background = Ui.rowHighlight(s)
         isFocusable = true
         addView(keyCap(p, digit.toString()), LinearLayout.LayoutParams(s.dp(30), s.dp(30)))
         addView(ImageView(s).apply {

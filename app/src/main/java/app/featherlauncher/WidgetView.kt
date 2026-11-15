@@ -15,7 +15,14 @@ import kotlin.math.roundToInt
  * Hosts another app's widget, with Android's rounded widget corners, and adds long-press (to
  * move and resize it) on top of its own touch handling, wherever it's held, buttons and lists too.
  */
-class WidgetView(context: Context) : AppWidgetHostView(context) {
+class WidgetView(context: Context) : AppWidgetHostView(context), FocusRing.Target {
+    /** The keypad highlight goes around the widget's own rounded box. */
+    override fun focusOutline(out: FocusRing.Shape): Boolean {
+        if (cornerBox.isEmpty) return false
+        out.set(android.graphics.RectF(cornerBox), corner)
+        return true
+    }
+
     var onLongPress: (() -> Unit)? = null
 
     private val slop = ViewConfiguration.get(context).scaledTouchSlop
@@ -53,12 +60,6 @@ class WidgetView(context: Context) : AppWidgetHostView(context) {
             cornerBox.set(box)
             cornerBox.offset(view.left, view.top)
             outline.setRoundRect(box, corner)
-            // The keypad ring around the widget follows its corner, the gap out from it.
-            val ring = ((corner + cornerInset) / resources.displayMetrics.density).roundToInt()
-            if (ring != ringDp) {
-                ringDp = ring
-                post { foreground = Ui.focusRing(context, ring) }
-            }
         }
     }
 
@@ -67,7 +68,6 @@ class WidgetView(context: Context) : AppWidgetHostView(context) {
         private set
     val cornerBox = android.graphics.Rect()
     val cornerInset get() = cornerBox.left
-    private var ringDp = 0
 
     /**
      * Android pads a widget 8dp on every side; it gets the same room as Feather's own cards

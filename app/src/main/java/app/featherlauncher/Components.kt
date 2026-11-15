@@ -87,7 +87,7 @@ object Components {
         rows.forEach { row ->
             // A row's highlight (touch and keypad) sits inside the group with its own rounded
             // corners, the group's minus the gap, instead of being cut square by the group's edge.
-            if (row.background is android.graphics.drawable.LayerDrawable) {
+            if (row.background is Ui.RowHighlight || row.background is android.graphics.drawable.LayerDrawable) {
                 // A background with insets would replace the row's padding, so it's kept.
                 val (l, t, r, b) = listOf(row.paddingLeft, row.paddingTop, row.paddingRight, row.paddingBottom)
                 row.background = android.graphics.drawable.InsetDrawable(
@@ -124,7 +124,7 @@ object Components {
         gravity = Gravity.CENTER_VERTICAL
         minimumHeight = dp(ctx, ROW_HEIGHT)
         setPadding(dp(ctx, inset), 0, dp(ctx, inset - if (chevron) 4 else 0), 0)
-        background = Ui.pressable(ctx, 0)
+        background = Ui.rowHighlight(ctx)
         isFocusable = true
         addView(ImageView(ctx).apply {
             setImageResource(icon)
@@ -173,7 +173,7 @@ object Components {
             gravity = Gravity.CENTER_VERTICAL
             minimumHeight = dp(ctx, ROW_HEIGHT)
             setPadding(dp(ctx, Ui.SPACE_L), 0, dp(ctx, Ui.SPACE_M), 0)
-            background = Ui.pressable(ctx, 0)
+            background = Ui.rowHighlight(ctx)
             isFocusable = true
             addView(ImageView(ctx).apply {
                 setImageResource(icon)
@@ -198,7 +198,7 @@ object Components {
             gravity = Gravity.CENTER_VERTICAL
             minimumHeight = dp(ctx, ROW_HEIGHT + 4)
             setPadding(dp(ctx, Ui.SPACE_XL), 0, dp(ctx, Ui.SPACE_XL), 0)
-            background = Ui.pressable(ctx, 0)
+            background = Ui.rowHighlight(ctx)
             isFocusable = true
             addView(ImageView(ctx).apply { setImageBitmap(icon) }, LinearLayout.LayoutParams(dp(ctx, 36), dp(ctx, 36)))
             addView(TextView(ctx).apply {
@@ -248,7 +248,7 @@ object Components {
                 gravity = Gravity.CENTER_VERTICAL
                 minimumHeight = dp(ctx, ROW_HEIGHT)
                 setPadding(dp(ctx, Ui.SPACE_XL), 0, dp(ctx, Ui.SPACE_XL), 0)
-                background = Ui.pressable(ctx, 0)
+                background = Ui.rowHighlight(ctx)
                 isFocusable = true
                 if (preview != null) {
                     addView(preview, LinearLayout.LayoutParams(dp(ctx, 22), dp(ctx, 22)).apply { marginEnd = dp(ctx, Ui.SPACE_L) })
@@ -308,7 +308,7 @@ object Components {
                 gravity = Gravity.CENTER_VERTICAL
                 minimumHeight = dp(ctx, ROW_HEIGHT)
                 setPadding(dp(ctx, Ui.SPACE_XL), 0, dp(ctx, Ui.SPACE_XL), 0)
-                background = Ui.pressable(ctx, 0)
+                background = Ui.rowHighlight(ctx)
                 isFocusable = true
                 if (preview != null) {
                     addView(preview, LinearLayout.LayoutParams(dp(ctx, 30), dp(ctx, 30)).apply { marginEnd = dp(ctx, Ui.SPACE_L) })

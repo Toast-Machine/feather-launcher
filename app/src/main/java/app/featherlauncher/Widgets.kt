@@ -171,10 +171,8 @@ class Widgets(
 
         val list = ListView(activity).apply {
             divider = null
-            // The keypad highlight: the same ring as everywhere else, just outside the card
-            // (rows are inset SPACE_S at the sides, SPACE_XS above and below). No touch highlight.
-            selector = android.graphics.drawable.InsetDrawable(Ui.focusRing(activity, Ui.RADIUS_L + Ui.SPACE_XS),
-                dp(Ui.SPACE_S - Ui.SPACE_XS), 0, dp(Ui.SPACE_S - Ui.SPACE_XS), 0)
+            // No highlight of its own: FocusRing draws the keypad's around the selected card.
+            selector = android.graphics.drawable.ColorDrawable(0)
             setDrawSelectorOnTop(true)
             overScrollMode = View.OVER_SCROLL_NEVER
             isVerticalScrollBarEnabled = false
