@@ -17,7 +17,9 @@ A change counts as tested only once it works on both. If either emulator isn't a
 
 Take screenshots in both emulators that show the fix or feature working, and show them to the dev.
 
-Other agents may be testing at the same time, so make your own emulator instances rather than using ones that already exist. Create a new AVD for each of the two (copy an existing one's `config.ini` for the same hardware, with fresh data), give each a name and `-port` no one else is using, and drive only those. Don't start, stop, wipe or change settings on emulators you didn't create. Shut yours down when you're done.
+Other agents may be testing at the same time, so only use emulators no one else is using. For each of the two, first look for an existing AVD of that kind that's available: not running and not in use by another agent. Use it if there is one. Only if there isn't, create a new AVD (copy an existing one's `config.ini` for the same hardware, with fresh data) and give it a name and `-port` no one else is using. Don't start, stop, wipe or change settings on emulators another agent is using.
+
+When you're done, shut down every emulator you used, and remove any AVD you created (`avdmanager delete avd -n <name>`, or delete its `.avd` folder and `.ini` file).
 
 ## What goes in the repo
 
